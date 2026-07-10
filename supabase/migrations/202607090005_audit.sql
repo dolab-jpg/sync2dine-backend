@@ -30,7 +30,6 @@ create table ai_studio_config (
 );
 
 create index idx_usage_events_org on usage_events(org_id, created_at desc);
-create index idx_usage_events_month on usage_events(org_id, date_trunc('month', created_at));
 create index idx_conversation_logs_thread on conversation_logs(org_id, thread_id, created_at);
 create index idx_conversation_logs_org on conversation_logs(org_id, created_at desc);
 

@@ -1,0 +1,24 @@
+---
+description: TradePro repos, git push, and Supabase deploy — read this first; do not search the whole machine
+alwaysApply: true
+---
+
+# TradePro deployment and auth (persistent)
+
+Same rule as frontend workspace. See:
+
+`c:\Users\dolab\Downloads\Bathroom Sales Estimation Platform\.cursor\rules\tradepro-deployment.mdc`
+
+## This repo
+
+| Field | Value |
+|-------|-------|
+| Path | `c:\Users\dolab\Downloads\tradepro-backend` |
+| Remote | `https://github.com/dolab-jpg/tradepro-backend.git` |
+| Branch | `master` |
+| Supabase migrations | `supabase/migrations/` |
+| Push DB | `npm run supabase:push` |
+
+Deploy secrets: `../Bathroom Sales Estimation Platform/.cursor/local/deploy.env` (gitignored)
+
+Git push: `git push origin master` (Credential Manager user `dolab-jpg`)
