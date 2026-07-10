@@ -1,7 +1,7 @@
 -- Audit: usage events, conversation logs, AI studio config
 
 create table usage_events (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   org_id uuid not null references organizations(id) on delete cascade,
   user_id uuid references profiles(id) on delete set null,
   model text,
@@ -13,7 +13,7 @@ create table usage_events (
 );
 
 create table conversation_logs (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   org_id uuid not null references organizations(id) on delete cascade,
   thread_id text not null,
   role text not null,

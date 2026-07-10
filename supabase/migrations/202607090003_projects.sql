@@ -50,7 +50,7 @@ create table whatsapp_groups (
 );
 
 create table whatsapp_sessions (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   org_id uuid not null references organizations(id) on delete cascade,
   phone text not null,
   channel text not null default 'individual',

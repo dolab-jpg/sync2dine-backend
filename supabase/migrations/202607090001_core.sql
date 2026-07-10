@@ -1,6 +1,6 @@
 -- Core: organizations, profiles, integrations
 
-create extension if not exists "uuid-ossp";
+create extension if not exists "uuid-ossp" with schema extensions;
 
 create type org_status as enum ('trial', 'active', 'past_due', 'suspended', 'cancelled');
 create type org_plan as enum ('starter', 'pro', 'enterprise');
@@ -9,7 +9,7 @@ create type user_role as enum (
 );
 
 create table organizations (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   legacy_id text unique,
   name text not null,
   contact_name text not null default '',
@@ -44,7 +44,7 @@ create table profiles (
 );
 
 create table integrations (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   org_id uuid not null references organizations(id) on delete cascade,
   integration_id text not null,
   enabled boolean not null default false,
