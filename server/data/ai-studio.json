@@ -1,0 +1,89 @@
+{
+  "companyInstructions": "",
+  "humourLevel": "dry",
+  "britishEnglish": true,
+  "autonomyLevel": "balanced",
+  "autoRunQuoteDrafts": true,
+  "autoRunNavigation": true,
+  "requireConfirmCustomerMessages": true,
+  "estimateBufferPercent": 12,
+  "estimateRoundUp": 250,
+  "disclaimerTemplate": "Ballpark **{{low}}–{{high}}** — we've erred on the cautious side. Someone from the team will go through this properly; it might land a touch higher or lower. Not a final quote until we've confirmed on site.",
+  "afterConsent": "both",
+  "defaultPanelOpen": true,
+  "panelDocked": true,
+  "starterQuestionsEnabled": false,
+  "conversationLoggingEnabled": true,
+  "conversationRetentionDays": 365,
+  "auditRoles": [
+    "super_admin",
+    "manager"
+  ],
+  "commands": [
+    {
+      "id": "staff-quote",
+      "label": "Knock up a quote",
+      "prompt": "I need a quote for a job — help me gather details and give a ballpark figure.",
+      "roles": [
+        "staff",
+        "manager",
+        "super_admin"
+      ],
+      "category": "sales_quoting",
+      "enabled": true
+    },
+    {
+      "id": "staff-find-customer",
+      "label": "Find a customer",
+      "prompt": "Search for a customer by name or phone.",
+      "roles": [
+        "staff",
+        "manager",
+        "super_admin"
+      ],
+      "category": "sales_quoting",
+      "enabled": true
+    },
+    {
+      "id": "customer-status",
+      "label": "When's my job starting?",
+      "prompt": "What's the status of my project and when is work likely to start?",
+      "roles": [
+        "customer"
+      ],
+      "category": "customer_self_service",
+      "enabled": true
+    },
+    {
+      "id": "customer-quote",
+      "label": "Can I see my quote?",
+      "prompt": "Can I see my latest quote and what it includes?",
+      "roles": [
+        "customer"
+      ],
+      "category": "customer_self_service",
+      "enabled": true
+    },
+    {
+      "id": "customer-estimate",
+      "label": "Rough price for my job",
+      "prompt": "I need a rough price for some work — can you ask me a few questions?",
+      "roles": [
+        "customer"
+      ],
+      "category": "customer_self_service",
+      "enabled": true
+    },
+    {
+      "id": "builder-tasks",
+      "label": "What's on today?",
+      "prompt": "What tasks and milestones are due on site today?",
+      "roles": [
+        "builder"
+      ],
+      "category": "foreman",
+      "enabled": true
+    }
+  ],
+  "knowledgeChunks": []
+}

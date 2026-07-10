@@ -1,0 +1,7 @@
+{
+  "conversationRetentionDays": 365,
+  "auditRoles": [
+    "super_admin",
+    "manager"
+  ]
+}

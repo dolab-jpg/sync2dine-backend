@@ -1,0 +1,222 @@
+[
+  {
+    "id": "part-f-ventilation",
+    "title": "Approved Document F — Ventilation",
+    "shortTitle": "Part F",
+    "trades": ["bathroom", "kitchen", "extensions", "loft"],
+    "sourceUrl": "https://www.gov.uk/government/publications/ventilation-approved-document-f",
+    "versionDate": "2021-12-15",
+    "status": "current",
+    "lastCheckedAt": "2024-01-01T00:00:00.000Z",
+    "chunks": [
+      {
+        "id": "part-f-3-1",
+        "section": "3.1 — General",
+        "text": "Adequate ventilation is required to protect building users from pollutants and to remove water vapour. Bathrooms and kitchens are wet rooms requiring extract ventilation."
+      },
+      {
+        "id": "part-f-3-12",
+        "section": "3.12 — Bathrooms",
+        "text": "For bathrooms without openable windows, intermittent extract ventilation of at least 15 l/s (or 8 l/s if the fan runs continuously) is typically required. Run-on timers are recommended after shower use."
+      },
+      {
+        "id": "part-f-3-14",
+        "section": "3.14 — Kitchens",
+        "text": "Kitchens require extract ventilation. Cooker hoods should extract to outside where possible. Minimum intermittent extract rates apply based on hob type and room location."
+      }
+    ]
+  },
+  {
+    "id": "part-p-electrical",
+    "title": "Approved Document P — Electrical Safety",
+    "shortTitle": "Part P",
+    "trades": ["bathroom", "kitchen", "electrical", "extensions"],
+    "sourceUrl": "https://www.gov.uk/government/publications/electrical-safety-approved-document-p",
+    "versionDate": "2013-04-06",
+    "status": "current",
+    "lastCheckedAt": "2024-01-01T00:00:00.000Z",
+    "chunks": [
+      {
+        "id": "part-p-1-1",
+        "section": "1.1 — Scope",
+        "text": "Part P applies to electrical installations in dwellings. Notifiable work includes new circuits, consumer unit replacement, and work in special locations such as bathrooms."
+      },
+      {
+        "id": "part-p-2-1",
+        "section": "2.1 — Bathroom zones",
+        "text": "Bathrooms have zones 0, 1, and 2. Only appropriate IP-rated equipment may be installed in each zone. Electrical work in bathrooms is typically notifiable to building control."
+      },
+      {
+        "id": "part-p-3-1",
+        "section": "3.1 — Certification",
+        "text": "Notifiable electrical work must be certified. This may be via a registered competent person scheme or by submitting a building notice to the local authority."
+      }
+    ]
+  },
+  {
+    "id": "part-h-drainage",
+    "title": "Approved Document H — Drainage and Waste Disposal",
+    "shortTitle": "Part H",
+    "trades": ["bathroom", "kitchen", "plumbing", "extensions", "landscaping"],
+    "sourceUrl": "https://www.gov.uk/government/publications/drainage-and-waste-disposal-approved-document-h",
+    "versionDate": "2015-04-01",
+    "status": "current",
+    "lastCheckedAt": "2024-01-01T00:00:00.000Z",
+    "chunks": [
+      {
+        "id": "part-h-1-1",
+        "section": "1.1 — Foul drainage",
+        "text": "Foul water drainage must be adequately sized and vented. New connections to existing drainage may require building control approval."
+      },
+      {
+        "id": "part-h-3-1",
+        "section": "3.1 — Bathroom wastes",
+        "text": "Wastes from baths, showers, basins, and WCs must connect to foul drainage. Trap seals and adequate falls are required to prevent blockages and odours."
+      }
+    ]
+  },
+  {
+    "id": "part-g-water",
+    "title": "Approved Document G — Sanitation, Hot Water Safety and Water Efficiency",
+    "shortTitle": "Part G",
+    "trades": ["bathroom", "kitchen", "plumbing"],
+    "sourceUrl": "https://www.gov.uk/government/publications/sanitation-hot-water-safety-and-water-efficiency-approved-document-g",
+    "versionDate": "2015-04-01",
+    "status": "current",
+    "lastCheckedAt": "2024-01-01T00:00:00.000Z",
+    "chunks": [
+      {
+        "id": "part-g-3-1",
+        "section": "3.1 — Hot water",
+        "text": "Hot water systems must be installed safely. Unvented hot water cylinders require notification to building control and competent person certification."
+      },
+      {
+        "id": "part-g-4-1",
+        "section": "4.1 — Water efficiency",
+        "text": "New dwellings and some renovations must meet water efficiency targets. Flow restrictors and efficient fittings may be required."
+      }
+    ]
+  },
+  {
+    "id": "part-a-structure",
+    "title": "Approved Document A — Structure",
+    "shortTitle": "Part A",
+    "trades": ["extensions", "loft", "roofing", "plastering"],
+    "sourceUrl": "https://www.gov.uk/government/publications/structure-approved-document-a",
+    "versionDate": "2013-04-01",
+    "status": "current",
+    "lastCheckedAt": "2024-01-01T00:00:00.000Z",
+    "chunks": [
+      {
+        "id": "part-a-1-1",
+        "section": "1.1 — Structural stability",
+        "text": "Building work must not impair the structural stability of the building. Load-bearing alterations, removals, and new openings require structural assessment."
+      },
+      {
+        "id": "part-a-2-1",
+        "section": "2.1 — Foundations",
+        "text": "Foundations must be suitable for ground conditions. Extensions and loft conversions typically require structural calculations and building control inspection."
+      }
+    ]
+  },
+  {
+    "id": "part-b-fire",
+    "title": "Approved Document B — Fire Safety",
+    "shortTitle": "Part B",
+    "trades": ["extensions", "loft", "kitchen", "painting"],
+    "sourceUrl": "https://www.gov.uk/government/publications/fire-safety-approved-document-b",
+    "versionDate": "2019-05-20",
+    "status": "current",
+    "lastCheckedAt": "2024-01-01T00:00:00.000Z",
+    "chunks": [
+      {
+        "id": "part-b-1-1",
+        "section": "1.1 — Means of escape",
+        "text": "Dwelling alterations must maintain adequate means of escape. Open-plan changes and loft conversions require careful fire safety design."
+      },
+      {
+        "id": "part-b-3-1",
+        "section": "3.1 — Fire separation",
+        "text": "Fire-resistant separation is required between dwellings and between certain rooms. Penetrations through fire-rated elements must be properly sealed."
+      }
+    ]
+  },
+  {
+    "id": "part-l-energy",
+    "title": "Approved Document L — Conservation of Fuel and Power",
+    "shortTitle": "Part L",
+    "trades": ["extensions", "loft", "windows", "roofing", "flooring", "painting", "plastering"],
+    "sourceUrl": "https://www.gov.uk/government/publications/conservation-of-fuel-and-power-approved-document-l",
+    "versionDate": "2022-06-15",
+    "status": "current",
+    "lastCheckedAt": "2024-01-01T00:00:00.000Z",
+    "chunks": [
+      {
+        "id": "part-l-1-1",
+        "section": "1.1 — Energy efficiency",
+        "text": "Building work must meet energy efficiency requirements. Extensions, new openings, and replacement windows must comply with U-value standards."
+      }
+    ]
+  },
+  {
+    "id": "part-q-security",
+    "title": "Approved Document Q — Security",
+    "shortTitle": "Part Q",
+    "trades": ["windows"],
+    "sourceUrl": "https://www.gov.uk/government/publications/security-approved-document-q",
+    "versionDate": "2015-04-01",
+    "status": "current",
+    "lastCheckedAt": "2024-01-01T00:00:00.000Z",
+    "chunks": [
+      {
+        "id": "part-q-1-1",
+        "section": "1.1 — Doors and windows",
+        "text": "Easily accessible doors and windows in new dwellings must meet security standards (PAS 24). Replacement windows in extensions may need to comply."
+      }
+    ]
+  },
+  {
+    "id": "waterproofing-wet-rooms",
+    "title": "Wet Room Waterproofing Guidance",
+    "shortTitle": "Wet rooms",
+    "trades": ["bathroom"],
+    "sourceUrl": "https://www.gov.uk/government/collections/approved-documents",
+    "versionDate": "2020-01-01",
+    "status": "current",
+    "lastCheckedAt": "2024-01-01T00:00:00.000Z",
+    "chunks": [
+      {
+        "id": "wet-1-1",
+        "section": "Tanking systems",
+        "text": "Wet areas require a suitable waterproofing system (tanking) extending to defined heights. Building control may request manufacturer specifications and installation certificates."
+      },
+      {
+        "id": "wet-2-1",
+        "section": "Falls and drainage",
+        "text": "Shower areas require adequate falls to waste (typically minimum 1:80). Linear drains and shower trays must be installed per manufacturer guidance."
+      }
+    ]
+  },
+  {
+    "id": "bs7671-electrical",
+    "title": "BS 7671 — Electrical Installations",
+    "shortTitle": "BS 7671",
+    "trades": ["electrical", "bathroom", "kitchen"],
+    "sourceUrl": "https://www.gov.uk/government/publications/electrical-safety-approved-document-p",
+    "versionDate": "2022-03-28",
+    "status": "current",
+    "lastCheckedAt": "2024-01-01T00:00:00.000Z",
+    "chunks": [
+      {
+        "id": "bs7671-1-1",
+        "section": "Wiring Regulations",
+        "text": "BS 7671 sets requirements for electrical installations. RCD protection, circuit design, and testing are required. Electrical Installation Certificates (EIC) or Minor Works Certificates must be provided."
+      },
+      {
+        "id": "bs7671-2-1",
+        "section": "Testing and inspection",
+        "text": "On completion, installations must be tested including continuity, insulation resistance, polarity, and RCD operation. Certificates must be issued before handover."
+      }
+    ]
+  }
+]

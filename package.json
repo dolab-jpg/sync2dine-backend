@@ -1,0 +1,35 @@
+{
+  "name": "tradepro-backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch server/index.ts",
+    "start": "tsx server/index.ts",
+    "gen:types": "tsx scripts/gen-types.ts",
+    "migrate": "tsx scripts/migrate-to-supabase.ts",
+    "supabase:start": "npx supabase start",
+    "supabase:stop": "npx supabase stop",
+    "supabase:push": "npx supabase db push",
+    "supabase:reset": "npx supabase db reset",
+    "functions:deploy": "npx supabase functions deploy"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "bcryptjs": "^3.0.3",
+    "jsonwebtoken": "^9.0.3",
+    "mongodb": "^7.3.0",
+    "nodemailer": "^9.0.1",
+    "openai": "^4.104.0",
+    "stripe": "^18.5.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.10.0",
+    "@types/nodemailer": "^8.0.1",
+    "supabase": "^2.20.12",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
