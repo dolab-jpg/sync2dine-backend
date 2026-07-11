@@ -1,4 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 
 export type BankingProviderId = 'mock' | 'truelayer' | 'gocardless' | 'plaid';
 
@@ -27,11 +30,21 @@ export interface BankTransactionDto {
   createdAt: string;
 }
 
-interface BankingAdapter {
-  listAccounts(): Promise<BankAccountDto[]>;
-  listTransactions(accountId?: string): Promise<BankTransactionDto[]>;
-  connect(config: Record<string, string>): Promise<{ authUrl?: string; message: string }>;
+interface BankingTokens {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number;
 }
+
+interface BankingAdapter {
+  listAccounts(orgId: string): Promise<BankAccountDto[]>;
+  listTransactions(orgId: string, accountId?: string): Promise<BankTransactionDto[]>;
+  connect(orgId: string, config: Record<string, string>): Promise<{ authUrl?: string; message: string }>;
+}
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TOKENS_FILE = join(__dirname, 'data', 'banking-tokens.json');
+const tokenMemory = new Map<string, BankingTokens>();
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -47,6 +60,50 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(body));
 }
+
+function getOrgId(req: IncomingMessage, url: URL): string {
+  const header = req.headers['x-org-id'];
+  if (typeof header === 'string' && header.trim()) return header.trim();
+  return url.searchParams.get('orgId') || 'default';
+}
+
+function loadTokensFromDisk(): void {
+  try {
+    if (!existsSync(TOKENS_FILE)) return;
+    const raw = readFileSync(TOKENS_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as Record<string, BankingTokens>;
+    for (const [orgId, tokens] of Object.entries(parsed)) {
+      tokenMemory.set(orgId, tokens);
+    }
+  } catch {
+    // ignore corrupt file
+  }
+}
+
+function saveTokensToDisk(): void {
+  try {
+    mkdirSync(dirname(TOKENS_FILE), { recursive: true });
+    const obj: Record<string, BankingTokens> = {};
+    for (const [orgId, tokens] of tokenMemory.entries()) {
+      obj[orgId] = tokens;
+    }
+    writeFileSync(TOKENS_FILE, JSON.stringify(obj, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('[banking] Failed to persist tokens:', err);
+  }
+}
+
+function getTokens(orgId: string): BankingTokens | undefined {
+  if (tokenMemory.size === 0) loadTokensFromDisk();
+  return tokenMemory.get(orgId);
+}
+
+function setTokens(orgId: string, tokens: BankingTokens): void {
+  tokenMemory.set(orgId, tokens);
+  saveTokensToDisk();
+}
+
+loadTokensFromDisk();
 
 const mockAccounts: BankAccountDto[] = [
   {
@@ -94,7 +151,7 @@ const mockAdapter: BankingAdapter = {
   async listAccounts() {
     return mockAccounts;
   },
-  async listTransactions(accountId) {
+  async listTransactions(_orgId, accountId) {
     return accountId ? mockTransactions.filter((t) => t.accountId === accountId) : mockTransactions;
   },
   async connect() {
@@ -102,15 +159,160 @@ const mockAdapter: BankingAdapter = {
   },
 };
 
+function maskAccountNumber(num?: string): string {
+  if (!num) return '****';
+  return `****${num.slice(-4)}`;
+}
+
+function formatSortCode(provider?: { sort_code?: string }): string {
+  const sc = provider?.sort_code ?? '';
+  if (sc.length === 6) return `${sc.slice(0, 2)}-${sc.slice(2, 4)}-${sc.slice(4, 6)}`;
+  return sc || '—';
+}
+
+async function exchangeTrueLayerCode(
+  code: string,
+  clientId: string,
+  clientSecret: string,
+  redirectUri: string
+): Promise<BankingTokens> {
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: clientId,
+    client_secret: clientSecret,
+    redirect_uri: redirectUri,
+    code,
+  });
+  const res = await fetch('https://auth.truelayer-sandbox.com/connect/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`TrueLayer token exchange failed: ${errText}`);
+  }
+  const data = await res.json() as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined,
+  };
+}
+
+const truelayerAdapter: BankingAdapter = {
+  async connect(orgId, config) {
+    const clientId = config.clientId?.trim();
+    const clientSecret = config.clientSecret?.trim();
+    if (!clientId || !clientSecret) {
+      return { message: 'TrueLayer: configure Client ID and Client Secret in Integrations Hub, then reconnect.' };
+    }
+    const redirectUri = config.redirectUri?.trim() || 'http://localhost:3001/api/banking/callback';
+    const scope = encodeURIComponent('info accounts balance transactions');
+    const authUrl =
+      `https://auth.truelayer-sandbox.com/?response_type=code&client_id=${encodeURIComponent(clientId)}` +
+      `&scope=${scope}&redirect_uri=${encodeURIComponent(redirectUri)}&providers=uk-ob-all` +
+      `&state=${encodeURIComponent(orgId)}`;
+    return {
+      authUrl,
+      message: 'TrueLayer OAuth initiated — complete authorisation in your bank app.',
+    };
+  },
+
+  async listAccounts(orgId) {
+    const tokens = getTokens(orgId);
+    if (!tokens?.accessToken) {
+      return mockAccounts.map((a) => ({
+        ...a,
+        name: `${a.name} (TrueLayer — not connected)`,
+        provider: 'truelayer' as BankingProviderId,
+      }));
+    }
+
+    const res = await fetch('https://api.truelayer-sandbox.com/data/v1/accounts', {
+      headers: { Authorization: `Bearer ${tokens.accessToken}` },
+    });
+    if (!res.ok) {
+      throw new Error(`TrueLayer accounts fetch failed: ${await res.text()}`);
+    }
+    const data = await res.json() as {
+      results?: Array<{
+        account_id: string;
+        display_name?: string;
+        currency?: string;
+        account_type?: string;
+        provider?: { display_name?: string; sort_code?: string; account_number?: string };
+      }>;
+    };
+    const now = new Date().toISOString();
+    return (data.results ?? []).map((acc) => ({
+      id: acc.account_id,
+      name: acc.display_name || acc.provider?.display_name || 'Bank account',
+      sortCode: formatSortCode(acc.provider),
+      accountNumberMasked: maskAccountNumber(acc.provider?.account_number),
+      balance: 0,
+      currency: acc.currency || 'GBP',
+      provider: 'truelayer' as BankingProviderId,
+      connectedAt: now,
+      lastSyncedAt: now,
+    }));
+  },
+
+  async listTransactions(orgId, accountId) {
+    const tokens = getTokens(orgId);
+    if (!tokens?.accessToken) {
+      return mockAdapter.listTransactions(orgId, accountId);
+    }
+
+    const accounts = await truelayerAdapter.listAccounts(orgId);
+    const targetIds = accountId ? [accountId] : accounts.map((a) => a.id);
+    const all: BankTransactionDto[] = [];
+
+    for (const id of targetIds) {
+      const res = await fetch(`https://api.truelayer-sandbox.com/data/v1/accounts/${encodeURIComponent(id)}/transactions`, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      });
+      if (!res.ok) continue;
+      const data = await res.json() as {
+        results?: Array<{
+          transaction_id: string;
+          timestamp: string;
+          amount: number;
+          currency?: string;
+          description?: string;
+        }>;
+      };
+      for (const tx of data.results ?? []) {
+        all.push({
+          id: tx.transaction_id,
+          accountId: id,
+          date: tx.timestamp.split('T')[0],
+          amount: Math.abs(tx.amount),
+          direction: tx.amount >= 0 ? 'in' : 'out',
+          description: tx.description || 'Transaction',
+          category: 'uncategorised',
+          reconciled: false,
+          createdAt: tx.timestamp,
+        });
+      }
+    }
+    return all.sort((a, b) => b.date.localeCompare(a.date));
+  },
+};
+
 function stubAdapter(name: string): BankingAdapter {
   return {
-    async listAccounts() {
+    async listAccounts(_orgId) {
       return mockAccounts.map((a) => ({ ...a, provider: 'mock' as BankingProviderId, name: `${a.name} (${name} stub)` }));
     },
-    async listTransactions(accountId) {
-      return mockAdapter.listTransactions(accountId);
+    async listTransactions(orgId, accountId) {
+      return mockAdapter.listTransactions(orgId, accountId);
     },
-    async connect(config) {
+    async connect(_orgId, config) {
       const clientId = config.clientId?.trim();
       if (!clientId) {
         return { message: `${name}: configure Client ID and Client Secret in Integrations Hub, then reconnect.` };
@@ -127,7 +329,7 @@ function stubAdapter(name: string): BankingAdapter {
 function getAdapter(provider: string): BankingAdapter {
   switch (provider) {
     case 'truelayer':
-      return stubAdapter('TrueLayer');
+      return truelayerAdapter;
     case 'gocardless':
       return stubAdapter('GoCardless');
     case 'plaid':
@@ -145,25 +347,35 @@ export async function handleBankingRoutes(
 ): Promise<boolean> {
   if (!pathname.startsWith('/api/banking/')) return false;
 
+  const orgId = getOrgId(req, url);
+
   if (pathname === '/api/banking/accounts' && req.method === 'GET') {
     const provider = url.searchParams.get('provider') || 'mock';
-    const accounts = await getAdapter(provider).listAccounts();
-    sendJson(res, 200, { accounts, provider });
+    try {
+      const accounts = await getAdapter(provider).listAccounts(orgId);
+      sendJson(res, 200, { accounts, provider, connected: provider === 'truelayer' ? Boolean(getTokens(orgId)) : provider === 'mock' });
+    } catch (err) {
+      sendJson(res, 500, { error: err instanceof Error ? err.message : 'Failed to fetch accounts' });
+    }
     return true;
   }
 
   if (pathname === '/api/banking/transactions' && req.method === 'GET') {
     const provider = url.searchParams.get('provider') || 'mock';
     const accountId = url.searchParams.get('accountId') || undefined;
-    const transactions = await getAdapter(provider).listTransactions(accountId);
-    sendJson(res, 200, { transactions, provider });
+    try {
+      const transactions = await getAdapter(provider).listTransactions(orgId, accountId);
+      sendJson(res, 200, { transactions, provider });
+    } catch (err) {
+      sendJson(res, 500, { error: err instanceof Error ? err.message : 'Failed to fetch transactions' });
+    }
     return true;
   }
 
   if (pathname === '/api/banking/connect' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req)) as Record<string, string>;
     const provider = body.provider || 'mock';
-    const result = await getAdapter(provider).connect(body);
+    const result = await getAdapter(provider).connect(orgId, body);
     sendJson(res, 200, {
       success: true,
       provider,
@@ -174,9 +386,45 @@ export async function handleBankingRoutes(
   }
 
   if (pathname === '/api/banking/callback' && req.method === 'GET') {
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state') || orgId;
+    const clientId = process.env.TRUELAYER_CLIENT_ID?.trim() || url.searchParams.get('client_id') || '';
+    const clientSecret = process.env.TRUELAYER_CLIENT_SECRET?.trim() || '';
+    const redirectUri = process.env.TRUELAYER_REDIRECT_URI?.trim() || 'http://localhost:3001/api/banking/callback';
+
+    if (!code) {
+      sendJson(res, 400, { success: false, error: 'Missing authorization code' });
+      return true;
+    }
+    if (!clientId || !clientSecret) {
+      sendJson(res, 400, {
+        success: false,
+        error: 'TrueLayer client credentials not configured on server (TRUELAYER_CLIENT_ID / TRUELAYER_CLIENT_SECRET).',
+      });
+      return true;
+    }
+    try {
+      const tokens = await exchangeTrueLayerCode(code, clientId, clientSecret, redirectUri);
+      setTokens(state, tokens);
+      sendJson(res, 200, {
+        success: true,
+        message: 'Bank connection established via TrueLayer. You can close this window and sync accounts.',
+        orgId: state,
+      });
+    } catch (err) {
+      sendJson(res, 500, {
+        success: false,
+        error: err instanceof Error ? err.message : 'Token exchange failed',
+      });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/banking/status' && req.method === 'GET') {
+    const provider = url.searchParams.get('provider') || 'mock';
     sendJson(res, 200, {
-      success: true,
-      message: 'Bank connection callback received. Tokens would be stored server-side in production.',
+      provider,
+      connected: provider === 'truelayer' ? Boolean(getTokens(orgId)) : provider === 'mock',
     });
     return true;
   }

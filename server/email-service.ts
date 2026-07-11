@@ -1,10 +1,20 @@
 import nodemailer from 'nodemailer';
 import type { Organization } from './organizations';
 
+function resolveSmtpUser(): string | undefined {
+  return process.env.SMTP_USERNAME?.trim()
+    || process.env.SMTP_USER?.trim();
+}
+
+function resolveSmtpPass(): string | undefined {
+  return process.env.SMTP_PASSWORD?.trim()
+    || process.env.SMTP_PASS?.trim();
+}
+
 function getTransport() {
   const host = process.env.SMTP_HOST?.trim();
-  const user = process.env.SMTP_USER?.trim();
-  const pass = process.env.SMTP_PASS?.trim();
+  const user = resolveSmtpUser();
+  const pass = resolveSmtpPass();
   if (!host || !user) return null;
   return nodemailer.createTransport({
     host,
@@ -21,8 +31,11 @@ export async function sendOrgInviteEmail(org: Organization): Promise<void> {
     return;
   }
   const baseUrl = process.env.APP_BASE_URL?.trim() || 'http://localhost:5174';
+  const from = process.env.SMTP_FROM?.trim()
+    || process.env.SMTP_FROM_EMAIL?.trim()
+    || resolveSmtpUser();
   await transport.sendMail({
-    from: process.env.SMTP_FROM?.trim() || process.env.SMTP_USER,
+    from,
     to: org.contactEmail,
     subject: `Welcome to TradePro — ${org.name}`,
     text: [

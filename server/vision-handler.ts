@@ -1,6 +1,5 @@
 import { getDataStore } from './data-store';
-import { bathroomPlaybook } from '../src/app/config/trades/playbooks/bathroom';
-import { getPlaybook } from '../src/app/config/trades/playbooks';
+import { bathroomPlaybook, getPlaybook } from './playbooks/index';
 
 export interface VisionExtraAssessment {
   title: string;

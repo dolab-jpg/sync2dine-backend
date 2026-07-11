@@ -249,6 +249,24 @@ function normalizePhone(phone: string): string {
   return digits;
 }
 
+export function normalizePhoneExport(phone: string): string {
+  return normalizePhone(phone);
+}
+
+export interface TeamMemberRecord {
+  id: string;
+  userId?: string;
+  name: string;
+  phone: string;
+  role: string;
+}
+
+export function resolveStaffByPhone(phone: string, orgId?: string): TeamMemberRecord | null {
+  const normalized = normalizePhone(phone);
+  const members = (getDataStore(orgId).teamMembers ?? []) as TeamMemberRecord[];
+  return members.find((m) => normalizePhone(String(m.phone ?? '')) === normalized) ?? null;
+}
+
 export function resolveContactByPhone(phone: string): {
   customerId: string | null;
   customerName: string;
@@ -284,6 +302,60 @@ export function resolveContactByPhone(phone: string): {
 
 export function getProjectById(id: string): Record<string, unknown> | undefined {
   return getDataStore().projects.find(p => String(p.id) === id);
+}
+
+export function saveQuoteRecord(quote: Record<string, unknown>): Record<string, unknown> {
+  const store = getDataStore();
+  const id = String(quote.id ?? `Q${Date.now()}`);
+  const existing = store.quotes.findIndex((q) => String(q.id) === id);
+  const record = {
+    ...quote,
+    id,
+    updatedAt: new Date().toISOString(),
+    createdAt: quote.createdAt ?? new Date().toISOString(),
+  };
+  if (existing >= 0) {
+    store.quotes[existing] = { ...store.quotes[existing], ...record };
+  } else {
+    store.quotes.unshift(record);
+  }
+  syncData(store);
+  return record;
+}
+
+export function updateQuoteRecord(id: string, patch: Record<string, unknown>): Record<string, unknown> | null {
+  const store = getDataStore();
+  const idx = store.quotes.findIndex((q) => String(q.id) === id);
+  if (idx < 0) return null;
+  store.quotes[idx] = { ...store.quotes[idx], ...patch, updatedAt: new Date().toISOString() };
+  syncData(store);
+  return store.quotes[idx];
+}
+
+export function updateProjectRecord(
+  projectId: string,
+  patch: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const store = getDataStore();
+  const idx = store.projects.findIndex((p) => String(p.id) === projectId);
+  if (idx < 0) return null;
+  store.projects[idx] = { ...store.projects[idx], ...patch, updatedAt: new Date().toISOString() };
+  syncData(store);
+  return store.projects[idx];
+}
+
+export function appendProjectMessageRecord(
+  projectId: string,
+  message: Record<string, unknown>,
+): void {
+  const store = getDataStore();
+  const idx = store.projects.findIndex((p) => String(p.id) === projectId);
+  if (idx < 0) return;
+  const project = store.projects[idx];
+  const messages = Array.isArray(project.messages) ? [...project.messages as unknown[]] : [];
+  messages.push(message);
+  store.projects[idx] = { ...project, messages };
+  syncData(store);
 }
 
 export function getProjectByGroupId(groupId: string): Record<string, unknown> | undefined {

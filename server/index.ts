@@ -18,6 +18,9 @@ import { handleContractRoutes } from './contract-routes';
 import { handlePlatformRoutes } from './platform-routes';
 import { handleStripeRoutes } from './stripe-routes';
 import { handleAuthRoutes } from './auth';
+import { handleMailboxRoutes } from './mailbox-routes';
+import { handlePackageUpdatesRoute } from './mailbox/package-updates';
+import { handleLeadsRoutes } from './leads-routes';
 import { initDataFromSupabase } from './data-store';
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -53,6 +56,10 @@ const server = createServer(async (req, res) => {
 
   if (await handleBankingRoutes(req, res, pathname, url)) return;
 
+  if (await handleMailboxRoutes(req, res, pathname, url)) return;
+
+  if (await handlePackageUpdatesRoute(pathname, res)) return;
+
   if (await handleMessageRoutes(req, res, pathname)) return;
 
   if (await handlePriceResearchRoutes(req, res, pathname)) return;
@@ -64,6 +71,8 @@ const server = createServer(async (req, res) => {
   if (await handleAuthRoutes(req, res, pathname)) return;
 
   if (await handlePlatformRoutes(req, res, pathname)) return;
+
+  if (await handleLeadsRoutes(req, res, pathname, url)) return;
 
   if (pathname.startsWith('/api/ai/')) {
     await handleAiRequest(req, res, pathname);
