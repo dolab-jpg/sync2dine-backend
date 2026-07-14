@@ -53,10 +53,20 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
     return;
   }
 
+  if (pathname === '/api/ai/transcribe') {
+    const { handleTranscribeUpload } = await import('./orchestrate-stream');
+    try {
+      await handleTranscribeUpload(req, res);
+    } catch (err) {
+      sendOpenAIConnectionError(res, err);
+    }
+    return;
+  }
+
   const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
   const orgId = attachOrgContext(req, body);
-  const { resolveOpenAIApiKey } = await import('./openai-connection');
-  const apiKey = resolveOpenAIApiKey(body.apiKey as string | undefined, orgId);
+  const { resolveOpenAIApiKeyAsync } = await import('./openai-connection');
+  const apiKey = await resolveOpenAIApiKeyAsync(body.apiKey as string | undefined, orgId);
 
   if (pathname === '/api/ai/cyrus') {
     const { handleCyrusChat } = await import('./cyrus-handler');
@@ -85,6 +95,16 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
     try {
       const result = await handleOrchestrator(body);
       sendJson(res, 200, result);
+    } catch (err) {
+      sendOpenAIConnectionError(res, err);
+    }
+    return;
+  }
+
+  if (pathname === '/api/ai/orchestrate/stream') {
+    const { handleOrchestrateStream } = await import('./orchestrate-stream');
+    try {
+      await handleOrchestrateStream(req, res, body as Parameters<typeof handleOrchestrateStream>[2]);
     } catch (err) {
       sendOpenAIConnectionError(res, err);
     }
@@ -225,21 +245,12 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
       return;
     }
 
-    if (pathname === '/api/ai/transcribe') {
-      sendJson(res, 501, { error: 'Use browser speech recognition or implement multipart upload' });
-      return;
-    }
-
     if (pathname === '/api/ai/tts') {
-      const mp3 = await meteredSpeechCreate(openai, orgId, pathname, {
-        model: 'tts-1',
-        voice: (body.voice as 'fable') ?? 'fable',
-        input: String(body.text ?? ''),
-      });
-      const buffer = Buffer.from(await mp3.arrayBuffer());
+      const { synthesizeSpeech } = await import('./tts');
+      const tts = await synthesizeSpeech(String(body.text ?? ''), body.voice as string | undefined);
       res.statusCode = 200;
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.end(buffer);
+      res.setHeader('Content-Type', tts.contentType);
+      res.end(tts.buffer);
       return;
     }
 

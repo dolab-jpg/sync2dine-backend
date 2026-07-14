@@ -98,6 +98,7 @@ export async function handlePriceResearchRoutes(
     provider?: string;
     searchApiKey?: string;
     apiKey?: string;
+    orgId?: string;
   };
   try {
     body = JSON.parse(await readBody(req));
@@ -116,10 +117,12 @@ export async function handlePriceResearchRoutes(
   const location = body.postcode ? `${body.postcode} ${region}` : region;
   const provider = body.provider || 'openai_web';
 
-  const { resolveOpenAIApiKey } = await import('./openai-connection');
+  const { resolveOrgIdForRequest } = await import('./auth');
+  const { resolveOpenAIApiKeyAsync } = await import('./openai-connection');
+  const orgId = resolveOrgIdForRequest(req, body);
   let openaiKey: string | undefined;
   try {
-    openaiKey = resolveOpenAIApiKey(body.apiKey);
+    openaiKey = await resolveOpenAIApiKeyAsync(body.apiKey, orgId);
   } catch {
     openaiKey = undefined;
   }

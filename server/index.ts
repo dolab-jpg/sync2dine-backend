@@ -21,6 +21,7 @@ import { handleAuthRoutes } from './auth';
 import { handleMailboxRoutes } from './mailbox-routes';
 import { handlePackageUpdatesRoute } from './mailbox/package-updates';
 import { handleLeadsRoutes } from './leads-routes';
+import { handleOrgOpenAIKeyRoutes } from './org-openai-key-routes';
 import { initDataFromSupabase } from './data-store';
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -32,7 +33,7 @@ const server = createServer(async (req, res) => {
 
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Org-Id');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Org-Id, X-User-Id, X-User-Role');
 
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
@@ -69,6 +70,8 @@ const server = createServer(async (req, res) => {
   if (await handleStripeRoutes(req, res, pathname)) return;
 
   if (await handleAuthRoutes(req, res, pathname)) return;
+
+  if (await handleOrgOpenAIKeyRoutes(req, res, pathname)) return;
 
   if (await handlePlatformRoutes(req, res, pathname)) return;
 

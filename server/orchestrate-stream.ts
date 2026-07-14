@@ -132,9 +132,21 @@ export async function handleTranscribeUpload(req: IncomingMessage, res: ServerRe
     return;
   }
 
-  const { resolveOpenAIApiKey } = await import('./openai-connection');
+  const { resolveOrgIdForRequest } = await import('./auth');
+  const { resolveOpenAIApiKeyAsync } = await import('./openai-connection');
   const { default: OpenAI } = await import('openai');
-  const openai = new OpenAI({ apiKey: resolveOpenAIApiKey() });
+  const orgId = resolveOrgIdForRequest(req);
+  const apiKey = await resolveOpenAIApiKeyAsync(undefined, orgId);
+  if (!apiKey) {
+    res.statusCode = 503;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({
+      error: 'OpenAI not connected — add your API key in Settings → Integrations → OpenAI and Save.',
+      code: 'missing',
+    }));
+    return;
+  }
+  const openai = new OpenAI({ apiKey });
   const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm';
   const file = new File([audioBuffer], `upload.${ext}`, { type: mimeType });
   const transcript = await openai.audio.transcriptions.create({ model: 'whisper-1', file });

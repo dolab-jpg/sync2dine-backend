@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'http';
+import { resolveOrgIdForRequest } from './auth';
 import {
   mapOpenAIError,
   probeOpenAIConnection,
-  resolveOpenAIApiKey,
+  resolveOpenAIApiKeyAsync,
 } from './openai-connection';
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -30,12 +31,14 @@ export async function handleOpenAIHealth(req: IncomingMessage, res: ServerRespon
   }
 
   let bodyApiKey: string | undefined;
+  let bodyOrgId: string | undefined;
   if (req.method === 'POST') {
     try {
       const raw = await readBody(req);
       if (raw.trim()) {
-        const body = JSON.parse(raw) as { apiKey?: string };
+        const body = JSON.parse(raw) as { apiKey?: string; orgId?: string };
         bodyApiKey = body.apiKey;
+        bodyOrgId = body.orgId;
       }
     } catch {
       sendJson(res, 400, { connected: false, reason: 'missing', message: MISSING_MESSAGE });
@@ -43,7 +46,8 @@ export async function handleOpenAIHealth(req: IncomingMessage, res: ServerRespon
     }
   }
 
-  const apiKey = resolveOpenAIApiKey(bodyApiKey);
+  const orgId = resolveOrgIdForRequest(req, bodyOrgId ? { orgId: bodyOrgId } : undefined);
+  const apiKey = await resolveOpenAIApiKeyAsync(bodyApiKey, orgId);
   if (!apiKey) {
     sendJson(res, 200, { connected: false, reason: 'missing', message: MISSING_MESSAGE });
     return;

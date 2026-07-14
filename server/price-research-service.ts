@@ -21,8 +21,9 @@ export async function researchTaskPrices(tasks: string[], options?: {
   const location = options?.postcode ? `${options.postcode} ${region}` : region;
 
   try {
-    const { resolveOpenAIApiKey } = await import('./openai-connection');
-    const openaiKey = resolveOpenAIApiKey();
+    const { resolveOpenAIApiKeyAsync } = await import('./openai-connection');
+    const openaiKey = await resolveOpenAIApiKeyAsync();
+    if (!openaiKey) throw new Error('OpenAI key missing');
     const { default: OpenAI } = await import('openai');
     const openai = new OpenAI({ apiKey: openaiKey });
 
