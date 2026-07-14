@@ -49,14 +49,12 @@ export const soho66Adapter: TelephonyProvider = {
         transferTo: response.transferTo,
         hangup: response.hangup ?? false,
         playUrl: usePlay && response.speak
-          ? buildAgentTtsUrl(webhookBase, { callId })
+          ? buildAgentTtsUrl(webhookBase, { callId, format: 'mulaw' })
           : undefined,
-        gatherPlayUrl: usePlay
-          ? buildAgentTtsUrl(webhookBase, { text: GATHER_PROMPT })
-          : undefined,
+        gatherPlayUrl: undefined,
         gatherActionUrl: turnUrl,
         provider: 'soho66',
-        bridgeNote: 'Route Soho66 SIP through Jambonz/FreeSWITCH and POST call events to /webhooks/voice/*',
+        bridgeNote: 'Route Soho66 SIP through TradePro sip-bridge and POST call events to /webhooks/voice/*',
       }),
     };
   },
@@ -77,6 +75,8 @@ export const soho66Adapter: TelephonyProvider = {
     const from = line?.did ?? config.fromNumber ?? process.env.SOHO66_FROM_NUMBER ?? '';
 
     const callId = context.callId ?? `soho66-out-${Date.now()}`;
+    const template = context.campaignTemplate ?? 'lead_callback';
+    const webhookBase = (config.webhookBaseUrl ?? getWebhookBaseUrl()).replace(/\/$/, '');
     const response = await fetch(`${bridgeUrl.replace(/\/$/, '')}/calls`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -85,7 +85,7 @@ export const soho66Adapter: TelephonyProvider = {
         from,
         callId,
         lineId: line?.id,
-        webhookUrl: `${(config.webhookBaseUrl ?? getWebhookBaseUrl()).replace(/\/$/, '')}/webhooks/voice/outbound?callId=${encodeURIComponent(callId)}`,
+        webhookUrl: `${webhookBase}/webhooks/voice/outbound?callId=${encodeURIComponent(callId)}&template=${encodeURIComponent(template)}`,
       }),
     });
 

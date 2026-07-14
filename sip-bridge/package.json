@@ -1,0 +1,13 @@
+{
+  "name": "tradepro-sip-bridge",
+  "private": true,
+  "version": "0.1.0",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "sip": "^0.0.6"
+  }
+}

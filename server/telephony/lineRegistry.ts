@@ -90,7 +90,8 @@ export async function registerAllEnabledLines(bridgeUrl?: string): Promise<{
   failed: number;
   results: Array<{ lineId: string; label: string; ok: boolean; message: string }>;
 }> {
-  const lines = listPhoneLines().filter(l => l.enabled);
+  // Only Aria AI lines register with the Jambonz bridge — staff softphones use browser JsSIP.
+  const lines = listPhoneLines().filter(l => l.enabled && (l.purpose ?? 'staff') === 'aria');
   const results: Array<{ lineId: string; label: string; ok: boolean; message: string }> = [];
   let registered = 0;
   let failed = 0;

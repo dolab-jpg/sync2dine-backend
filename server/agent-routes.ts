@@ -3,24 +3,46 @@ import {
   deletePhoneLine,
   getAgentSettings,
   getAgentStatusSnapshot,
+  getPhoneLineByAssignedUserId,
   getPhoneLineById,
   listPhoneLines,
   lookupContactByPhone,
   maskPhoneLine,
   savePhoneLine,
   updateAgentSettings,
+  type PhoneLinePurpose,
 } from './data-store';
 import {
   getChatterboxConfig,
   resolveTtsTextFromCall,
   synthesizeSpeech,
 } from './tts';
+import { transcribeAudioBuffer } from './stt';
 import {
   getSipBridgeUrl,
   registerAllEnabledLines,
   testLineConnection,
   unregisterLine,
 } from './telephony/lineRegistry';
+import { authenticateRequest, resolveOrgIdForRequest } from './auth';
+
+function resolveUserIdFromRequest(req: IncomingMessage): string | null {
+  const auth = authenticateRequest(req);
+  if (auth?.userId) return auth.userId;
+  const header = req.headers['x-user-id'];
+  if (typeof header === 'string' && header.trim()) return header.trim();
+  return null;
+}
+
+function parsePurpose(value: unknown, fallback: PhoneLinePurpose = 'staff'): PhoneLinePurpose {
+  return value === 'aria' ? 'aria' : value === 'staff' ? 'staff' : fallback;
+}
+
+function parseAssignedUserId(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  if (typeof value === 'string') return value.trim() || null;
+  return undefined;
+}
 
 const OPENAI_TTS_VOICES = [
   { id: 'fable', name: 'Fable (OpenAI)', provider: 'openai' },
@@ -235,7 +257,14 @@ async function resolveTtsRequestInput(
 async function handleAgentTts(req: IncomingMessage, res: ServerResponse, url: URL) {
   try {
     const { text, voiceId } = await resolveTtsRequestInput(req, url);
-    const result = await synthesizeSpeech(text, voiceId);
+    const formatParam = (url.searchParams.get('format') || 'mp3').toLowerCase();
+    const format =
+      formatParam === 'mulaw' || formatParam === 'ulaw' || formatParam === 'pcmu'
+        ? 'mulaw'
+        : formatParam === 'pcm'
+          ? 'pcm'
+          : 'mp3';
+    const result = await synthesizeSpeech(text, voiceId, format);
     res.statusCode = 200;
     res.setHeader('Content-Type', result.contentType);
     res.setHeader('Cache-Control', 'no-store');
@@ -246,11 +275,69 @@ async function handleAgentTts(req: IncomingMessage, res: ServerResponse, url: UR
   }
 }
 
+async function readBinaryBody(req: IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+async function handleAgentStt(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const orgId = resolveOrgIdForRequest(req);
+    // Do not mutate global request org — that breaks CRM data on concurrent phone calls.
+    const buffer = await readBinaryBody(req);
+    if (!buffer.length) {
+      sendJson(res, 400, { error: 'Empty audio body' });
+      return;
+    }
+
+    const contentType = String(req.headers['content-type'] ?? 'audio/wav');
+    let filename = 'utterance.wav';
+    let mime = 'audio/wav';
+    if (contentType.includes('basic') || contentType.includes('mulaw') || contentType.includes('pcmu')) {
+      filename = 'utterance.ulaw';
+      mime = 'audio/basic';
+    } else if (contentType.includes('mpeg') || contentType.includes('mp3')) {
+      filename = 'utterance.mp3';
+      mime = 'audio/mpeg';
+    } else if (contentType.includes('ogg')) {
+      filename = 'utterance.ogg';
+      mime = 'audio/ogg';
+    } else if (contentType.includes('webm')) {
+      filename = 'utterance.webm';
+      mime = 'audio/webm';
+    }
+
+    const text = await transcribeAudioBuffer(buffer, filename, mime, orgId);
+    sendJson(res, 200, { text });
+  } catch (err) {
+    sendJson(res, 400, { error: err instanceof Error ? err.message : 'STT failed' });
+  }
+}
+
 async function handleGetLines(_req: IncomingMessage, res: ServerResponse) {
   sendJson(res, 200, {
     bridgeUrl: getSipBridgeUrl(),
     lines: listPhoneLines().map(maskPhoneLine),
   });
+}
+
+async function handleGetMyLine(req: IncomingMessage, res: ServerResponse) {
+  const userId = resolveUserIdFromRequest(req);
+  if (!userId) {
+    sendJson(res, 401, { error: 'User id required (Authorization or X-User-Id)' });
+    return;
+  }
+  const line = getPhoneLineByAssignedUserId(userId);
+  if (!line) {
+    sendJson(res, 404, { error: 'No softphone line assigned to this user' });
+    return;
+  }
+  // Owner receives real SIP password for JsSIP register (never returned on list endpoints).
+  sendJson(res, 200, { line });
 }
 
 async function handlePostLine(req: IncomingMessage, res: ServerResponse) {
@@ -270,6 +357,8 @@ async function handlePostLine(req: IncomingMessage, res: ServerResponse) {
     did,
     sipDomain: typeof body.sipDomain === 'string' ? body.sipDomain : undefined,
     enabled: body.enabled !== false,
+    assignedUserId: parseAssignedUserId(body.assignedUserId),
+    purpose: parsePurpose(body.purpose, 'staff'),
   });
   sendJson(res, 200, { line: maskPhoneLine(line) });
 }
@@ -284,6 +373,7 @@ async function handlePatchLine(req: IncomingMessage, res: ServerResponse, lineId
   const sipPassword = typeof body.sipPassword === 'string' && body.sipPassword && body.sipPassword !== '••••••'
     ? body.sipPassword
     : existing.sipPassword;
+  const assignedParsed = parseAssignedUserId(body.assignedUserId);
   const line = savePhoneLine({
     id: lineId,
     label: typeof body.label === 'string' ? body.label : existing.label,
@@ -293,6 +383,8 @@ async function handlePatchLine(req: IncomingMessage, res: ServerResponse, lineId
     did: typeof body.did === 'string' ? body.did : existing.did,
     enabled: typeof body.enabled === 'boolean' ? body.enabled : existing.enabled,
     status: existing.status,
+    assignedUserId: assignedParsed !== undefined ? assignedParsed : existing.assignedUserId,
+    purpose: body.purpose !== undefined ? parsePurpose(body.purpose, existing.purpose ?? 'staff') : existing.purpose,
   });
   if (body.enabled === false) {
     await unregisterLine(lineId);
@@ -362,12 +454,20 @@ export async function handleAgentRoutes(
     await handleAgentTts(req, res, url);
     return true;
   }
+  if (pathname === '/api/agent/stt' && req.method === 'POST') {
+    await handleAgentStt(req, res);
+    return true;
+  }
   if (pathname === '/api/agent/lines' && req.method === 'GET') {
     await handleGetLines(req, res);
     return true;
   }
   if (pathname === '/api/agent/lines' && req.method === 'POST') {
     await handlePostLine(req, res);
+    return true;
+  }
+  if (pathname === '/api/agent/lines/mine' && req.method === 'GET') {
+    await handleGetMyLine(req, res);
     return true;
   }
   if (pathname === '/api/agent/lines/register-all' && req.method === 'POST') {

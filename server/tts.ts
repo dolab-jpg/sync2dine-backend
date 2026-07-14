@@ -1,5 +1,6 @@
-import { getAgentSettings, getCallById } from './data-store';
-import { requireOpenAIApiKey } from './openai-connection';
+import { getAgentSettings, getCallById, getRequestOrgId } from './data-store';
+import { getOrgOpenAIApiKey, listOrganizations } from './organizations';
+import { requireOpenAIApiKeyAsync, resolveOpenAIApiKeyAsync } from './openai-connection';
 
 export const OPENAI_TTS_VOICE_IDS = new Set(['fable', 'alloy', 'nova', 'shimmer', 'echo', 'onyx']);
 
@@ -13,6 +14,37 @@ export interface ChatterboxConfig {
   baseUrl: string;
   apiKey: string;
   ttsPath: string;
+}
+
+const BIAS = 0x84;
+const CLIP = 32635;
+
+function linearToMulaw(sample: number): number {
+  let sign = (sample >> 8) & 0x80;
+  if (sign) sample = -sample;
+  if (sample > CLIP) sample = CLIP;
+  sample += BIAS;
+  let exponent = 7;
+  for (let expMask = 0x4000; (sample & expMask) === 0 && exponent > 0; expMask >>= 1) {
+    exponent -= 1;
+  }
+  const mantissa = (sample >> (exponent === 0 ? 4 : exponent + 3)) & 0x0f;
+  const mulaw = ~(sign | (exponent << 4) | mantissa);
+  return mulaw & 0xff;
+}
+
+function pcm16ToMulaw8k(pcm: Buffer, srcRate = 24000): Buffer {
+  const sampleCount = Math.floor(pcm.length / 2);
+  if (sampleCount <= 0) return Buffer.alloc(0);
+  const ratio = srcRate / 8000;
+  const outLen = Math.floor(sampleCount / ratio);
+  const out = Buffer.alloc(outLen);
+  for (let i = 0; i < outLen; i += 1) {
+    const srcIndex = Math.min(sampleCount - 1, Math.floor(i * ratio));
+    const sample = pcm.readInt16LE(srcIndex * 2);
+    out[i] = linearToMulaw(sample);
+  }
+  return out;
 }
 
 export function getChatterboxConfig(): ChatterboxConfig | null {
@@ -32,6 +64,20 @@ function isOpenAiVoiceId(voiceId: string | null | undefined): boolean {
 function resolveVoiceId(override?: string | null): string | null {
   if (override) return override;
   return getAgentSettings().activeVoiceId ?? null;
+}
+
+function resolveTtsOrgId(): string | null {
+  const current = getRequestOrgId();
+  if (current && current !== 'default' && getOrgOpenAIApiKey(current)) return current;
+  for (const org of listOrganizations()) {
+    if (getOrgOpenAIApiKey(org.id)) return org.id;
+  }
+  return current && current !== 'default' ? current : null;
+}
+
+export function hasOpenAIKeyAvailable(): boolean {
+  if ((process.env.OPENAI_API_KEY || '').trim()) return true;
+  return listOrganizations().some((org) => Boolean(getOrgOpenAIApiKey(org.id)));
 }
 
 async function synthesizeWithChatterbox(
@@ -62,11 +108,32 @@ async function synthesizeWithChatterbox(
   return { buffer, contentType, provider: 'chatterbox' };
 }
 
-async function synthesizeWithOpenAI(text: string, voiceId: string): Promise<TtsResult> {
-  const apiKey = requireOpenAIApiKey();
+async function synthesizeWithOpenAI(
+  text: string,
+  voiceId: string,
+  format: 'mp3' | 'pcm' | 'mulaw' = 'mp3',
+): Promise<TtsResult> {
+  const orgId = resolveTtsOrgId();
+  const apiKey = await requireOpenAIApiKeyAsync(undefined, orgId);
   const { default: OpenAI } = await import('openai');
   const openai = new OpenAI({ apiKey });
   const voice = isOpenAiVoiceId(voiceId) ? voiceId : 'fable';
+
+  if (format === 'pcm' || format === 'mulaw') {
+    const pcm = await openai.audio.speech.create({
+      model: 'tts-1',
+      voice: voice as 'fable',
+      input: text,
+      response_format: 'pcm',
+    });
+    const pcmBuf = Buffer.from(await pcm.arrayBuffer());
+    if (format === 'pcm') {
+      return { buffer: pcmBuf, contentType: 'audio/L16; rate=24000; channels=1', provider: 'openai' };
+    }
+    const mulaw = pcm16ToMulaw8k(pcmBuf, 24000);
+    return { buffer: mulaw, contentType: 'audio/basic', provider: 'openai' };
+  }
+
   const mp3 = await openai.audio.speech.create({
     model: 'tts-1',
     voice: voice as 'fable',
@@ -76,7 +143,11 @@ async function synthesizeWithOpenAI(text: string, voiceId: string): Promise<TtsR
   return { buffer, contentType: 'audio/mpeg', provider: 'openai' };
 }
 
-export async function synthesizeSpeech(text: string, voiceIdOverride?: string | null): Promise<TtsResult> {
+export async function synthesizeSpeech(
+  text: string,
+  voiceIdOverride?: string | null,
+  format: 'mp3' | 'pcm' | 'mulaw' = 'mp3',
+): Promise<TtsResult> {
   const trimmed = text.trim();
   if (!trimmed) {
     throw new Error('TTS text is required');
@@ -84,25 +155,31 @@ export async function synthesizeSpeech(text: string, voiceIdOverride?: string | 
 
   const voiceId = resolveVoiceId(voiceIdOverride);
   const chatterbox = getChatterboxConfig();
+  const orgId = resolveTtsOrgId();
+  const openAiKey = await resolveOpenAIApiKeyAsync(undefined, orgId);
+
+  if (format === 'mulaw' || format === 'pcm') {
+    if (!openAiKey) throw new Error('OpenAI key required for mulaw/pcm TTS');
+    return synthesizeWithOpenAI(trimmed, voiceId ?? 'fable', format);
+  }
 
   if (chatterbox && voiceId && !isOpenAiVoiceId(voiceId)) {
     try {
       return await synthesizeWithChatterbox(trimmed, voiceId, chatterbox);
     } catch (err) {
-      if (!process.env.OPENAI_API_KEY) throw err;
-      // fall through to OpenAI if cloned voice fails but OpenAI is available
+      if (!openAiKey) throw err;
     }
   }
 
-  if (process.env.OPENAI_API_KEY) {
-    return synthesizeWithOpenAI(trimmed, voiceId ?? 'fable');
+  if (openAiKey) {
+    return synthesizeWithOpenAI(trimmed, voiceId ?? 'fable', 'mp3');
   }
 
   if (chatterbox && voiceId) {
     return synthesizeWithChatterbox(trimmed, voiceId, chatterbox);
   }
 
-  throw new Error('No TTS provider configured — set CHATTERBOX_BASE_URL or OPENAI_API_KEY');
+  throw new Error('No TTS provider configured — set CHATTERBOX_BASE_URL or OpenAI key in Integrations');
 }
 
 export function resolveTtsTextFromCall(callId: string): string | null {
@@ -121,13 +198,14 @@ export function resolveTtsTextFromCall(callId: string): string | null {
 
 export function buildAgentTtsUrl(
   webhookBase: string,
-  params: { text?: string; callId?: string; voiceId?: string },
+  params: { text?: string; callId?: string; voiceId?: string; format?: string },
 ): string {
   const base = webhookBase.replace(/\/$/, '');
   const url = new URL(`${base}/api/agent/tts`);
   if (params.text) url.searchParams.set('text', params.text);
   if (params.callId) url.searchParams.set('callId', params.callId);
   if (params.voiceId) url.searchParams.set('voiceId', params.voiceId);
+  if (params.format) url.searchParams.set('format', params.format);
   return url.toString();
 }
 
@@ -135,6 +213,6 @@ export function shouldUsePlayAudio(): boolean {
   const settings = getAgentSettings();
   if (!settings.activeVoiceId) return false;
   if (getChatterboxConfig()) return true;
-  if (process.env.OPENAI_API_KEY && isOpenAiVoiceId(settings.activeVoiceId)) return true;
-  return !!process.env.OPENAI_API_KEY;
+  if (hasOpenAIKeyAvailable() && isOpenAiVoiceId(settings.activeVoiceId)) return true;
+  return hasOpenAIKeyAvailable();
 }

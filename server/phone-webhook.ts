@@ -3,10 +3,12 @@ import {
   appendCallTurn,
   computeCallDurationSec,
   computeCallSentiment,
+  DEFAULT_ORG_ID,
   getCallById,
   getCallByProviderId,
   getDataStore,
   getProjectById,
+  getRequestOrgId,
   isAfterHours,
   isAgentActive,
   resolveCandidateByPhone,
@@ -17,12 +19,13 @@ import {
   setRequestOrgId,
   updateOutboundJob,
 } from './data-store';
+import { resolveOrgIdForRequest } from './auth';
+import { OpenAIConnectionError } from './openai-connection';
 import { getOrganizationByPhoneDid } from './organizations';
-import { handlePhoneTurn } from './phone-orchestrator';
+import { handleChannelInbound } from './channel-inbound-handler';
 import {
   getTelephonyProvider,
   resolveTelephonyConfig,
-  OUTBOUND_CAMPAIGN_SCRIPTS,
   type AgentCallContext,
   type CallEvent,
   type OutboundCampaignTemplate,
@@ -66,9 +69,20 @@ function headersToRecord(req: IncomingMessage): Record<string, string> {
   return headers;
 }
 
+function resolvePhoneOrgId(toDid: string): string {
+  const byDid = getOrganizationByPhoneDid(toDid);
+  if (byDid?.id) return byDid.id;
+  // Keep CRM on the default local store — never switch to a cloud org UUID just because it has an OpenAI key.
+  const current = getRequestOrgId();
+  if (current && current !== DEFAULT_ORG_ID && current !== 'default') {
+    // Only keep non-default if it actually has CRM data loaded; otherwise default.
+    return DEFAULT_ORG_ID;
+  }
+  return DEFAULT_ORG_ID;
+}
+
 function getOrCreateCall(event: CallEvent): Record<string, unknown> {
-  const org = getOrganizationByPhoneDid(event.to);
-  setRequestOrgId(org?.id ?? 'default');
+  setRequestOrgId(resolvePhoneOrgId(event.to));
 
   const existing = getCallById(event.callId) ?? getCallByProviderId(event.providerCallId ?? '');
   if (existing) return existing;
@@ -149,6 +163,47 @@ async function appendAuditLog(
   }
 }
 
+function buildAccountBrainContext(
+  partyPhone: string,
+  resolved: ReturnType<typeof resolveContactByPhone>,
+): string {
+  const store = getDataStore();
+  const lines: string[] = [
+    'Account memory for this live call (treat as known — do not ask them to restate):',
+    `Caller phone: ${partyPhone}`,
+  ];
+  if (resolved.customerName) lines.push(`Customer: ${resolved.customerName}`);
+  if (resolved.customerId) lines.push(`Customer id: ${resolved.customerId}`);
+  if (resolved.contactName) {
+    lines.push(`Contact: ${resolved.contactName}${resolved.contactRole ? ` (${resolved.contactRole})` : ''}`);
+  }
+  if (resolved.projectId) {
+    const project = getProjectById(resolved.projectId);
+    if (project) {
+      lines.push(`Project: ${String(project.projectName ?? project.id)} — status ${String(project.status ?? 'unknown')}`);
+      const tasks = ((project.tasks as Array<Record<string, unknown>> ?? [])
+        .filter((t) => t.status !== 'completed')
+        .slice(0, 3)
+        .map((t) => String(t.title))
+        .filter(Boolean));
+      if (tasks.length) lines.push(`Open tasks: ${tasks.join('; ')}`);
+    } else {
+      lines.push(`Project id: ${resolved.projectId}`);
+    }
+  }
+  const customer = resolved.customerId
+    ? (store.customers as Array<Record<string, unknown>>).find((c) => String(c.id) === resolved.customerId)
+    : undefined;
+  if (customer?.notes) lines.push(`Notes: ${String(customer.notes).slice(0, 280)}`);
+  const quotes = (store.quotes as Array<Record<string, unknown>> ?? [])
+    .filter((q) => String(q.customerId ?? '') === String(resolved.customerId ?? ''))
+    .slice(0, 3);
+  for (const q of quotes) {
+    lines.push(`Quote ${String(q.id)}: ${String(q.status ?? '')} total ${String(q.total ?? '')}`);
+  }
+  return lines.join('\n');
+}
+
 async function processCallTurn(
   event: CallEvent,
   speechText?: string,
@@ -162,60 +217,69 @@ async function processCallTurn(
   }
 
   const call = getOrCreateCall(event);
-  const resolved = resolveContactByPhone(event.from);
-  const candidate = resolveCandidateByPhone(event.from);
+  const partyPhone = event.direction === 'outbound'
+    ? String(event.to || call.to || event.from || '')
+    : String(event.from || call.from || '');
+  const resolved = resolveContactByPhone(partyPhone);
   const afterHours = isAfterHours();
+
+  if (resolved.customerId) {
+    saveCall({
+      id: call.id,
+      customerId: resolved.customerId,
+      contactName: resolved.customerName,
+      to: event.to,
+      from: event.from,
+      direction: event.direction,
+    });
+  }
+
+  const orgId = resolvePhoneOrgId(
+    event.direction === 'outbound'
+      ? String(event.from || call.from || event.to || '')
+      : String(event.to || call.to || ''),
+  );
+
+  const brainContext = [
+    buildAccountBrainContext(partyPhone, resolved),
+    afterHours ? 'Office is currently outside normal hours — still help, offer a callback if needed.' : '',
+    call.campaignTemplate ? `Soft call purpose (do not recite): ${String(call.campaignTemplate)}` : '',
+  ].filter(Boolean).join('\n');
+
+  const isConnect = !speechText?.trim();
+  const inboundText = isConnect
+    ? (event.direction === 'outbound'
+      ? 'The phone call just connected. Greet them naturally in one or two short spoken sentences using the account memory you already have.'
+      : 'An inbound phone call just connected. Greet them warmly in one or two short spoken sentences using any account memory you have.')
+    : String(speechText).trim();
 
   if (speechText) {
     appendCallTurn(String(call.id), { role: 'caller', content: speechText });
     await appendAuditLog(call, 'user', speechText, resolved.customerName);
   }
 
-  const updatedCall = getCallById(String(call.id)) ?? call;
-  const messages = getTranscriptMessages(updatedCall);
-  if (speechText) {
-    messages.push({ role: 'user', content: speechText });
-  }
-
-  const agentContext = buildAgentContext(updatedCall, resolved, candidate);
-  agentContext.isAfterHours = afterHours;
-
-  const project = resolved.projectId ? getProjectById(resolved.projectId) : undefined;
-  const todayTasks = project
-    ? ((project.tasks as Array<Record<string, unknown>> ?? [])
-        .filter(t => t.status !== 'completed')
-        .slice(0, 3)
-        .map(t => String(t.title)))
-    : [];
-
-  const result = await handlePhoneTurn({
-    callContext: agentContext,
-    messages,
-    customerContext: {
-      customerId: resolved.customerId,
-      customerName: resolved.customerName,
-      phone: event.from,
-      contactName: resolved.contactName,
-      contactRole: resolved.contactRole,
-      projectId: resolved.projectId,
-      role: 'customer',
-    },
-    projectContext: project
-      ? {
-          projectId: String(project.id),
-          projectName: String(project.projectName ?? 'Project'),
-          status: String(project.status ?? 'unknown'),
-          todayTasks,
-        }
-      : undefined,
+  // One AI brain (same stack as Cyrus): company studio + account memory + chat history
+  const channelResult = await handleChannelInbound({
+    orgId,
+    phone: partyPhone,
+    text: inboundText,
+    channel: 'phone',
+    contactName: resolved.customerName || resolved.contactName,
+    projectId: resolved.projectId,
+    brainContext,
+    persistUser: !isConnect,
   });
 
-  appendCallTurn(String(call.id), { role: 'agent', content: result.content });
-  await appendAuditLog(call, 'assistant', result.content, 'Aria');
+  const speak = String(channelResult.replyLocalized || channelResult.replyEnglish || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500)
+    || (isConnect
+      ? `Hello${resolved.customerName ? ` ${resolved.customerName}` : ''}, it's Aria from TradePro. How can I help today?`
+      : "Sorry, I didn't quite catch that — could you say that again?");
 
-  if (result.intent) {
-    saveCall({ id: call.id, intent: result.intent, contactName: resolved.customerName });
-  }
+  appendCallTurn(String(call.id), { role: 'agent', content: speak });
+  await appendAuditLog(call, 'assistant', speak, 'Aria');
 
   const updated = getCallById(String(call.id)) ?? call;
   saveCall({
@@ -225,6 +289,15 @@ async function processCallTurn(
     sentiment: computeCallSentiment(updated),
     durationSec: computeCallDurationSec(updated),
   });
+
+  if (resolved.customerId && speechText) {
+    const { appendCustomerCallActivity } = await import('./data-store');
+    appendCustomerCallActivity({
+      customerId: resolved.customerId,
+      callId: String(call.id),
+      summary: `Caller: ${speechText.slice(0, 160)} | Aria: ${speak.slice(0, 160)}`,
+    });
+  }
 
   if (detectEscalation(speechText ?? '')) {
     const store = getDataStore();
@@ -238,12 +311,7 @@ async function processCallTurn(
     saveCall({ id: call.id, escalated: true, sentiment: 'negative' });
   }
 
-  return {
-    speak: result.content,
-    gather: !result.transferTo && !result.hangup,
-    transferTo: result.transferTo,
-    hangup: result.hangup,
-  };
+  return { speak, gather: true, hangup: false };
 }
 
 function detectEscalation(text: string): boolean {
@@ -316,21 +384,37 @@ export async function handlePhoneOutboundWebhook(req: IncomingMessage, res: Serv
   const provider = getTelephonyProvider(config);
   const callId = url.searchParams.get('callId') ?? `out-${Date.now()}`;
   const template = (url.searchParams.get('template') ?? 'lead_callback') as OutboundCampaignTemplate;
-  const script = OUTBOUND_CAMPAIGN_SCRIPTS[template];
 
+  const raw = await readBody(req);
+  const body = parseBody(raw, req.headers['content-type'] ?? '');
+  const to = String(body.to ?? '');
+  const from = String(body.from ?? config.fromNumber ?? '');
+
+  const existing = getCallById(callId);
   saveCall({
     id: callId,
     direction: 'outbound',
     status: 'in_progress',
     campaignTemplate: template,
-    transcript: [],
-    startedAt: new Date().toISOString(),
+    to: to || existing?.to,
+    from: from || existing?.from,
+    transcript: Array.isArray(existing?.transcript) ? existing?.transcript as unknown[] : [],
+    startedAt: (existing?.startedAt as string) ?? new Date().toISOString(),
   });
 
-  const greeting = `${script.greeting} ${script.purpose}`;
-  appendCallTurn(callId, { role: 'agent', content: greeting });
+  const event: CallEvent = {
+    type: 'call_started',
+    callId,
+    from,
+    to,
+    direction: 'outbound',
+    status: 'in_progress',
+  };
 
-  const built = provider.buildResponse({ speak: greeting, gather: true }, callId, config);
+  // AI opener via tools (no canned script)
+  const response = await processCallTurn(event, undefined);
+
+  const built = provider.buildResponse(response, callId, config);
   res.statusCode = 200;
   res.setHeader('Content-Type', built.contentType);
   res.end(built.body);
@@ -420,26 +504,44 @@ export async function handleCallDetailApi(_req: IncomingMessage, res: ServerResp
 }
 
 export async function handleMockCallApi(req: IncomingMessage, res: ServerResponse) {
-  const body = JSON.parse(await readBody(req));
-  const { from, speech, callId: existingCallId } = body;
+  let body: { from?: string; speech?: string; callId?: string; orgId?: string; to?: string } = {};
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    sendJson(res, 400, { error: 'Invalid JSON' });
+    return;
+  }
+
+  const headerOrgId = resolveOrgIdForRequest(req, body);
+  if (headerOrgId) setRequestOrgId(headerOrgId);
+
+  const { from, speech, callId: existingCallId, to } = body;
   const callId = existingCallId ?? `mock-${Date.now()}`;
 
   const event: CallEvent = {
     type: speech ? 'speech_turn' : 'call_started',
     callId,
     from: String(from ?? '447700900123'),
-    to: '442012345678',
+    to: String(to ?? '442012345678'),
     direction: 'inbound',
     speechResult: speech ? String(speech) : undefined,
   };
 
-  const response = await processCallTurn(event, speech ? String(speech) : undefined);
-
-  sendJson(res, 200, {
-    callId,
-    ...response,
-    call: getCallById(callId),
-  });
+  try {
+    const response = await processCallTurn(event, speech ? String(speech) : undefined);
+    sendJson(res, 200, {
+      callId,
+      ...response,
+      call: getCallById(callId),
+    });
+  } catch (err) {
+    if (err instanceof OpenAIConnectionError) {
+      sendJson(res, 503, { error: err.message, code: err.code });
+      return;
+    }
+    const message = err instanceof Error ? err.message : 'Mock call failed';
+    sendJson(res, 500, { error: message });
+  }
 }
 
 export async function handlePhoneRoutes(

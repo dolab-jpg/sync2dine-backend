@@ -4,10 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch server/index.ts",
-    "start": "tsx server/index.ts",
+    "dev": "tsx watch --env-file=.env server/index.ts",
+    "start": "tsx --env-file=.env server/index.ts",
+    "sip-bridge:dev": "node --env-file=.env sip-bridge/server.js",
+    "sip-bridge:start": "node --env-file=.env sip-bridge/server.js",
     "gen:types": "tsx scripts/gen-types.ts",
     "migrate": "tsx scripts/migrate-to-supabase.ts",
+    "seed:accounts": "tsx --env-file=.env scripts/seed-real-accounts.ts",
     "supabase:start": "npx supabase start",
     "supabase:stop": "npx supabase stop",
     "supabase:push": "npx supabase db push",
@@ -23,9 +26,12 @@
     "jsonwebtoken": "^9.0.3",
     "mailparser": "^3.9.14",
     "mongodb": "^7.3.0",
+    "nat-upnp": "^1.1.1",
     "nodemailer": "^9.0.1",
     "openai": "^4.104.0",
-    "stripe": "^18.5.0"
+    "pdf-lib": "^1.17.1",
+    "stripe": "^18.5.0",
+    "stun": "^2.1.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
