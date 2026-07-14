@@ -339,9 +339,14 @@ export function executeSearchLeads(
   const results = customers
     .filter((c) => {
       const status = String(c.status ?? '').toLowerCase();
-      const isLead = status === 'lead' || status === 'quoted' || Boolean(c.source);
-      if (!isLead && !query) return false;
       if (statusFilter && status !== statusFilter) return false;
+      const isLead =
+        status === 'lead'
+        || status === 'quoted'
+        || status === 'won'
+        || status === 'lost'
+        || Boolean(c.source);
+      if (!isLead && !query) return false;
       if (sourceFilter && String(c.source ?? '').toLowerCase() !== sourceFilter) return false;
       if (!query) return true;
       return (
