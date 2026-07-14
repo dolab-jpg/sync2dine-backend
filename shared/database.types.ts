@@ -43,12 +43,29 @@ export type Database = {
           org_id: string | null
           name: string
           email: string
+          username: string | null
           role: 'platform_owner' | 'super_admin' | 'manager' | 'staff' | 'builder' | 'recruitment' | 'customer'
           created_at: string
           updated_at: string
         }
         Insert: Partial<Database['public']['Tables']['profiles']['Row']> & { id: string; email: string }
         Update: Partial<Database['public']['Tables']['profiles']['Row']>
+      }
+      org_invites: {
+        Row: {
+          id: string
+          token: string
+          org_id: string
+          email: string
+          role: 'platform_owner' | 'super_admin' | 'manager' | 'staff' | 'builder' | 'recruitment' | 'customer'
+          invited_by: string | null
+          expires_at: string
+          accepted_at: string | null
+          user_id: string | null
+          created_at: string
+        }
+        Insert: Partial<Database['public']['Tables']['org_invites']['Row']> & { token: string; org_id: string; email: string; role: Database['public']['Tables']['org_invites']['Row']['role'] }
+        Update: Partial<Database['public']['Tables']['org_invites']['Row']>
       }
       customers: {
         Row: { id: string; org_id: string; data: Json; created_at: string; updated_at: string }

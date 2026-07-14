@@ -101,6 +101,9 @@ export async function handleAuthRoutes(
   res: ServerResponse,
   pathname: string,
 ): Promise<boolean> {
+  const { handleAccountAuthRoutes } = await import('./account-auth.js');
+  if (await handleAccountAuthRoutes(req, res, pathname)) return true;
+
   if (pathname === '/api/auth/login' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req));
     const result = loginUser(String(body.email ?? ''), String(body.password ?? ''));
