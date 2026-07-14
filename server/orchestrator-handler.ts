@@ -655,7 +655,7 @@ const FOREMAN_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'sendContractorBrief',
-      description: 'Send a scoped brief to a subcontractor by contractorId or tradeId',
+      description: 'Send a scoped brief to a subcontractor. Provide either contractorId or tradeId (at least one required).',
       parameters: {
         type: 'object',
         properties: {
@@ -666,10 +666,6 @@ const FOREMAN_TOOLS = [
           channels: { type: 'array', items: { type: 'string' } },
         },
         required: ['body', 'channels'],
-        anyOf: [
-          { required: ['contractorId'] },
-          { required: ['tradeId'] },
-        ],
       },
     },
   },
