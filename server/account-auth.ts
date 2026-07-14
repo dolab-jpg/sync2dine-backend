@@ -528,6 +528,95 @@ export async function handleAccountAuthRoutes(
       return true;
     }
 
+    if (pathname === '/api/auth/customers' && req.method === 'POST') {
+      const profile = await getProfileByBearer(req);
+      const allowedRoles = ['super_admin', 'platform_owner', 'manager', 'staff'];
+      if (!profile || !allowedRoles.includes(String(profile.role))) {
+        sendJson(res, 401, { error: 'Unauthorized' });
+        return true;
+      }
+      const body = JSON.parse(await readBody(req)) as {
+        name?: string;
+        email?: string;
+        password?: string;
+        username?: string;
+        orgId?: string;
+      };
+      const name = String(body.name ?? '').trim();
+      const email = String(body.email ?? '').trim().toLowerCase();
+      const password = String(body.password ?? '');
+      if (!name || !email.includes('@')) {
+        sendJson(res, 400, { error: 'Name and a valid email are required' });
+        return true;
+      }
+      if (password.length < 8) {
+        sendJson(res, 400, { error: 'Password must be at least 8 characters' });
+        return true;
+      }
+      const orgId =
+        profile.role === 'platform_owner' && body.orgId?.trim()
+          ? body.orgId.trim()
+          : (profile.org_id as string | null);
+      if (!orgId) {
+        sendJson(res, 400, { error: 'Organization is required' });
+        return true;
+      }
+
+      const supabase = getSupabaseAdmin();
+      const { data: existingEmail } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle();
+      if (existingEmail) {
+        sendJson(res, 409, { error: 'An account with this email already exists' });
+        return true;
+      }
+
+      let username = normalizeUsername(String(body.username ?? ''));
+      if (username) {
+        const usernameError = validateUsername(username);
+        if (usernameError) {
+          sendJson(res, 400, { error: usernameError });
+          return true;
+        }
+        if (await usernameTaken(username)) {
+          sendJson(res, 409, { error: 'Username is already taken' });
+          return true;
+        }
+      } else {
+        // Auto-generate a unique username from the email prefix
+        let base = normalizeUsername(email.split('@')[0])
+          .replace(/[^a-z0-9._-]/g, '.')
+          .replace(/\.{2,}/g, '.')
+          .replace(/^[._-]+|[._-]+$/g, '')
+          .slice(0, 24);
+        if (base.length < 3) base = `customer.${base}`.slice(0, 24).replace(/[._-]+$/g, '');
+        if (base.length < 3) base = 'customer';
+        username = base;
+        while (await usernameTaken(username)) {
+          username = `${base}.${Math.floor(1000 + Math.random() * 9000)}`;
+        }
+      }
+
+      try {
+        const user = await createAuthUser({
+          email,
+          password,
+          name,
+          username,
+          role: 'customer',
+          orgId,
+        });
+        sendJson(res, 201, {
+          user: { id: user.id, email, name, username, role: 'customer', org_id: orgId },
+        });
+      } catch (err) {
+        sendJson(res, 500, { error: err instanceof Error ? err.message : 'Failed to create customer login' });
+      }
+      return true;
+    }
+
     if (pathname === '/api/auth/username-available' && req.method === 'GET') {
       const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
       const username = normalizeUsername(url.searchParams.get('username') ?? '');
