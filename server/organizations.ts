@@ -294,6 +294,7 @@ export async function ensureOrgOpenAIKeyLoaded(orgId: string): Promise<void> {
 }
 
 export interface CreateOrganizationInput {
+  id?: string;
   name: string;
   contactName: string;
   contactEmail: string;
@@ -315,8 +316,13 @@ export function createOrganization(input: CreateOrganizationInput): Organization
     ? new Date(Date.now() + (input.trialDays ?? 14) * 86400000).toISOString()
     : undefined;
 
+  if (input.id?.trim()) {
+    const existing = getOrganizationById(input.id.trim());
+    if (existing) return existing;
+  }
+
   const org: Organization = {
-    id: `org_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    id: input.id?.trim() || `org_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
     name: input.name.trim(),
     contactName: input.contactName.trim(),
     contactEmail: input.contactEmail.trim(),

@@ -94,6 +94,89 @@ export async function handlePlatformRoutes(
 
   if (pathname === '/api/platform/organizations' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req));
+    const adminPassword = String(body.adminPassword ?? '').trim();
+    if (!adminPassword || adminPassword.length < 8) {
+      sendJson(res, 400, { error: 'Main user password is required (min 8 characters)' });
+      return true;
+    }
+    if (!String(body.name ?? '').trim() || !String(body.contactEmail ?? '').trim()) {
+      sendJson(res, 400, { error: 'Company name and contact email are required' });
+      return true;
+    }
+
+    const {
+      canProvisionViaSupabase,
+      provisionOrganizationInSupabase,
+      mapSupabaseOrgToApi,
+    } = await import('./provision-org.js');
+
+    if (canProvisionViaSupabase()) {
+      try {
+        const provisioned = await provisionOrganizationInSupabase({
+          name: body.name,
+          contactName: body.contactName,
+          contactEmail: body.contactEmail,
+          contactPhone: body.contactPhone,
+          address: body.address,
+          plan: body.plan,
+          monthlyTokenCap: body.monthlyTokenCap,
+          notes: body.notes,
+          adminPassword,
+        });
+        const organization = mapSupabaseOrgToApi(provisioned.organization);
+
+        try {
+          createOrganization({
+            id: organization.id,
+            name: body.name,
+            contactName: body.contactName || body.name,
+            contactEmail: body.contactEmail,
+            contactPhone: body.contactPhone || '',
+            address: body.address,
+            plan: body.plan as OrgPlan,
+            status: 'trial',
+            openaiApiKey: body.openaiApiKey,
+            monthlyTokenCap: body.monthlyTokenCap,
+            notes: body.notes,
+            trialDays: body.trialDays,
+          });
+        } catch {
+          // non-fatal
+        }
+
+        if (body.sendInviteEmail) {
+          try {
+            const { sendOrgInviteEmail } = await import('./email-service');
+            await sendOrgInviteEmail({
+              id: organization.id,
+              name: organization.name,
+              contactName: organization.contactName,
+              contactEmail: organization.contactEmail,
+              contactPhone: organization.contactPhone,
+              status: organization.status as OrgStatus,
+              plan: organization.plan as OrgPlan,
+              openaiApiKeyEncrypted: '',
+              monthlyTokenCap: organization.monthlyTokenCap,
+              createdAt: organization.createdAt,
+              updatedAt: organization.updatedAt,
+            });
+          } catch {
+            // non-fatal
+          }
+        }
+
+        sendJson(res, 201, {
+          organization,
+          mainUserEmail: provisioned.mainUserEmail,
+          mainUserCreated: true,
+        });
+        return true;
+      } catch (err) {
+        sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+        return true;
+      }
+    }
+
     const org = createOrganization({
       name: body.name,
       contactName: body.contactName,
@@ -108,16 +191,14 @@ export async function handlePlatformRoutes(
       trialDays: body.trialDays,
     });
 
-    if (body.adminPassword && String(body.adminPassword).trim()) {
-      const { createUser } = await import('./users');
-      createUser({
-        orgId: org.id,
-        name: body.contactName || body.name,
-        email: body.contactEmail,
-        password: String(body.adminPassword),
-        role: 'super_admin',
-      });
-    }
+    const { createUser } = await import('./users');
+    createUser({
+      orgId: org.id,
+      name: body.contactName || body.name,
+      email: body.contactEmail,
+      password: adminPassword,
+      role: 'super_admin',
+    });
 
     if (body.createStripeSubscription) {
       try {
@@ -126,6 +207,8 @@ export async function handlePlatformRoutes(
       } catch (err) {
         sendJson(res, 201, {
           organization: enrichOrg(org),
+          mainUserEmail: String(body.contactEmail).trim().toLowerCase(),
+          mainUserCreated: true,
           stripeWarning: err instanceof Error ? err.message : String(err),
         });
         return true;
@@ -142,7 +225,11 @@ export async function handlePlatformRoutes(
     }
 
     const refreshed = getOrganizationById(org.id);
-    sendJson(res, 201, { organization: enrichOrg(refreshed ?? org) });
+    sendJson(res, 201, {
+      organization: enrichOrg(refreshed ?? org),
+      mainUserEmail: String(body.contactEmail).trim().toLowerCase(),
+      mainUserCreated: true,
+    });
     return true;
   }
 
