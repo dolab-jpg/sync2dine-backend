@@ -77,3 +77,6 @@ export function buildTradePlaybookPrompt(): string {
 export function isValidServerTradeId(id: string): id is ServerTradeId {
   return TRADE_REGISTRY.some(t => t.id === id);
 }
+
+/** Comma-separated trade ids for OpenAI tool descriptions (avoid enum on parameters). */
+export const TRADE_IDS_CSV = TRADE_REGISTRY.map((t) => t.id).join(', ');

@@ -3,6 +3,7 @@ import {
   TRADE_EXTRACTABLE_FIELDS,
   TRADE_PLAYBOOK_PHASES,
   TRADE_REGISTRY,
+  TRADE_IDS_CSV,
 } from './trade-registry';
 import { getDataStore } from './data-store';
 import {
@@ -122,7 +123,10 @@ const STAFF_TOOLS = [
             items: {
               type: 'object',
               properties: {
-                tradeId: { type: 'string', enum: TRADE_REGISTRY.map(t => t.id) },
+                tradeId: {
+                  type: 'string',
+                  description: `Trade id. One of: ${TRADE_IDS_CSV}`,
+                },
                 confidence: { type: 'number' },
                 reason: { type: 'string' },
               },
@@ -655,13 +659,17 @@ const FOREMAN_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'sendContractorBrief',
-      description: 'Send a scoped brief to a subcontractor. Provide either contractorId or tradeId (at least one required).',
+      description:
+        `Send a scoped brief to a subcontractor. Provide either contractorId or tradeId (at least one required). tradeId must be one of: ${TRADE_IDS_CSV}.`,
       parameters: {
         type: 'object',
         properties: {
           projectId: { type: 'string' },
           contractorId: { type: 'string' },
-          tradeId: { type: 'string', enum: TRADE_REGISTRY.map(t => t.id) },
+          tradeId: {
+            type: 'string',
+            description: `Trade id when contractorId is unknown. One of: ${TRADE_IDS_CSV}`,
+          },
           body: { type: 'string' },
           channels: { type: 'array', items: { type: 'string' } },
         },
@@ -1267,6 +1275,35 @@ const NAVIGATION_TOOLS = [
   },
 ];
 
+const FORBIDDEN_TOP_LEVEL_SCHEMA_KEYS = new Set([
+  'oneOf', 'anyOf', 'allOf', 'enum', 'const', 'not',
+]);
+
+/** Ensure OpenAI function parameters are a plain object schema (no top-level combinators). */
+export function sanitizeToolsForOpenAI<T extends { type: 'function'; function: { name: string; parameters?: Record<string, unknown> } }>(
+  tools: T[],
+): T[] {
+  return tools.map((tool) => {
+    const parameters = { ...(tool.function.parameters ?? {}) } as Record<string, unknown>;
+    for (const key of FORBIDDEN_TOP_LEVEL_SCHEMA_KEYS) {
+      delete parameters[key];
+    }
+    if (parameters.type !== 'object') {
+      parameters.type = 'object';
+    }
+    if (!parameters.properties || typeof parameters.properties !== 'object') {
+      parameters.properties = {};
+    }
+    return {
+      ...tool,
+      function: {
+        ...tool.function,
+        parameters,
+      },
+    };
+  });
+}
+
 function getToolsForMode(mode: OrchestratorMode, body?: OrchestratorRequest) {
   const hasProject = Boolean(body?.projectContext?.projectId);
   const planning = hasPlanningContext(body);
@@ -1303,7 +1340,7 @@ function getToolsForMode(mode: OrchestratorMode, body?: OrchestratorRequest) {
       // #endregion
     }
   }
-  return tools;
+  return sanitizeToolsForOpenAI(tools);
 }
 
 const AUTO_ACTION_NAMES = new Set([
