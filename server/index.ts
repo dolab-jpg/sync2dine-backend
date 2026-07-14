@@ -89,4 +89,5 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, async () => {
   await initDataFromSupabase();
   console.log(`TradePro API server running on port ${PORT}`);
+  void import('./code-fix-handler').then(({ startCodeFixWorker }) => startCodeFixWorker());
 });

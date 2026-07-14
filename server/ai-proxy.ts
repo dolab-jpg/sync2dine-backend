@@ -43,6 +43,12 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
     return;
   }
 
+  if (pathname.startsWith('/api/ai/code-fix')) {
+    const { handleCodeFixRoutes } = await import('./code-fix-handler');
+    await handleCodeFixRoutes(req, res, pathname);
+    return;
+  }
+
   if (req.method !== 'POST') {
     sendJson(res, 405, { error: 'Method not allowed' });
     return;
