@@ -299,15 +299,15 @@ export async function handleRealtimeTool(
     if (CUSTOMER_TOOL_NAMES.has(name)) {
       output = executeCustomerTool(name, args, orchBody);
     } else if (STAFF_READ_TOOL_NAMES.has(name) || SERVER_READ_TOOLS.has(name)) {
-      output = executeServerReadTool(name, args, orchBody);
-    } else if (PHONE_AUTO_ACTIONS.has(name) || name.startsWith('book') || name.startsWith('capture')) {
-      output = executePhoneTool(name, args, orchBody);
+      output = await executeServerReadTool(name, args, orchBody);
+    } else if (PHONE_AUTO_ACTIONS.has(name) || name.startsWith('book') || name.startsWith('capture') || name === 'saveQuote' || name === 'sendCustomerMessage') {
+      output = await executePhoneTool(name, args, orchBody);
     } else {
       const customerTry = executeCustomerTool(name, args, orchBody);
       if (customerTry && !('error' in customerTry && String(customerTry.error).includes('Unknown'))) {
         output = customerTry;
       } else {
-        output = executePhoneTool(name, args, orchBody);
+        output = await executePhoneTool(name, args, orchBody);
       }
     }
   } catch (err) {

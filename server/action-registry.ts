@@ -43,6 +43,8 @@ export const PHONE_ACTION_REGISTRY: ActionRegistryEntry[] = [
   { name: 'bookCallback', channels: ['vapi_phone', 'realtime_phone'], roles: ['staff', 'manager', 'super_admin', 'customer'], risk: 'low_write', requiresPin: true, requiresConfirmation: false, idempotent: false },
   { name: 'scheduleAppointment', channels: ['vapi_phone', 'realtime_phone'], roles: ['staff', 'manager', 'super_admin'], risk: 'low_write', requiresPin: true, requiresConfirmation: false, idempotent: false },
   { name: 'captureLead', channels: ['vapi_phone', 'realtime_phone'], roles: ['staff', 'manager', 'super_admin', 'customer'], risk: 'low_write', requiresPin: false, requiresConfirmation: false, idempotent: false },
+  { name: 'saveQuote', channels: ['vapi_phone', 'realtime_phone', 'cynthia_chat'], roles: ['staff', 'manager', 'super_admin'], risk: 'low_write', requiresPin: true, requiresConfirmation: false, idempotent: false },
+  { name: 'sendCustomerMessage', channels: ['vapi_phone', 'realtime_phone'], roles: ['staff', 'manager', 'super_admin'], risk: 'outbound', requiresPin: true, requiresConfirmation: false, idempotent: false },
   { name: 'classifyCallIntent', channels: ['vapi_phone', 'realtime_phone'], roles: ['staff', 'manager', 'super_admin', 'customer'], risk: 'read', requiresPin: false, requiresConfirmation: false, idempotent: true },
   { name: 'escalateToStaff', channels: ['vapi_phone', 'realtime_phone', 'cynthia_chat'], roles: ['staff', 'manager', 'super_admin', 'customer'], risk: 'low_write', requiresPin: true, requiresConfirmation: false, idempotent: false },
   { name: 'requestCodeFix', channels: ['cynthia_chat'], roles: ['manager', 'super_admin'], risk: 'destructive', requiresPin: false, requiresConfirmation: true, idempotent: false },

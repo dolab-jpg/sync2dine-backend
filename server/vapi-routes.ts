@@ -435,7 +435,7 @@ async function executeTool(
         userId: identity.userId,
         identityBound: isIdentityBound(identity),
         hint: isIdentityBound(identity)
-          ? 'Unlocked. Use getBusinessSnapshot for company totals, searchCustomers/getAccountBriefing for a customer, searchProjects for projects, getTeamPerformance for staff, sendToStaffCynthia when they say send it to me. Speak real CRM answers — do not say you cannot access data.'
+          ? 'Unlocked. Use getBusinessSnapshot, searchCustomers (query list), searchQuotes, lookupQuote, getTeamPerformance, saveQuote, sendCustomerMessage, sendToStaffCynthia, bookCallback. Prefer spokenTotal/spokenHint for money. Speak real CRM answers — do not say you cannot access data.'
           : 'PIN accepted but this phone is not bound to a profiles.id — ask an admin to fix Team registration before CRM tools work.',
       };
     }
@@ -520,7 +520,11 @@ function persistTranscriptTurn(
 ) {
   const trimmed = text.trim();
   if (!trimmed) return;
-  const resolved = resolveContactByPhone(partyPhone);
+  const identity = resolvePhoneCallerIdentity(partyPhone);
+  const isStaffParty = identity.kind === 'staff' || identity.kind === 'foreman';
+  const resolved = isStaffParty
+    ? { customerId: null as string | null, customerName: identity.name || '', contactName: identity.name || '' }
+    : resolveContactByPhone(partyPhone);
   const turnRole = role === 'user' ? 'caller' : 'agent';
   appendCallTurn(callId, { role: turnRole, content: trimmed });
   appendConversationMessage(
@@ -534,20 +538,21 @@ function persistTranscriptTurn(
     },
     {
       channel: 'phone',
-      contactName: resolved.customerName || resolved.contactName,
+      contactName: resolved.customerName || resolved.contactName || identity.name,
     },
   );
   const updated = getCallById(callId);
   if (updated) {
     saveCall({
       id: callId,
-      contactName: resolved.customerName || resolved.contactName,
-      customerId: resolved.customerId,
+      contactName: resolved.customerName || resolved.contactName || identity.name,
+      customerId: resolved.customerId || undefined,
       sentiment: computeCallSentiment(updated),
       durationSec: computeCallDurationSec(updated),
     });
   }
-  if (resolved.customerId && role === 'user') {
+  // Never append staff handset chatter onto a CRM customer row that shares the same phone.
+  if (!isStaffParty && resolved.customerId && role === 'user') {
     appendCustomerCallActivity({
       customerId: resolved.customerId,
       callId,

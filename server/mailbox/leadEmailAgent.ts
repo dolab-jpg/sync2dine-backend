@@ -207,7 +207,10 @@ export async function runLeadEmailAgent(
     const phoneResults: Array<{ action: string; executed: boolean; output: Record<string, unknown>; summary: string }> = [];
     for (const action of filtered) {
       if (action.action === 'enqueueOutboundCall' && policy === 'outbound_first') {
-        const output = executePhoneTool('enqueueOutboundCall', action.input, orchestratorBody);
+        const output = await executePhoneTool('enqueueOutboundCall', {
+          ...action.input,
+          confirmed: true,
+        }, orchestratorBody);
         phoneResults.push({
           action: action.action,
           executed: true,

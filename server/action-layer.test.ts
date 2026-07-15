@@ -91,6 +91,8 @@ async function run() {
   console.log('action-layer.test.ts');
 
   check('sendToStaffCynthia in STAFF_PHONE_TOOL_NAMES', STAFF_PHONE_TOOL_NAMES.includes('sendToStaffCynthia' as typeof STAFF_PHONE_TOOL_NAMES[number]));
+  check('saveQuote in STAFF_PHONE_TOOL_NAMES', STAFF_PHONE_TOOL_NAMES.includes('saveQuote' as typeof STAFF_PHONE_TOOL_NAMES[number]));
+  check('sendCustomerMessage in STAFF_PHONE_TOOL_NAMES', STAFF_PHONE_TOOL_NAMES.includes('sendCustomerMessage' as typeof STAFF_PHONE_TOOL_NAMES[number]));
   check('sendToStaffCynthia not pre-auth', !PRE_AUTH_PHONE_TOOLS.has('sendToStaffCynthia'));
 
   const identity = staffIdentity();

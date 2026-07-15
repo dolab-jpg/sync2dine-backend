@@ -1,5 +1,6 @@
 import { getDataStore, resolveContactByPhone, appendCustomerCallActivity } from './data-store';
 import { getOfficeTeamCounts, getOfficeTeamRoster, getTopPerformer } from './team-snapshot';
+import { listTeamMembers } from './conversation-store';
 import type { OrchestratorRequest } from './orchestrator-types';
 import { getRequestRole } from './role-permissions';
 import {
@@ -11,6 +12,8 @@ import {
   type DataCollection,
   SENSITIVE_FIELD_KEYS,
 } from './dataPolicy';
+import { formatSpokenGbp, withSpokenMoney } from './spoken-money';
+import { lookupQuotesFromStore } from './quote-lookup';
 
 const SENSITIVE_KEYS = SENSITIVE_FIELD_KEYS;
 
@@ -134,17 +137,24 @@ export function executeCustomerTool(
     const openQuotes = (Array.isArray(store.quotes) ? store.quotes as Array<Record<string, unknown>> : [])
       .filter((q) => customerId && String(q.customerId) === customerId)
       .slice(0, 3)
-      .map((q) => ({
-        quoteId: String(q.id),
-        total: Number(q.total ?? q.totalCustomerCost ?? 0),
-        status: String(q.status ?? 'unknown'),
-      }));
+      .map((q) => {
+        const total = Number(q.total ?? q.totalCustomerCost ?? 0);
+        return {
+          quoteId: String(q.id),
+          total,
+          spokenTotal: formatSpokenGbp(total),
+          status: String(q.status ?? 'unknown'),
+        };
+      });
 
     const name = firstString(customer?.name, contactName) ?? 'the customer';
     const active = projects.find((p) => p.status !== 'completed') ?? projects[0];
+    const quoteHint = openQuotes[0]
+      ? ` Latest quote totals ${openQuotes[0].spokenTotal}.`
+      : '';
     const spokenHint = active
-      ? `${name} has project "${active.projectName}" currently ${active.status.replace(/_/g, ' ')}${active.address ? ` at ${active.address}` : ''}.`
-      : `${name} is on file${openQuotes.length ? ` with ${openQuotes.length} quote(s)` : ''}.`;
+      ? `${name} has project "${active.projectName}" currently ${active.status.replace(/_/g, ' ')}${active.address ? ` at ${active.address}` : ''}.${quoteHint}`
+      : `${name} is on file${openQuotes.length ? ` with ${openQuotes.length} quote(s)` : ''}.${quoteHint}`;
 
     return {
       found: Boolean(customerId),
@@ -175,30 +185,44 @@ export function executeCustomerTool(
   }
 
   if (name === 'lookupQuote') {
-    const matches = projects.filter((project) => {
-      const quoteId = firstString(project.quoteId);
-      const customerId = firstString(project.customerId);
-      if (requestedQuoteId && quoteId === requestedQuoteId) return true;
-      if (requestedCustomerId && customerId === requestedCustomerId) return true;
-      return false;
-    }).map((project) => ({
-      quoteId: firstString(project.quoteId),
-      customerId: firstString(project.customerId),
-      customerName: firstString(project.customerName),
-      projectId: firstString(project.id),
-      projectName: firstString(project.projectName),
-      tradeName: firstString(project.tradeName, project.tradeId),
-      total: Number(project.totalCustomerCost ?? 0),
-      projectStatus: firstString(project.status) ?? 'unknown',
-    }));
-
+    const fromStore = lookupQuotesFromStore({
+      quoteId: requestedQuoteId ?? null,
+      customerId: requestedCustomerId ?? null,
+    });
+    const customerNameQ = firstString(input.customerName, input.name)?.toLowerCase();
+    let quotes = (fromStore.quotes as Array<Record<string, unknown>>).map((q) =>
+      withSpokenMoney({
+        ...q,
+        total: Number(q.total ?? 0),
+      }),
+    );
+    if (!quotes.length && customerNameQ) {
+      const storeQuotes = (getDataStore().quotes ?? []) as Array<Record<string, unknown>>;
+      quotes = storeQuotes
+        .filter((q) => String(q.customerName ?? '').toLowerCase().includes(customerNameQ))
+        .slice(0, 5)
+        .map((q) => withSpokenMoney({
+          quoteId: String(q.id ?? ''),
+          customerId: String(q.customerId ?? ''),
+          customerName: String(q.customerName ?? ''),
+          tradeName: String(q.tradeName ?? q.tradeId ?? ''),
+          status: String(q.status ?? 'draft'),
+          total: Number(q.total ?? q.totalCustomerCost ?? 0),
+        }));
+    }
+    const top = quotes[0];
+    const spokenHint = top
+      ? `${String(top.customerName || 'That')} ${String(top.tradeName || 'quote')} is ${String(top.spokenTotal)}.`
+      : 'No matching quotes found.';
     return {
-      count: matches.length,
+      count: quotes.length,
       query: {
         quoteId: requestedQuoteId ?? null,
         customerId: requestedCustomerId ?? null,
+        customerName: customerNameQ ?? null,
       },
-      quotes: matches,
+      quotes,
+      spokenHint,
     };
   }
 
@@ -254,6 +278,7 @@ function searchCustomersServer(
   limit: number
 ) {
   const q = query.trim();
+  const browse = !q || /^(all|list|browse|customers?|everyone|recent)$/i.test(q);
   const storeCustomers = (getDataStore().customers as Array<Record<string, unknown>> || []).map((c) => ({
     id: String(c.id ?? ''),
     name: String(c.name ?? ''),
@@ -261,20 +286,29 @@ function searchCustomersServer(
     phone: String(c.phone ?? ''),
   }));
   const list = (customers?.length ? customers : storeCustomers) ?? [];
-  if (!q || !list.length) return [];
-  return list
-    .filter((c) =>
+  if (!list.length) return { results: [] as Array<Record<string, unknown>>, hasMore: false, total: 0 };
+
+  const matched = browse
+    ? list
+    : list.filter((c) =>
       includesQuery(c.name, q)
       || includesQuery(c.email, q)
       || includesQuery(c.phone, q)
-    )
-    .slice(0, limit)
-    .map((c) => ({
-      id: c.id,
-      title: c.name,
-      subtitle: `${c.email} • ${c.phone}`,
-      route: '/crm',
-    }));
+    );
+  const slice = matched.slice(0, limit).map((c) => ({
+    id: c.id,
+    title: c.name,
+    name: c.name,
+    subtitle: `${c.email} • ${c.phone}`,
+    phone: c.phone,
+    email: c.email,
+    route: '/crm',
+  }));
+  return {
+    results: slice,
+    hasMore: matched.length > slice.length,
+    total: matched.length,
+  };
 }
 
 function searchQuotesServer(
@@ -283,6 +317,7 @@ function searchQuotesServer(
   limit: number
 ) {
   const q = query.trim().toLowerCase();
+  const browse = !q || /^(all|list|browse|quotes?|recent|latest)$/i.test(q);
   const storeQuotes = (Array.isArray(getDataStore().quotes) ? getDataStore().quotes as Array<Record<string, unknown>> : [])
     .map((quote) => ({
       id: String(quote.id ?? ''),
@@ -292,21 +327,34 @@ function searchQuotesServer(
       status: String(quote.status ?? ''),
     }));
   const list = (quotes?.length ? quotes : storeQuotes) ?? [];
-  if (!q || !list.length) return [];
-  return list
-    .filter((quote) =>
+  if (!list.length) return { results: [] as Array<Record<string, unknown>>, hasMore: false, total: 0 };
+  const matched = browse
+    ? list
+    : list.filter((quote) =>
       quote.id.toLowerCase().includes(q)
       || quote.customerName.toLowerCase().includes(q)
       || (quote.tradeName ?? '').toLowerCase().includes(q)
       || quote.status.toLowerCase().includes(q)
-    )
-    .slice(0, limit)
-    .map((quote) => ({
+    );
+  const slice = matched.slice(0, limit).map((quote) => {
+    const spokenTotal = formatSpokenGbp(quote.total);
+    return {
       id: quote.id,
       title: `${quote.id} • ${quote.customerName}`,
-      subtitle: `${quote.tradeName ?? 'Trade'} • £${quote.total} • ${quote.status}`,
+      subtitle: `${quote.tradeName ?? 'Trade'} • ${spokenTotal} • ${quote.status}`,
+      customerName: quote.customerName,
+      tradeName: quote.tradeName,
+      total: quote.total,
+      spokenTotal,
+      status: quote.status,
       route: '/quotes',
-    }));
+    };
+  });
+  return {
+    results: slice,
+    hasMore: matched.length > slice.length,
+    total: matched.length,
+  };
 }
 
 function searchProjectsServer(query: string, limit: number, status?: string) {
@@ -385,6 +433,17 @@ export function executeBusinessSnapshot(body: OrchestratorRequest): Record<strin
       const st = String(p.status ?? '').toLowerCase();
       return st && st !== 'completed' && st !== 'cancelled' && st !== 'canceled';
     });
+  const recentQuotes = quotes.slice(0, 10).map((q) => {
+    const total = Number(q.total ?? 0);
+    return {
+      ...q,
+      total,
+      spokenTotal: formatSpokenGbp(total),
+    };
+  });
+  const highest = [...quotes].sort((a, b) => Number(b.total ?? 0) - Number(a.total ?? 0))[0];
+  const highestSpoken = highest ? formatSpokenGbp(Number(highest.total ?? 0)) : null;
+  const nameList = customers.slice(0, 15).map((c) => c.name).filter(Boolean);
   return {
     customerCount: customers.length,
     quoteCount: quotes.length,
@@ -394,8 +453,17 @@ export function executeBusinessSnapshot(body: OrchestratorRequest): Record<strin
     officeStaffCount: body.businessSnapshot?.officeStaffCount ?? office.officeStaffCount,
     managerCount: body.businessSnapshot?.managerCount ?? office.managerCount,
     salesStaffCount: body.businessSnapshot?.salesStaffCount ?? office.salesStaffCount,
-    recentCustomers: customers.slice(0, 10).map((c) => ({ id: c.id, name: c.name })),
-    recentQuotes: quotes.slice(0, 10),
+    recentCustomers: customers.slice(0, 15).map((c) => ({ id: c.id, name: c.name })),
+    recentQuotes,
+    highestQuote: highest
+      ? {
+          id: highest.id,
+          customerName: highest.customerName,
+          trade: highest.trade,
+          total: Number(highest.total ?? 0),
+          spokenTotal: highestSpoken,
+        }
+      : null,
     activeProjects: activeProjects
       .slice(0, 10)
       .map((p) => ({
@@ -408,7 +476,9 @@ export function executeBusinessSnapshot(body: OrchestratorRequest): Record<strin
       id: String(b.id ?? ''),
       name: String(b.name ?? b.companyName ?? 'Builder'),
     })),
-    spokenHint: `You've got ${customers.length} customers on the books, ${activeProjects.length} open projects, and ${quotes.length} quotes.`,
+    spokenHint: highestSpoken
+      ? `You've got ${customers.length} customers on the books, ${activeProjects.length} open projects, and ${quotes.length} quotes. Highest quote is ${highestSpoken}${highest?.customerName ? ` for ${highest.customerName}` : ''}. Recent customers: ${nameList.slice(0, 8).join(', ')}.`
+      : `You've got ${customers.length} customers on the books, ${activeProjects.length} open projects, and ${quotes.length} quotes. Recent customers: ${nameList.slice(0, 8).join(', ')}.`,
   };
 }
 
@@ -455,23 +525,48 @@ function readLeadCustomers(body: OrchestratorRequest): LeadCustomer[] {
 
 export function executeGetTeamPerformance(body: OrchestratorRequest): Record<string, unknown> {
   const role = getRequestRole(body);
-  if (role !== 'super_admin' && role !== 'manager') {
+  if (role !== 'super_admin' && role !== 'manager' && role !== 'staff') {
     return {
       allowed: false,
-      message: 'Team performance is available to managers and admins only.',
+      message: 'Team roster is available to office staff only.',
+      spokenHint: 'I cannot share the staff roster on this account.',
     };
   }
-  const roster = body.businessSnapshot?.officeTeamRoster
-    ? (body.businessSnapshot.officeTeamRoster as ReturnType<typeof getOfficeTeamRoster>)
-    : getOfficeTeamRoster();
-  const topPerformer = [...roster].sort((a, b) => b.performance.revenue - a.performance.revenue)[0]
-    ?? getTopPerformer();
+  const members = listTeamMembers();
+  const roster = members.map((m) => ({
+    id: m.id,
+    name: m.name,
+    phone: m.phone,
+    role: m.role,
+    hasPhonePin: Boolean(m.phonePinHash),
+  }));
+  // Legacy snapshot roster as fallback when no registered team phones
+  const legacy = getOfficeTeamRoster().map((m) => ({
+    id: m.id,
+    name: m.name,
+    phone: m.phone,
+    role: m.role,
+    hasPhonePin: false,
+  }));
+  const useRoster = roster.length ? roster : legacy;
+  const spokenNames = useRoster
+    .slice(0, 12)
+    .map((m) => `${m.name}, ${String(m.role).replace(/_/g, ' ')}`)
+    .join('; ');
+  const topPerformer = roster.length
+    ? null
+    : ([...getOfficeTeamRoster()].sort((a, b) => b.performance.revenue - a.performance.revenue)[0]
+      ?? getTopPerformer());
   return {
     allowed: true,
-    roster,
+    roster: useRoster,
+    registeredStaffCount: roster.length,
     topPerformer: topPerformer ?? null,
-    managerCount: roster.filter((m) => m.role === 'manager').length,
-    salesStaffCount: roster.filter((m) => m.role === 'staff').length,
+    managerCount: useRoster.filter((m) => m.role === 'manager' || m.role === 'super_admin').length,
+    salesStaffCount: useRoster.filter((m) => m.role === 'staff').length,
+    spokenHint: useRoster.length
+      ? `You've got ${useRoster.length} registered team members: ${spokenNames}.`
+      : 'No registered team members on file yet.',
   };
 }
 
@@ -747,17 +842,37 @@ export async function executeServerReadTool(
   body: OrchestratorRequest
 ): Promise<Record<string, unknown>> {
   const role = getRequestRole(body);
-  const limit = Number(input.limit) || 8;
+  const limit = Number(input.limit) || 15;
   let output: Record<string, unknown>;
 
   if (toolName === 'searchCustomers') {
-    const query = String(input.query ?? '');
-    const results = searchCustomersServer(body.staffContext?.customers, query, limit);
-    output = { query, count: results.length, results };
+    const query = String(input.query ?? 'list');
+    const { results, hasMore, total } = searchCustomersServer(body.staffContext?.customers, query, limit);
+    const names = results.map((r) => String(r.name || r.title || '')).filter(Boolean);
+    output = {
+      query,
+      count: results.length,
+      total,
+      hasMore,
+      results,
+      spokenHint: results.length
+        ? `I found ${total} customer${total === 1 ? '' : 's'}. ${hasMore ? `Here are the first ${results.length}: ` : ''}${names.join(', ')}.`
+        : 'No customers matched that search.',
+    };
   } else if (toolName === 'searchQuotes') {
-    const query = String(input.query ?? '');
-    const results = searchQuotesServer(body.staffContext?.quotes, query, limit);
-    output = { query, count: results.length, results };
+    const query = String(input.query ?? 'list');
+    const { results, hasMore, total } = searchQuotesServer(body.staffContext?.quotes, query, limit);
+    const top = results[0];
+    output = {
+      query,
+      count: results.length,
+      total,
+      hasMore,
+      results,
+      spokenHint: top
+        ? `${String(top.customerName || 'A quote')} for ${String(top.tradeName || 'work')} is ${String(top.spokenTotal)}. ${total > 1 ? `Showing ${results.length} of ${total}.` : ''}`
+        : 'No quotes matched that search.',
+    };
   } else if (toolName === 'searchProjects') {
     const query = String(input.query ?? input.status ?? 'open');
     const results = searchProjectsServer(query, limit, firstString(input.status));

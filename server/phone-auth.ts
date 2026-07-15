@@ -345,6 +345,8 @@ export const STAFF_PHONE_TOOL_NAMES = [
   'bookCallback',
   'scheduleAppointment',
   'captureLead',
+  'saveQuote',
+  'sendCustomerMessage',
   'captureMessage',
   'classifyCallIntent',
   'transferToHuman',
@@ -391,6 +393,8 @@ const BOUND_IDENTITY_TOOLS = new Set([
   'bookCallback',
   'scheduleAppointment',
   'escalateToStaff',
+  'saveQuote',
+  'sendCustomerMessage',
 ]);
 
 export function isIdentityBound(identity: PhoneCallerIdentity): boolean {

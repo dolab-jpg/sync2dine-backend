@@ -495,8 +495,8 @@ export async function executeChannelWrite(
 
   const phoneTools = new Set([
     'classifyCallIntent', 'captureLead', 'bookCallback', 'scheduleAppointment', 'screenCandidate',
-    'bookInterview', 'logCandidate', 'transferToHuman', 'enqueueOutboundCall', 'captureMessage',
-    'sendToStaffCynthia',
+    'bookInterview', 'logCandidate', 'transferToHuman', 'enqueueOutboundCall', 'placeOutboundCall',
+    'captureMessage', 'sendToStaffCynthia', 'saveQuote', 'sendCustomerMessage', 'deliverCallFollowUp',
   ]);
   if (phoneTools.has(action)) {
     const firstStr = (...values: unknown[]): string | undefined => {
@@ -513,7 +513,7 @@ export async function executeChannelWrite(
         output: input,
       };
     }
-    const output = executePhoneTool(
+    const output = await executePhoneTool(
       action,
       {
         ...input,

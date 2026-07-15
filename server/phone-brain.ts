@@ -18,6 +18,7 @@ import {
   type PhoneCallerIdentity,
 } from './phone-auth';
 import { getPack, normalizeLang, SUPPORTED_LANGS, type SupportedLang } from './language-packs';
+import { formatSpokenGbp } from './spoken-money';
 export const REALTIME_PHONE_VOICE_DEFAULT = 'coral'; // female-leaning Realtime voice
 export const REALTIME_PHONE_MODEL_DEFAULT = 'gpt-realtime';
 
@@ -76,12 +77,13 @@ const PHONE_CUSTOMER_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'lookupQuote',
-      description: 'Find quote summaries by quote ID or customer ID',
+      description: 'Find quote summaries by quote ID, customer ID, or customer name. Prefer spokenTotal when answering amounts aloud.',
       parameters: {
         type: 'object',
         properties: {
           quoteId: { type: 'string' },
           customerId: { type: 'string' },
+          customerName: { type: 'string' },
         },
       },
     },
@@ -154,11 +156,11 @@ const PHONE_STAFF_CRM_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'searchCustomers',
-      description: 'Search customers by name, email, phone, or notes — use after PIN unlock for “customer X” / account lookups',
+      description: 'Search or list customers by name, email, or phone. Use query "list" to browse recent customers.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string' },
+          query: { type: 'string', description: 'Name/phone fragment, or "list" / "all" to browse' },
           limit: { type: 'number' },
         },
         required: ['query'],
@@ -212,7 +214,7 @@ const PHONE_STAFF_CRM_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'getTeamPerformance',
-      description: 'List office staff / team roster and sales performance (managers and super_admin)',
+      description: 'List registered team members (name, role, phone) — use for “who’s on the team / staff details”',
       parameters: {
         type: 'object',
         properties: {},
@@ -257,7 +259,8 @@ export function buildAccountBrainContext(
     .filter((q) => String(q.customerId ?? '') === String(resolved.customerId ?? ''))
     .slice(0, 3);
   for (const q of quotes) {
-    lines.push(`Quote ${String(q.id)}: ${String(q.status ?? '')} total ${String(q.total ?? '')}`);
+    const total = Number(q.total ?? 0);
+    lines.push(`Quote ${String(q.id)}: ${String(q.status ?? '')} total ${total} (spoken: ${formatSpokenGbp(total)})`);
   }
   return lines.join('\n');
 }
@@ -351,12 +354,13 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
     persona = [
       `You are Cynthia, TradePro's phone assistant speaking to ${identity.name}, a registered ${roleLabel} colleague.`,
       'Speak British English, warm Cockney-lite, short spoken replies — never American.',
+      'MONEY SPEECH (critical): Never say £, GBP, commas, or digit runs like 5200 or 570000. Prefer each tool result spokenTotal / spokenHint verbatim (e.g. "five thousand two hundred pounds").',
       '',
       'SECURITY — phone PIN:',
       verified
         ? [
           '- This caller has already verified their phone PIN for this call. Proceed with their role tools.',
-          '- For account / customer / project / quote / money / staff questions: ALWAYS call the matching tools (getBusinessSnapshot, searchCustomers, searchProjects, getAccountBriefing, getTeamPerformance, etc.) and speak the real numbers — never say you cannot access CRM.',
+          '- For account / customer / project / quote / money / staff questions: ALWAYS call the matching tools (getBusinessSnapshot, searchCustomers, searchProjects, searchQuotes, lookupQuote, getAccountBriefing, getTeamPerformance, saveQuote, sendCustomerMessage, etc.) and speak the real numbers from spokenHint/spokenTotal — never say you cannot access CRM.',
         ].join('\n')
         : [
           '- They are recognised by caller ID but NOT yet unlocked for privileged CRM tools.',
@@ -370,11 +374,13 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
       identity.kind === 'foreman'
         ? '- Once unlocked: help with site/project status, briefs, and logging — not office approvals or invoices.'
         : [
-          '- Once unlocked: willingly use tools for accounts, customers (by name or phone), projects, quotes, company counts (getBusinessSnapshot), and staff roster (getTeamPerformance).',
+          '- Once unlocked: willingly use tools for accounts, customers (by name or phone — searchCustomers with query "list" to browse), projects, quotes, company counts (getBusinessSnapshot), staff roster (getTeamPerformance), saveQuote for indicative pricing, bookCallback / placeOutboundCall for reminders (valid E.164 only), sendCustomerMessage for WhatsApp, and sendToStaffCynthia for “send it to me”.',
+          '- Creating a lead while YOU are on a staff phone: always pass the customer phone explicitly — never use your own handset number.',
           '- Do not offer vague “I can arrange a report” when a tool can answer — call the tool and summarise the result in one short spoken sentence.',
           '- Your display name is Cynthia. Keep the same voice, accent, and settings.',
           '- When they say “send it to me”, “pop it in the chat”, “message me that”, or similar — call sendToStaffCynthia with title, customerName, phone, address, amount, and a short summary, then confirm you sent it to their Cynthia chat.',
-          '- When they ask you to message or call a customer later, use deliverCallFollowUp (staff Cynthia card always; customer portal message when they have app access; otherwise schedule a callback). Never claim you sent/scheduled something unless the tool succeeded.',
+          '- When they ask you to message a customer: call sendCustomerMessage. If it fails because WhatsApp is not configured, say so clearly — never invent success.',
+          '- When they ask you to call/remind a customer later, use bookCallback or placeOutboundCall with confirmed:true and a real phone number.',
           '- When they ask to hang up or say goodbye, end the call.',
         ].join('\n'),
       '- Offer transferToHuman if they ask for a person or you cannot help.',
@@ -391,7 +397,8 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
       '- Sound like a warm London Cockney / Estuary girl: matey, playful, clear enough for a phone line — never an American accent.',
       '- Soft Cockney flavour in wording is welcome ("lovely", "sorted", "innit" sparingly, "cheers") but do NOT become unintelligible slang.',
       '- NEVER use American spelling or vocabulary ("awesome", "gotta", "schedule a meeting" → prefer "book a chat").',
-      '- UK spelling, GBP (£), UK phone and date formats.',
+      '- UK spelling and UK phone and date formats.',
+      '- MONEY: never speak £ or bare digit amounts — say full pounds in words (prefer tool spokenTotal / spokenHint).',
       '',
       'Tone & style:',
       '- Be properly funny: quick banter, light teasing, self-deprecating asides — every reply can have a smile, without roasting the customer.',
@@ -501,6 +508,8 @@ export function getPhoneSessionChatTools(identity: PhoneCallerIdentity, verified
               'bookCallback',
               'scheduleAppointment',
               'captureLead',
+              'saveQuote',
+              'sendCustomerMessage',
               'classifyCallIntent',
               'sendToStaffCynthia',
               'deliverCallFollowUp',

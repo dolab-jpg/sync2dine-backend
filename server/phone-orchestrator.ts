@@ -87,7 +87,7 @@ export async function handlePhoneTurn(body: PhoneOrchestratorRequest): Promise<{
     executePhoneTool('classifyCallIntent', { intent: 'complaint', confidence: 0.95 }, {
       messages,
       callContext: callContext as OrchestratorRequest['callContext'],
-    });
+    }).catch(() => {});
     toolsUsed.push('escalateToStaff', 'classifyCallIntent');
     return {
       content: "I'm really sorry to hear that. Let me get someone from the team to help you right away. Can I take your name and the best number to reach you on?",
@@ -99,7 +99,7 @@ export async function handlePhoneTurn(body: PhoneOrchestratorRequest): Promise<{
 
   const detectedIntent = detectIntentFromSpeech(lastMessage);
   if (detectedIntent !== 'general' && !callContext.intent) {
-    executePhoneTool('classifyCallIntent', { intent: detectedIntent, confidence: 0.75 }, {
+    void executePhoneTool('classifyCallIntent', { intent: detectedIntent, confidence: 0.75 }, {
       messages,
       callContext: callContext as OrchestratorRequest['callContext'],
     });
@@ -157,7 +157,7 @@ export async function handlePhoneTurn(body: PhoneOrchestratorRequest): Promise<{
       if (CUSTOMER_READ_TOOLS.has(action.action)) {
         output = executeCustomerTool(action.action, action.input, orchestratorBody);
       } else {
-        output = executePhoneTool(action.action, { ...action.input, ...action.output }, orchestratorBody);
+        output = await executePhoneTool(action.action, { ...action.input, ...action.output }, orchestratorBody);
       }
       action.output = output;
 

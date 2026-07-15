@@ -30,7 +30,17 @@ export function buildStaffOrchBody(opts: {
   assignedStaffUserId?: string | null;
 }): OrchestratorRequest {
   const orgId = opts.orgId || DEFAULT_ORG_ID;
-  const resolvedCustomer = resolveContactByPhone(opts.partyPhone);
+  const isStaffParty = opts.identity.kind === 'staff' || opts.identity.kind === 'foreman';
+  // Staff/foreman handsets must NOT bind to a CRM customer by caller ID (phone collision).
+  const resolvedCustomer = isStaffParty
+    ? {
+        customerId: null as string | null,
+        customerName: '',
+        contactName: '',
+        contactRole: '',
+        projectId: null as string | null,
+      }
+    : resolveContactByPhone(opts.partyPhone);
 
   const dataStore = getDataStore();
   const customers = (Array.isArray(dataStore.customers) ? dataStore.customers : [])
@@ -70,14 +80,23 @@ export function buildStaffOrchBody(opts: {
       from: String(opts.call.from || ''),
       to: String(opts.call.to || ''),
     },
-    customerContext: {
-      phone: opts.partyPhone,
-      customerId: resolvedCustomer.customerId,
-      customerName: resolvedCustomer.customerName,
-      contactName: opts.identity.kind !== 'customer' ? opts.identity.name : resolvedCustomer.contactName,
-      projectId: resolvedCustomer.projectId,
-      role: opts.identity.kind === 'customer' ? 'customer' : opts.identity.role,
-    },
+    customerContext: isStaffParty
+      ? {
+          phone: opts.partyPhone,
+          customerId: null,
+          customerName: opts.identity.name || 'Staff',
+          contactName: opts.identity.name,
+          projectId: null,
+          role: opts.identity.role,
+        }
+      : {
+          phone: opts.partyPhone,
+          customerId: resolvedCustomer.customerId,
+          customerName: resolvedCustomer.customerName,
+          contactName: resolvedCustomer.contactName,
+          projectId: resolvedCustomer.projectId,
+          role: 'customer',
+        },
     staffContext: {
       userId: boundUserId,
       role: opts.identity.role,

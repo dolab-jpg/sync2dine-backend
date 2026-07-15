@@ -2773,7 +2773,7 @@ async function runPhoneOrchestrator(
       } else if (['lookupQuote', 'lookupProjectStatus', 'getPortalLink', 'escalateToStaff'].includes(toolName)) {
         output = executeCustomerTool(toolName, parsedInput, body);
       } else {
-        output = executePhoneTool(toolName, parsedInput, body);
+        output = await executePhoneTool(toolName, parsedInput, body);
       }
 
       proposedActions.push({ action: toolName, input: parsedInput, output });
@@ -2928,7 +2928,7 @@ async function runStaffOrchestrator(
       } else if (toolName === 'sendToStaffCynthia') {
         // Persist the Cynthia card server-side so phone/WhatsApp/channel paths land
         // even when no browser client is online to run toolRuntime.
-        output = executePhoneTool(toolName, parsedInput, { ...body, orgId });
+        output = await executePhoneTool(toolName, parsedInput, { ...body, orgId });
         proposedActions.push({ action: toolName, input: parsedInput, output });
       } else {
         output = toolName === 'updateLeadStatus'
