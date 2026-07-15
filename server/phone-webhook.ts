@@ -7,7 +7,6 @@ import {
   getCallById,
   getCallByProviderId,
   getDataStore,
-  getProjectById,
   getRequestOrgId,
   isAfterHours,
   isAgentActive,
@@ -23,6 +22,7 @@ import { resolveOrgIdForRequest } from './auth';
 import { OpenAIConnectionError } from './openai-connection';
 import { getOrganizationByPhoneDid } from './organizations';
 import { handleChannelInbound } from './channel-inbound-handler';
+import { buildPhoneBrainPrompt } from './phone-brain';
 import {
   getTelephonyProvider,
   resolveTelephonyConfig,
@@ -163,47 +163,6 @@ async function appendAuditLog(
   }
 }
 
-function buildAccountBrainContext(
-  partyPhone: string,
-  resolved: ReturnType<typeof resolveContactByPhone>,
-): string {
-  const store = getDataStore();
-  const lines: string[] = [
-    'Account memory for this live call (treat as known — do not ask them to restate):',
-    `Caller phone: ${partyPhone}`,
-  ];
-  if (resolved.customerName) lines.push(`Customer: ${resolved.customerName}`);
-  if (resolved.customerId) lines.push(`Customer id: ${resolved.customerId}`);
-  if (resolved.contactName) {
-    lines.push(`Contact: ${resolved.contactName}${resolved.contactRole ? ` (${resolved.contactRole})` : ''}`);
-  }
-  if (resolved.projectId) {
-    const project = getProjectById(resolved.projectId);
-    if (project) {
-      lines.push(`Project: ${String(project.projectName ?? project.id)} — status ${String(project.status ?? 'unknown')}`);
-      const tasks = ((project.tasks as Array<Record<string, unknown>> ?? [])
-        .filter((t) => t.status !== 'completed')
-        .slice(0, 3)
-        .map((t) => String(t.title))
-        .filter(Boolean));
-      if (tasks.length) lines.push(`Open tasks: ${tasks.join('; ')}`);
-    } else {
-      lines.push(`Project id: ${resolved.projectId}`);
-    }
-  }
-  const customer = resolved.customerId
-    ? (store.customers as Array<Record<string, unknown>>).find((c) => String(c.id) === resolved.customerId)
-    : undefined;
-  if (customer?.notes) lines.push(`Notes: ${String(customer.notes).slice(0, 280)}`);
-  const quotes = (store.quotes as Array<Record<string, unknown>> ?? [])
-    .filter((q) => String(q.customerId ?? '') === String(resolved.customerId ?? ''))
-    .slice(0, 3);
-  for (const q of quotes) {
-    lines.push(`Quote ${String(q.id)}: ${String(q.status ?? '')} total ${String(q.total ?? '')}`);
-  }
-  return lines.join('\n');
-}
-
 async function processCallTurn(
   event: CallEvent,
   speechText?: string,
@@ -240,11 +199,18 @@ async function processCallTurn(
       : String(event.to || call.to || ''),
   );
 
+  const { instructions: phonePrompt } = buildPhoneBrainPrompt({
+    orgId,
+    partyPhone,
+    direction: (event.direction as 'inbound' | 'outbound') || 'outbound',
+    campaignTemplate: call.campaignTemplate ? String(call.campaignTemplate) : undefined,
+    contactName: resolved.customerName || resolved.contactName,
+  });
+
   const brainContext = [
-    buildAccountBrainContext(partyPhone, resolved),
+    phonePrompt,
     afterHours ? 'Office is currently outside normal hours — still help, offer a callback if needed.' : '',
-    call.campaignTemplate ? `Soft call purpose (do not recite): ${String(call.campaignTemplate)}` : '',
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean).join('\n\n');
 
   const isConnect = !speechText?.trim();
   const inboundText = isConnect

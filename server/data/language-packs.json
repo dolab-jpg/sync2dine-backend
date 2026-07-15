@@ -1,0 +1,93 @@
+{
+  "en": {
+    "label": "English",
+    "systemInstruction": "Reply only in English. Keep replies short and clear for WhatsApp/phone.",
+    "phrases": {
+      "greeting": "Hello! How can I help you today?",
+      "thanks": "Thank you.",
+      "confirm_yes_no": "Reply YES to confirm or NO to cancel.",
+      "done": "Done.",
+      "error_generic": "Sorry, something went wrong. Please try again.",
+      "unknown_contact": "Thanks for getting in touch. How can we help with your project?",
+      "need_more_info": "Could you share a bit more detail so I can help?"
+    }
+  },
+  "sq": {
+    "label": "Albanian",
+    "systemInstruction": "Reply only in Albanian (Shqip). Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
+    "phrases": {
+      "greeting": "Përshëndetje! Si mund t'ju ndihmoj sot?",
+      "thanks": "Faleminderit.",
+      "confirm_yes_no": "Përgjigjuni PO për të konfirmuar ose JO për të anuluar.",
+      "done": "U krye.",
+      "error_generic": "Na vjen keq, ndodhi një gabim. Ju lutem provoni përsëri.",
+      "unknown_contact": "Faleminderit që na kontaktoni. Si mund t'ju ndihmojmë me projektin tuaj?",
+      "need_more_info": "A mund të jepni më shumë detaje që t'ju ndihmoj?"
+    }
+  },
+  "uk": {
+    "label": "Ukrainian",
+    "systemInstruction": "Reply only in Ukrainian. Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
+    "phrases": {
+      "greeting": "Вітаю! Чим можу допомогти сьогодні?",
+      "thanks": "Дякую.",
+      "confirm_yes_no": "Відповіть ТАК, щоб підтвердити, або НІ, щоб скасувати.",
+      "done": "Готово.",
+      "error_generic": "Вибачте, сталася помилка. Спробуйте ще раз.",
+      "unknown_contact": "Дякуємо, що зв’язалися з нами. Чим можемо допомогти з вашим проєктом?",
+      "need_more_info": "Чи могли б ви додати трохи більше деталей, щоб я міг допомогти?"
+    }
+  },
+  "zh": {
+    "label": "Chinese",
+    "systemInstruction": "Reply only in Simplified Chinese. Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
+    "phrases": {
+      "greeting": "您好！今天有什么可以帮您？",
+      "thanks": "谢谢。",
+      "confirm_yes_no": "回复“是”确认，或回复“否”取消。",
+      "done": "已完成。",
+      "error_generic": "抱歉，出了点问题。请再试一次。",
+      "unknown_contact": "感谢联系我们。关于您的项目，我们能怎么帮忙？",
+      "need_more_info": "能否再提供一点细节，方便我帮您？"
+    }
+  },
+  "es": {
+    "label": "Spanish",
+    "systemInstruction": "Reply only in Spanish. Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
+    "phrases": {
+      "greeting": "¡Hola! ¿Cómo puedo ayudarle hoy?",
+      "thanks": "Gracias.",
+      "confirm_yes_no": "Responda SÍ para confirmar o NO para cancelar.",
+      "done": "Hecho.",
+      "error_generic": "Lo sentimos, algo salió mal. Inténtelo de nuevo.",
+      "unknown_contact": "Gracias por contactarnos. ¿Cómo podemos ayudarle con su proyecto?",
+      "need_more_info": "¿Podría darme un poco más de detalle para poder ayudarle?"
+    }
+  },
+  "pl": {
+    "label": "Polish",
+    "systemInstruction": "Reply only in Polish. Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
+    "phrases": {
+      "greeting": "Dzień dobry! W czym mogę dziś pomóc?",
+      "thanks": "Dziękuję.",
+      "confirm_yes_no": "Odpowiedz TAK, aby potwierdzić, lub NIE, aby anulować.",
+      "done": "Gotowe.",
+      "error_generic": "Przepraszamy, coś poszło nie tak. Spróbuj ponownie.",
+      "unknown_contact": "Dziękujemy za kontakt. Jak możemy pomóc w Państwa projekcie?",
+      "need_more_info": "Czy może Pan/Pani podać nieco więcej szczegółów, abym mógł pomóc?"
+    }
+  },
+  "fa": {
+    "label": "Farsi",
+    "systemInstruction": "Reply only in Farsi (Persian). Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
+    "phrases": {
+      "greeting": "سلام! امروز چطور می‌توانم کمکتان کنم؟",
+      "thanks": "متشکرم.",
+      "confirm_yes_no": "برای تأیید بله و برای لغو خیر پاسخ دهید.",
+      "done": "انجام شد.",
+      "error_generic": "متأسفیم، مشکلی پیش آمد. لطفاً دوباره تلاش کنید.",
+      "unknown_contact": "از تماس شما سپاسگزاریم. چگونه می‌توانیم در پروژه‌تان کمک کنیم؟",
+      "need_more_info": "ممکن است کمی جزئیات بیشتر بگویید تا بتوانم کمک کنم؟"
+    }
+  }
+}

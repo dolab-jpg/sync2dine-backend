@@ -1,4 +1,4 @@
-import { getDataStore } from './data-store';
+import { getDataStore, resolveContactByPhone, appendCustomerCallActivity } from './data-store';
 import { getOfficeTeamCounts, getOfficeTeamRoster, getTopPerformer } from './team-snapshot';
 import type { OrchestratorRequest } from './orchestrator-types';
 import { getRequestRole } from './role-permissions';
@@ -87,6 +87,93 @@ export function executeCustomerTool(
   const requestedProjectId = firstString(input.projectId, body.projectContext?.projectId, body.customerContext?.projectId);
   const requestedQuoteId = firstString(input.quoteId, body.customerContext?.quoteId);
 
+  if (name === 'lookupCustomerByPhone') {
+    const phone = firstString(input.phone, body.customerContext?.phone, body.callContext?.to, body.callContext?.from);
+    if (!phone) return { found: false, error: 'phone required' };
+    const resolved = resolveContactByPhone(phone);
+    return {
+      found: Boolean(resolved.customerId),
+      phone,
+      customerId: resolved.customerId,
+      customerName: resolved.customerName,
+      contactName: resolved.contactName,
+      contactRole: resolved.contactRole,
+      projectId: resolved.projectId,
+    };
+  }
+
+  if (name === 'getAccountBriefing') {
+    const phone = firstString(input.phone, body.customerContext?.phone, body.callContext?.to, body.callContext?.from);
+    let customerId = firstString(input.customerId, body.customerContext?.customerId);
+    let contactName = firstString(body.customerContext?.contactName, body.customerContext?.customerName);
+    let projectId = firstString(body.customerContext?.projectId, body.projectContext?.projectId);
+
+    if ((!customerId || !projectId) && phone) {
+      const resolved = resolveContactByPhone(phone);
+      customerId = customerId ?? resolved.customerId ?? undefined;
+      contactName = contactName ?? resolved.contactName;
+      projectId = projectId ?? resolved.projectId ?? undefined;
+    }
+
+    const store = getDataStore();
+    const customer = customerId
+      ? (store.customers as Array<Record<string, unknown>>).find((c) => String(c.id) === customerId)
+      : undefined;
+    const customerPhone = firstString(customer?.phone, phone) ?? null;
+    const customerAddress = firstString(customer?.address, customer?.siteAddress) ?? null;
+    const projects = (store.projects as Array<Record<string, unknown>>)
+      .filter((p) => customerId && String(p.customerId) === customerId)
+      .slice(0, 3)
+      .map((p) => ({
+        projectId: String(p.id),
+        projectName: String(p.projectName ?? 'Project'),
+        status: String(p.status ?? 'unknown'),
+        tradeName: firstString(p.tradeName, p.tradeId) ?? null,
+        address: firstString(p.address, p.siteAddress, customer?.address) ?? null,
+      }));
+    const openQuotes = (Array.isArray(store.quotes) ? store.quotes as Array<Record<string, unknown>> : [])
+      .filter((q) => customerId && String(q.customerId) === customerId)
+      .slice(0, 3)
+      .map((q) => ({
+        quoteId: String(q.id),
+        total: Number(q.total ?? q.totalCustomerCost ?? 0),
+        status: String(q.status ?? 'unknown'),
+      }));
+
+    const name = firstString(customer?.name, contactName) ?? 'the customer';
+    const active = projects.find((p) => p.status !== 'completed') ?? projects[0];
+    const spokenHint = active
+      ? `${name} has project "${active.projectName}" currently ${active.status.replace(/_/g, ' ')}${active.address ? ` at ${active.address}` : ''}.`
+      : `${name} is on file${openQuotes.length ? ` with ${openQuotes.length} quote(s)` : ''}.`;
+
+    return {
+      found: Boolean(customerId),
+      customerId: customerId ?? null,
+      customerName: name,
+      phone: customerPhone,
+      address: customerAddress,
+      projectId: active?.projectId ?? projectId ?? null,
+      projects,
+      quotes: openQuotes,
+      spokenHint,
+    };
+  }
+
+  if (name === 'logCallActivity') {
+    const customerId = firstString(input.customerId, body.customerContext?.customerId);
+    const callId = firstString(input.callId, body.callContext?.callId);
+    const summary = firstString(input.summary) ?? 'Aria phone call';
+    const outcome = firstString(input.outcome);
+    if (!customerId) return { logged: false, error: 'customerId required' };
+    const note = appendCustomerCallActivity({
+      customerId,
+      callId: callId ?? undefined,
+      summary,
+      outcome: outcome ?? undefined,
+    });
+    return { logged: true, customerId, note };
+  }
+
   if (name === 'lookupQuote') {
     const matches = projects.filter((project) => {
       const quoteId = firstString(project.quoteId);
@@ -167,8 +254,15 @@ function searchCustomersServer(
   limit: number
 ) {
   const q = query.trim();
-  if (!q || !customers?.length) return [];
-  return customers
+  const storeCustomers = (getDataStore().customers as Array<Record<string, unknown>> || []).map((c) => ({
+    id: String(c.id ?? ''),
+    name: String(c.name ?? ''),
+    email: String(c.email ?? ''),
+    phone: String(c.phone ?? ''),
+  }));
+  const list = (customers?.length ? customers : storeCustomers) ?? [];
+  if (!q || !list.length) return [];
+  return list
     .filter((c) =>
       includesQuery(c.name, q)
       || includesQuery(c.email, q)
@@ -189,8 +283,17 @@ function searchQuotesServer(
   limit: number
 ) {
   const q = query.trim().toLowerCase();
-  if (!q || !quotes?.length) return [];
-  return quotes
+  const storeQuotes = (Array.isArray(getDataStore().quotes) ? getDataStore().quotes as Array<Record<string, unknown>> : [])
+    .map((quote) => ({
+      id: String(quote.id ?? ''),
+      customerName: String(quote.customerName ?? ''),
+      tradeName: String(quote.tradeName ?? quote.tradeId ?? ''),
+      total: Number(quote.total ?? quote.totalCustomerCost ?? 0),
+      status: String(quote.status ?? ''),
+    }));
+  const list = (quotes?.length ? quotes : storeQuotes) ?? [];
+  if (!q || !list.length) return [];
+  return list
     .filter((quote) =>
       quote.id.toLowerCase().includes(q)
       || quote.customerName.toLowerCase().includes(q)
@@ -206,49 +309,94 @@ function searchQuotesServer(
     }));
 }
 
-function searchProjectsServer(query: string, limit: number) {
+function searchProjectsServer(query: string, limit: number, status?: string) {
   const q = query.trim().toLowerCase();
-  const projects = getDataStore().projects;
-  if (!q) return [];
+  const statusQ = String(status || '').trim().toLowerCase();
+  const projects = getDataStore().projects as Array<Record<string, unknown>>;
+  const openish = new Set(['open', 'active', 'in_progress', 'in progress', 'ongoing']);
+  const wantsOpen = openish.has(q) || openish.has(statusQ) || q === 'all open' || q === 'open projects';
   return projects
-    .filter((p: Record<string, unknown>) => {
+    .filter((p) => {
       const name = String(p.projectName ?? '').toLowerCase();
       const customer = String(p.customerName ?? '').toLowerCase();
       const id = String(p.id ?? '').toLowerCase();
-      return name.includes(q) || customer.includes(q) || id.includes(q);
+      const st = String(p.status ?? '').toLowerCase();
+      if (wantsOpen) return st && st !== 'completed' && st !== 'cancelled' && st !== 'canceled';
+      if (statusQ && !st.includes(statusQ)) return false;
+      if (!q) return true;
+      return name.includes(q) || customer.includes(q) || id.includes(q) || st.includes(q);
     })
     .slice(0, limit)
-    .map((p) => ({
-      id: String(p.id ?? ''),
-      title: `${String(p.projectName ?? 'Project')} (${String(p.id ?? '')})`,
-      subtitle: `${String(p.customerName ?? '')} • ${String(p.status ?? '')}`,
-      route: '/projects',
-    }));
+    .map((p) => {
+      const customerId = String(p.customerId ?? '');
+      const customer = customerId
+        ? (getDataStore().customers as Array<Record<string, unknown>>)
+          .find((c) => String(c.id) === customerId)
+        : undefined;
+      const address = String(
+        p.address ?? p.siteAddress ?? customer?.address ?? '',
+      ).trim();
+      const customerPhone = String(
+        p.customerPhone ?? customer?.phone ?? '',
+      ).trim();
+      return {
+        id: String(p.id ?? ''),
+        title: `${String(p.projectName ?? 'Project')} (${String(p.id ?? '')})`,
+        subtitle: `${String(p.customerName ?? '')} • ${String(p.status ?? '')}`,
+        customerName: String(p.customerName ?? ''),
+        customerId,
+        customerPhone: customerPhone || null,
+        address: address || null,
+        assignedBuilder: String(p.assignedBuilder ?? '') || null,
+        status: String(p.status ?? ''),
+        route: '/projects',
+      };
+    });
 }
 
 export function executeBusinessSnapshot(body: OrchestratorRequest): Record<string, unknown> {
   const store = getDataStore();
-  const customers = body.staffContext?.customers ?? [];
-  const quotes = body.staffContext?.quotes ?? [];
-  const office = getOfficeTeamCounts();
-  return {
-    customerCount: customers.length,
-    quoteCount: quotes.length,
-    projectCount: store.projects.length,
-    builderCount: body.businessSnapshot?.builderCount ?? store.builders.length,
-    officeStaffCount: body.businessSnapshot?.officeStaffCount ?? office.officeStaffCount,
-    managerCount: body.businessSnapshot?.managerCount ?? office.managerCount,
-    salesStaffCount: body.businessSnapshot?.salesStaffCount ?? office.salesStaffCount,
-    recentCustomers: customers.slice(0, 10).map((c) => ({ id: c.id, name: c.name })),
-    recentQuotes: quotes.slice(0, 10).map((q) => ({
+  const storeCustomers = (store.customers as Array<Record<string, unknown>> || []).map((c) => ({
+    id: String(c.id ?? ''),
+    name: String(c.name ?? ''),
+  }));
+  const storeQuotes = (Array.isArray(store.quotes) ? store.quotes as Array<Record<string, unknown>> : []).map((q) => ({
+    id: String(q.id ?? ''),
+    customerName: String(q.customerName ?? ''),
+    trade: String(q.tradeName ?? q.tradeId ?? ''),
+    total: Number(q.total ?? q.totalCustomerCost ?? 0),
+    status: String(q.status ?? ''),
+  }));
+  const customers = (body.staffContext?.customers?.length
+    ? body.staffContext.customers
+    : storeCustomers);
+  const quotes = (body.staffContext?.quotes?.length
+    ? body.staffContext.quotes.map((q) => ({
       id: q.id,
       customerName: q.customerName,
       trade: q.tradeName ?? q.tradeId,
       total: q.total,
       status: q.status,
-    })),
-    activeProjects: store.projects
-      .filter((p) => String(p.status ?? '') !== 'completed')
+    }))
+    : storeQuotes);
+  const office = getOfficeTeamCounts();
+  const activeProjects = store.projects
+    .filter((p) => {
+      const st = String(p.status ?? '').toLowerCase();
+      return st && st !== 'completed' && st !== 'cancelled' && st !== 'canceled';
+    });
+  return {
+    customerCount: customers.length,
+    quoteCount: quotes.length,
+    projectCount: store.projects.length,
+    openProjectCount: activeProjects.length,
+    builderCount: body.businessSnapshot?.builderCount ?? store.builders.length,
+    officeStaffCount: body.businessSnapshot?.officeStaffCount ?? office.officeStaffCount,
+    managerCount: body.businessSnapshot?.managerCount ?? office.managerCount,
+    salesStaffCount: body.businessSnapshot?.salesStaffCount ?? office.salesStaffCount,
+    recentCustomers: customers.slice(0, 10).map((c) => ({ id: c.id, name: c.name })),
+    recentQuotes: quotes.slice(0, 10),
+    activeProjects: activeProjects
       .slice(0, 10)
       .map((p) => ({
         id: String(p.id ?? ''),
@@ -260,6 +408,7 @@ export function executeBusinessSnapshot(body: OrchestratorRequest): Record<strin
       id: String(b.id ?? ''),
       name: String(b.name ?? b.companyName ?? 'Builder'),
     })),
+    spokenHint: `You've got ${customers.length} customers on the books, ${activeProjects.length} open projects, and ${quotes.length} quotes.`,
   };
 }
 
@@ -610,8 +759,8 @@ export async function executeServerReadTool(
     const results = searchQuotesServer(body.staffContext?.quotes, query, limit);
     output = { query, count: results.length, results };
   } else if (toolName === 'searchProjects') {
-    const query = String(input.query ?? '');
-    const results = searchProjectsServer(query, limit);
+    const query = String(input.query ?? input.status ?? 'open');
+    const results = searchProjectsServer(query, limit, firstString(input.status));
     output = { query, count: results.length, results };
   } else if (toolName === 'getBusinessSnapshot') {
     output = executeBusinessSnapshot(body);

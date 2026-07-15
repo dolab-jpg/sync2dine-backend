@@ -1,4 +1,4 @@
-export type TelephonyProviderId = 'mock' | 'twilio' | 'soho66';
+export type TelephonyProviderId = 'mock' | 'twilio' | 'soho66' | 'vapi';
 
 export type CallDirection = 'inbound' | 'outbound';
 

@@ -26,6 +26,15 @@ export function buildDelBoyChatInstruction(role: string): string {
 }
 
 export function buildHumourInstruction(level: HumourLevel | string, role: string, channel?: string): string {
+  if (role === 'customer' && channel === 'phone') {
+    if (level === 'straight') {
+      return 'Humour: warm and brief on the phone — one soft British touch at most; stay clear and helpful.';
+    }
+    return `Humour (phone Aria — Cockney / London girl energy):
+- Properly funny: quick banter, warm teasing, playful asides — every turn can have a smile.
+- Soft Cockney flavour ("lovely", "sorted", "cheers", sparingly "innit") without thick slang that is hard to hear on a phone.
+- Never cruel, never mock the customer; if they sound stressed or the topic is money/legal/safety, go gentle and drop the jokes.`;
+  }
   if (role === 'customer') {
     return 'Humour: warm and gently witty — reassuring dry British charm is fine; never cheeky, never at their expense, and dial it down if they seem worried.';
   }
@@ -42,9 +51,10 @@ export function buildHumourInstruction(level: HumourLevel | string, role: string
   return 'Humour: understated English wit — dry observations and self-deprecation welcome; one light remark per reply at most.';
 }
 
-export const FORMAL_TOOL_OUTPUT_RULE = `FORMAL TOOL OUTPUTS (invoices, contracts, customer/builder messages):
-- Tool payload text must be plain professional UK English — no slang, no Del Boy voice, no banter.
-- Your conversational "content" reply to staff may be informal when humour preset allows; tool bodies are always customer-safe and formal.`;
+export const FORMAL_TOOL_OUTPUT_RULE = `FORMAL TOOL OUTPUTS (invoices, contracts, quotes, CRM writes, customer/builder messages) — HIGHEST PRIORITY, overrides anything below about language or tone:
+- Tool payload text, CRM writes, document content, and anything that will ultimately reach a customer must always be plain, professional UK English — no slang, no Del Boy voice, no banter, and never in the worker's own language.
+- This holds even when you are chatting with the staff member/builder in their own preferred language: any per-language reply instruction elsewhere in this prompt governs ONLY the words you say or type back to that colleague, never tool calls, CRM writes, documents, or customer-facing text.
+- Your conversational "content" reply to staff may be informal (and in their language) when the humour preset allows; tool bodies are always customer-safe, formal, and English.`;
 
 export type BritishVoiceChannel =
   | 'overlay_chat'
@@ -62,8 +72,8 @@ export function buildBritishVoicePrompt(
   channel?: BritishVoiceChannel,
 ): string {
   const parts = [BRITISH_VOICE_BASE, buildHumourInstruction(humourLevel, role, channel)];
-  const informalStaff = channel === 'overlay_chat' || channel === 'whatsapp_staff' || channel === 'phone_staff';
-  if (informalStaff && role !== 'customer') {
+  // Staff/foreman chats + formal document channels: tools/contracts/quotes must stay English.
+  if (role !== 'customer' || channel === 'formal_doc') {
     parts.push(FORMAL_TOOL_OUTPUT_RULE);
   }
   if (companyInstructions?.trim()) {

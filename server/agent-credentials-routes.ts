@@ -116,11 +116,19 @@ export async function handleAgentCredentialsRoutes(
   if (pathname === '/api/agent/credentials/status' && req.method === 'GET') {
     const { vars, savedAt } = await readDeployEnv();
     const keys = Object.keys(vars).filter((k) => Boolean(vars[k]?.trim()));
+    const envVapi = Boolean(process.env.VAPI_PRIVATE_KEY?.trim() || process.env.VAPI_API_KEY?.trim() || vars.VAPI_PRIVATE_KEY?.trim());
     sendJson(res, 200, {
-      ready: keys.length > 0,
+      ready: keys.length > 0 || envVapi,
       keys,
       savedAt,
       localhost: isLocalhost(req),
+      vapi: {
+        hasPrivateKey: envVapi,
+        phoneNumberId: Boolean(process.env.VAPI_PHONE_NUMBER_ID?.trim() || vars.VAPI_PHONE_NUMBER_ID?.trim()),
+        webhookBaseUrl: process.env.VAPI_WEBHOOK_BASE_URL?.trim() || vars.VAPI_WEBHOOK_BASE_URL?.trim() || null,
+        region: process.env.VAPI_REGION || vars.VAPI_REGION || 'eu',
+        voiceProvider: process.env.VOICE_PROVIDER || 'soho66',
+      },
       masked: {
         supabaseAccessToken: vars.SUPABASE_ACCESS_TOKEN
           ? maskSecret(vars.SUPABASE_ACCESS_TOKEN)
@@ -128,7 +136,79 @@ export async function handleAgentCredentialsRoutes(
         supabaseProjectRef: vars.SUPABASE_PROJECT_REF
           ? maskSecret(vars.SUPABASE_PROJECT_REF)
           : null,
+        vapiPrivateKey: (process.env.VAPI_PRIVATE_KEY || vars.VAPI_PRIVATE_KEY)
+          ? maskSecret(String(process.env.VAPI_PRIVATE_KEY || vars.VAPI_PRIVATE_KEY))
+          : null,
+        elevenLabsApiKey: (process.env.ELEVENLABS_API_KEY || vars.ELEVENLABS_API_KEY)
+          ? maskSecret(String(process.env.ELEVENLABS_API_KEY || vars.ELEVENLABS_API_KEY))
+          : null,
       },
+    });
+    return true;
+  }
+
+  if (pathname === '/api/agent/credentials/vapi' && req.method === 'POST') {
+    if (!isLocalhost(req)) {
+      sendJson(res, 403, { error: 'Only allowed on localhost' });
+      return true;
+    }
+    let body: {
+      vapiPrivateKey?: string;
+      vapiWebhookBaseUrl?: string;
+      elevenLabsApiKey?: string;
+      elevenLabsVoiceId?: string;
+      region?: string;
+    };
+    try {
+      body = JSON.parse(await readBody(req)) as typeof body;
+    } catch {
+      sendJson(res, 400, { error: 'Invalid JSON body' });
+      return true;
+    }
+    const updates: Record<string, string> = {};
+    if (body.vapiPrivateKey?.trim()) updates.VAPI_PRIVATE_KEY = body.vapiPrivateKey.trim();
+    if (body.vapiWebhookBaseUrl?.trim()) updates.VAPI_WEBHOOK_BASE_URL = body.vapiWebhookBaseUrl.trim().replace(/\/$/, '');
+    if (body.elevenLabsApiKey?.trim()) updates.ELEVENLABS_API_KEY = body.elevenLabsApiKey.trim();
+    if (body.elevenLabsVoiceId?.trim()) {
+      updates.VAPI_ELEVENLABS_VOICE_ID = body.elevenLabsVoiceId.trim();
+      updates.ELEVENLABS_VOICE_ID = body.elevenLabsVoiceId.trim();
+    }
+    if (body.region?.trim()) updates.VAPI_REGION = body.region.trim().toLowerCase() === 'us' ? 'us' : 'eu';
+    if (!Object.keys(updates).length) {
+      sendJson(res, 400, { error: 'No Vapi fields provided' });
+      return true;
+    }
+    updates.VOICE_PROVIDER = 'vapi';
+    await writeDeployEnv(updates);
+    // Also mirror into process env for this running process
+    for (const [k, v] of Object.entries(updates)) {
+      process.env[k] = v;
+    }
+    // Append into backend .env as well
+    try {
+      const envPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.env');
+      let content = '';
+      try {
+        content = await readFile(envPath, 'utf8');
+      } catch {
+        content = '';
+      }
+      for (const [key, value] of Object.entries(updates)) {
+        const line = `${key}=${value}`;
+        const re = new RegExp(`^${key}=.*$`, 'm');
+        if (re.test(content)) content = content.replace(re, line);
+        else content = `${content.trimEnd()}\n${line}\n`;
+      }
+      await writeFile(envPath, content, 'utf8');
+    } catch {
+      // optional
+    }
+    sendJson(res, 200, {
+      ok: true,
+      next: 'Restart API if needed, then run: npm run vapi:setup',
+      masked: Object.fromEntries(
+        Object.entries(updates).map(([k, v]) => [k, k.includes('KEY') || k.includes('SECRET') ? maskSecret(v) : v]),
+      ),
     });
     return true;
   }

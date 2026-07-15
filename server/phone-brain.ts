@@ -1,0 +1,522 @@
+/**
+ * Shared phone brain: same Cyrus persona + account/company memory used by
+ * the webhook conversation path and OpenAI Realtime sessions.
+ */
+import {
+  getDataStore,
+  getProjectById,
+  resolveContactByPhone,
+  isAfterHours,
+} from './data-store';
+import { conversationToOrchestratorMessages } from './conversation-store';
+import { readStudioConfigExport } from './ai-studio-routes';
+import { buildBritishVoicePrompt, formatKnowledgeChunks } from './british-voice';
+import { PHONE_TOOLS } from './phone-tools';
+import {
+  resolvePhoneCallerIdentity,
+  isPhoneAuthVerified,
+  type PhoneCallerIdentity,
+} from './phone-auth';
+import { getPack, normalizeLang, SUPPORTED_LANGS, type SupportedLang } from './language-packs';
+export const REALTIME_PHONE_VOICE_DEFAULT = 'coral'; // female-leaning Realtime voice
+export const REALTIME_PHONE_MODEL_DEFAULT = 'gpt-realtime';
+
+const FORBIDDEN_TOP_LEVEL_SCHEMA_KEYS = new Set([
+  'oneOf', 'anyOf', 'allOf', 'enum', 'const', 'not',
+]);
+
+function sanitizeChatTools<T extends { type: 'function'; function: { name: string; parameters?: Record<string, unknown> } }>(
+  tools: T[],
+): T[] {
+  return tools.map((tool) => {
+    const parameters = { ...(tool.function.parameters ?? {}) } as Record<string, unknown>;
+    for (const key of FORBIDDEN_TOP_LEVEL_SCHEMA_KEYS) {
+      delete parameters[key];
+    }
+    if (parameters.type !== 'object') parameters.type = 'object';
+    if (!parameters.properties || typeof parameters.properties !== 'object') {
+      parameters.properties = {};
+    }
+    return {
+      ...tool,
+      function: { ...tool.function, parameters },
+    };
+  });
+}
+
+/** Chat-completions-shaped customer tools (subset used on phone). */
+const PHONE_CUSTOMER_TOOLS = [
+  {
+    type: 'function' as const,
+    function: {
+      name: 'lookupCustomerByPhone',
+      description: 'Resolve a customer/contact/project from a phone number',
+      parameters: {
+        type: 'object',
+        properties: { phone: { type: 'string' } },
+        required: ['phone'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'getAccountBriefing',
+      description: 'Spoken-friendly account summary for the current caller',
+      parameters: {
+        type: 'object',
+        properties: {
+          phone: { type: 'string' },
+          customerId: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'lookupQuote',
+      description: 'Find quote summaries by quote ID or customer ID',
+      parameters: {
+        type: 'object',
+        properties: {
+          quoteId: { type: 'string' },
+          customerId: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'lookupProjectStatus',
+      description: 'Find active project status by project ID or customer ID',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string' },
+          customerId: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'getPortalLink',
+      description: 'Get customer portal link for a specific project',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string' },
+          customerId: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'escalateToStaff',
+      description: 'Escalate the caller to a human staff member',
+      parameters: {
+        type: 'object',
+        properties: {
+          reason: { type: 'string' },
+          urgency: { type: 'string', enum: ['low', 'medium', 'high'] },
+        },
+        required: ['reason'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'logCallActivity',
+      description: 'Log a phone call summary onto the customer record / timeline',
+      parameters: {
+        type: 'object',
+        properties: {
+          customerId: { type: 'string' },
+          callId: { type: 'string' },
+          summary: { type: 'string' },
+          outcome: { type: 'string' },
+        },
+        required: ['summary'],
+      },
+    },
+  },
+];
+
+/** Staff-only CRM / office tools for phone (gated server-side until PIN verified). */
+const PHONE_STAFF_CRM_TOOLS = [
+  {
+    type: 'function' as const,
+    function: {
+      name: 'searchCustomers',
+      description: 'Search customers by name, email, phone, or notes — use after PIN unlock for “customer X” / account lookups',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+          limit: { type: 'number' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'searchProjects',
+      description: 'Search projects by name, customer, id, or status (e.g. open / active)',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+          customerId: { type: 'string' },
+          status: { type: 'string' },
+          limit: { type: 'number' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'searchQuotes',
+      description: 'Search quotes by id, customer name, trade, or status',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+          limit: { type: 'number' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'getBusinessSnapshot',
+      description: 'Company overview: customer count, open projects, quotes, builders — use for “how many customers/projects” questions',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'getTeamPerformance',
+      description: 'List office staff / team roster and sales performance (managers and super_admin)',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+];
+
+export function buildAccountBrainContext(
+  partyPhone: string,
+  resolved: ReturnType<typeof resolveContactByPhone>,
+): string {
+  const store = getDataStore();
+  const lines: string[] = [
+    'Account memory for this live call (treat as known — do not ask them to restate):',
+    `Caller phone: ${partyPhone}`,
+  ];
+  if (resolved.customerName) lines.push(`Customer: ${resolved.customerName}`);
+  if (resolved.customerId) lines.push(`Customer id: ${resolved.customerId}`);
+  if (resolved.contactName) {
+    lines.push(`Contact: ${resolved.contactName}${resolved.contactRole ? ` (${resolved.contactRole})` : ''}`);
+  }
+  if (resolved.projectId) {
+    const project = getProjectById(resolved.projectId);
+    if (project) {
+      lines.push(`Project: ${String(project.projectName ?? project.id)} — status ${String(project.status ?? 'unknown')}`);
+      const tasks = ((project.tasks as Array<Record<string, unknown>> ?? [])
+        .filter((t) => t.status !== 'completed')
+        .slice(0, 3)
+        .map((t) => String(t.title))
+        .filter(Boolean));
+      if (tasks.length) lines.push(`Open tasks: ${tasks.join('; ')}`);
+    } else {
+      lines.push(`Project id: ${resolved.projectId}`);
+    }
+  }
+  const customer = resolved.customerId
+    ? (store.customers as Array<Record<string, unknown>>).find((c) => String(c.id) === resolved.customerId)
+    : undefined;
+  if (customer?.notes) lines.push(`Notes: ${String(customer.notes).slice(0, 280)}`);
+  const quotes = (store.quotes as Array<Record<string, unknown>> ?? [])
+    .filter((q) => String(q.customerId ?? '') === String(resolved.customerId ?? ''))
+    .slice(0, 3);
+  for (const q of quotes) {
+    lines.push(`Quote ${String(q.id)}: ${String(q.status ?? '')} total ${String(q.total ?? '')}`);
+  }
+  return lines.join('\n');
+}
+
+export interface PhoneBrainPromptInput {
+  orgId: string;
+  partyPhone: string;
+  direction?: 'inbound' | 'outbound';
+  campaignTemplate?: string;
+  contactName?: string;
+  /** When set, skip re-resolve (call-site already resolved). */
+  identity?: PhoneCallerIdentity;
+  callId?: string;
+  phoneAuthVerified?: boolean;
+  /** Overrides CRM preferredLanguage (e.g. resumed call with a saved setCallLanguage choice). */
+  languageOverride?: string | null;
+}
+
+const LANGUAGE_NAMES: Record<SupportedLang, string> = {
+  en: 'English',
+  sq: 'Albanian',
+  uk: 'Ukrainian',
+  ru: 'Russian',
+  zh: 'Chinese (Mandarin)',
+  es: 'Spanish',
+  pl: 'Polish',
+  fa: 'Persian (Farsi)',
+};
+
+function buildLanguageBlock(lang: SupportedLang, forStaff: boolean): string {
+  const switchList = SUPPORTED_LANGS
+    .filter((l) => l !== 'en')
+    .map((l) => LANGUAGE_NAMES[l])
+    .join(', ');
+  const lines = [
+    lang === 'en'
+      ? `Default call language: English${forStaff ? '' : ' (British)'}.`
+      : `Preferred call language for this caller: ${LANGUAGE_NAMES[lang]}. Open and continue the call in ${LANGUAGE_NAMES[lang]} unless they switch back to English.`,
+    `If the caller speaks or asks for another supported language (${switchList}), switch fluently straight away and call tool setCallLanguage with the language code (${SUPPORTED_LANGS.join(', ')}) so we remember it.`,
+    lang !== 'en' ? getPack(lang).systemInstruction : '',
+    forStaff
+      ? 'This spoken-language choice covers ONLY what you say out loud to this colleague. Tool calls, CRM writes, logged summaries, and any text that will reach a customer (messages, documents, briefs) must always be composed in formal UK English, regardless of the language you are speaking on this call.'
+      : 'Formal written outputs from tools (invoices, contracts, customer written messages) always stay in professional UK English regardless of spoken call language.',
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+
+/**
+ * Full system instructions for Realtime / phone: British (Cockney nudge), female,
+ * funny, short text-message style + company + account + recent Cyrus history.
+ * Staff/builder sessions get a different persona + PIN unlock rules.
+ */
+export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
+  instructions: string;
+  resolved: ReturnType<typeof resolveContactByPhone>;
+  history: Array<{ role: string; content: string }>;
+  identity: PhoneCallerIdentity;
+  language: SupportedLang;
+} {
+  const identity = input.identity ?? resolvePhoneCallerIdentity(input.partyPhone, input.orgId);
+  const resolved = resolveContactByPhone(input.partyPhone);
+  const afterHours = isAfterHours();
+  const account = buildAccountBrainContext(input.partyPhone, resolved);
+  const studio = readStudioConfigExport();
+  const humourLevel = String(studio?.humourLevel ?? 'cheeky');
+  const companyInstructions = String(studio?.companyInstructions ?? '');
+  const knowledgeChunks = Array.isArray(studio?.knowledgeChunks) ? studio!.knowledgeChunks as unknown[] : [];
+  const knowledgeBlock = formatKnowledgeChunks(knowledgeChunks);
+  const history = conversationToOrchestratorMessages(input.orgId, input.partyPhone, 20);
+  const verified = input.phoneAuthVerified
+    ?? (input.callId ? isPhoneAuthVerified(input.callId) : false);
+
+  // Staff/builder default to English on the phone for site clarity; customers get CRM preference.
+  const language: SupportedLang = identity.kind !== 'customer'
+    ? normalizeLang(input.languageOverride ?? 'en')
+    : normalizeLang(input.languageOverride ?? identity.route.preferredLanguage ?? 'en');
+  const languageBlock = buildLanguageBlock(language, identity.kind !== 'customer');
+
+  const britishRole = identity.kind === 'customer' ? 'customer' : 'staff';
+  const britishChannel = identity.kind === 'customer' ? 'phone' : 'phone_staff';
+  const british = buildBritishVoicePrompt(
+    humourLevel === 'straight' ? 'straight' : 'cheeky',
+    britishRole,
+    [companyInstructions, knowledgeBlock].filter(Boolean).join('\n\n') || undefined,
+    britishChannel,
+  );
+
+  let persona: string;
+  if (identity.kind === 'staff' || identity.kind === 'foreman') {
+    const roleLabel = identity.kind === 'foreman' ? 'builder / site' : `office (${identity.role})`;
+    persona = [
+      `You are Aria, TradePro's phone assistant speaking to ${identity.name}, a registered ${roleLabel} colleague.`,
+      'Speak British English, warm Cockney-lite, short spoken replies — never American.',
+      '',
+      'SECURITY — phone PIN:',
+      verified
+        ? [
+          '- This caller has already verified their phone PIN for this call. Proceed with their role tools.',
+          '- For account / customer / project / quote / money / staff questions: ALWAYS call the matching tools (getBusinessSnapshot, searchCustomers, searchProjects, getAccountBriefing, getTeamPerformance, etc.) and speak the real numbers — never say you cannot access CRM.',
+        ].join('\n')
+        : [
+          '- They are recognised by caller ID but NOT yet unlocked for privileged CRM tools.',
+          '- Naturally ask them to say their 4-digit security code when it fits — you are the brain, not a rigid script.',
+          '- When you hear four digits, call tool verifyStaffPhonePin.',
+          '- Wrong PIN: stay warm, keep the conversation going, gently retry later — never hang up, never dead-end, never lock them out.',
+          '- Until verified: do NOT leak internal CRM details; still chat, take a message, or transfer if they ask.',
+          '- AFTER verifyStaffPhonePin returns verified:true — immediately use CRM tools for any account/customer/project/staff/money question. Never claim you cannot look things up once unlocked.',
+        ].join('\n'),
+      '',
+      identity.kind === 'foreman'
+        ? '- Once unlocked: help with site/project status, briefs, and logging — not office approvals or invoices.'
+        : [
+          '- Once unlocked: willingly use tools for accounts, customers (by name or phone), projects, quotes, company counts (getBusinessSnapshot), and staff roster (getTeamPerformance).',
+          '- Do not offer vague “I can arrange a report” when a tool can answer — call the tool and summarise the result in one short spoken sentence.',
+        ].join('\n'),
+      '- Offer transferToHuman if they ask for a person or you cannot help.',
+      '- Use endCall when they say goodbye or ask to hang up.',
+      '- Reply only with spoken words; one or two chatty sentences.',
+      afterHours ? '- Outside normal hours: still help colleagues.' : '',
+      input.direction === 'outbound' ? '- This is an outbound call you placed.' : '- This is an inbound call.',
+    ].filter(Boolean).join('\n');
+  } else {
+    persona = [
+      'You are Aria, a cheeky female phone assistant for TradePro (England).',
+      'HARD RULES — accent & locale:',
+      '- You operate in England. Speak British English (en-GB) ONLY.',
+      '- Sound like a warm London Cockney / Estuary girl: matey, playful, clear enough for a phone line — never an American accent.',
+      '- Soft Cockney flavour in wording is welcome ("lovely", "sorted", "innit" sparingly, "cheers") but do NOT become unintelligible slang.',
+      '- NEVER use American spelling or vocabulary ("awesome", "gotta", "schedule a meeting" → prefer "book a chat").',
+      '- UK spelling, GBP (£), UK phone and date formats.',
+      '',
+      'Tone & style:',
+      '- Be properly funny: quick banter, light teasing, self-deprecating asides — every reply can have a smile, without roasting the customer.',
+      '- Keep it short: one or two chatty spoken sentences, text-message casual, no lists, no markdown, no formal paragraphs.',
+      '- Help first, joke second — if they are stressed or talking money/legal/safety, dial humour down.',
+      '- Same brain as Cyrus chat: use company knowledge and account memory; do not pretend you need to look up facts you already have.',
+      '',
+      'Live phone call:',
+      '- Reply only with spoken words.',
+      '- If the call just connected, greet them naturally in one short cheeky sentence using account memory.',
+      '- Offer transferToHuman if they ask for a person. Use endCall when they say goodbye.',
+      afterHours ? '- Outside normal hours: still help; offer a callback if needed.' : '',
+      input.campaignTemplate ? `- Soft call purpose (do not recite): ${input.campaignTemplate}` : '',
+      input.direction === 'outbound' ? '- This is an outbound call you placed.' : '- This is an inbound call.',
+    ].filter(Boolean).join('\n');
+  }
+
+  const historyBlock = history.length
+    ? `Recent conversation memory (same thread as chat/WhatsApp):\n${history
+      .map((m) => `${m.role}: ${m.content}`)
+      .join('\n')
+      .slice(0, 3500)}`
+    : 'No prior conversation history on this thread.';
+
+  const staffLine = identity.kind !== 'customer'
+    ? `Caller identity: ${identity.name} · role ${identity.role} · kind ${identity.kind} · PIN ${verified ? 'verified' : 'pending'}`
+    : account;
+
+  const instructions = [persona, british, languageBlock, staffLine, identity.kind === 'customer' ? account : '', historyBlock]
+    .filter(Boolean)
+    .join('\n\n');
+  return { instructions, resolved, history, identity, language };
+}
+
+export const VERIFY_PIN_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'verifyStaffPhonePin',
+    description: 'Verify the staff/builder phone security PIN (digits from keypad or spoken). Required before privileged tools.',
+    parameters: {
+      type: 'object',
+      properties: {
+        pin: { type: 'string', description: 'Exactly 4 digit PIN (spoken digits OK)' },
+      },
+      required: ['pin'],
+    },
+  },
+};
+
+export const END_CALL_FUNCTION_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'endCall',
+    description: 'End the phone call politely after saying goodbye',
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string' },
+      },
+    },
+  },
+};
+
+export const SET_CALL_LANGUAGE_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'setCallLanguage',
+    description: 'Switch the spoken language for the rest of this call and remember it for next time',
+    parameters: {
+      type: 'object',
+      properties: {
+        language: {
+          type: 'string',
+          enum: [...SUPPORTED_LANGS],
+          description: `Language code: ${SUPPORTED_LANGS.join(', ')}`,
+        },
+      },
+      required: ['language'],
+    },
+  },
+};
+
+export function getPhoneSessionChatTools(identity: PhoneCallerIdentity, verified: boolean) {
+  const base = identity.kind === 'customer'
+    ? [...PHONE_CUSTOMER_TOOLS, ...PHONE_TOOLS, END_CALL_FUNCTION_TOOL, SET_CALL_LANGUAGE_TOOL]
+    : identity.kind === 'foreman'
+      ? [
+          VERIFY_PIN_TOOL,
+          ...PHONE_CUSTOMER_TOOLS.filter((t) =>
+            ['lookupCustomerByPhone', 'getAccountBriefing', 'lookupProjectStatus', 'logCallActivity'].includes(t.function.name),
+          ),
+          ...PHONE_STAFF_CRM_TOOLS.filter((t) =>
+            ['searchProjects'].includes(t.function.name),
+          ),
+          ...PHONE_TOOLS.filter((t) => ['transferToHuman', 'captureMessage'].includes(t.function.name)),
+          END_CALL_FUNCTION_TOOL,
+          SET_CALL_LANGUAGE_TOOL,
+        ]
+      : [
+          VERIFY_PIN_TOOL,
+          ...PHONE_CUSTOMER_TOOLS,
+          ...PHONE_STAFF_CRM_TOOLS,
+          ...PHONE_TOOLS.filter((t) =>
+            ['transferToHuman', 'captureMessage', 'bookCallback', 'scheduleAppointment', 'captureLead', 'classifyCallIntent'].includes(t.function.name),
+          ),
+          END_CALL_FUNCTION_TOOL,
+          SET_CALL_LANGUAGE_TOOL,
+        ];
+
+  // CRITICAL: Always expose the full staff/foreman tool list to Vapi.
+  // PIN gating is enforced server-side in isToolAllowedForPhoneSession.
+  // Filtering tools here until verified left Aria with nothing to call after unlock
+  // (assistant tools are fixed at call start and cannot grow mid-call).
+  void verified;
+  return base;
+}
+
+/** Convert chat-completions tools → Realtime flat tool schema. */
+export function toRealtimeTools(
+  tools: Array<{ type: 'function'; function: { name: string; description?: string; parameters?: Record<string, unknown> } }>,
+): Array<{ type: 'function'; name: string; description?: string; parameters?: Record<string, unknown> }> {
+  return sanitizeChatTools(tools).map((t) => ({
+    type: 'function' as const,
+    name: t.function.name,
+    description: t.function.description,
+    parameters: t.function.parameters ?? { type: 'object', properties: {} },
+  }));
+}
+
+export function getRealtimePhoneTools() {
+  return toRealtimeTools([...PHONE_CUSTOMER_TOOLS, ...PHONE_TOOLS]);
+}

@@ -1,0 +1,170 @@
+/**
+ * Shared builders for Vapi assistant payloads (outbound + assistant-request).
+ */
+import { DEFAULT_ORG_ID, getAgentSettings, getCallById } from './data-store';
+import {
+  buildPhoneBrainPrompt,
+  getPhoneSessionChatTools,
+  VERIFY_PIN_TOOL,
+} from './phone-brain';
+import {
+  isPhoneAuthVerified,
+  resolvePhoneCallerIdentity,
+  type PhoneCallerIdentity,
+} from './phone-auth';
+import { deepgramLanguageForPack } from './language-packs';
+import { getVapiVoiceConfig, getVapiWebhookBaseUrl, toE164Uk } from './vapi-client';
+
+function transferNumberFor(dept: 'general' | 'sales' | 'projects' | 'recruitment' | 'accounts'): string | undefined {
+  const settings = getAgentSettings().transferNumbers ?? {};
+  const envByDept: Record<string, string | undefined> = {
+    general: process.env.VOICE_TRANSFER_NUMBER,
+    sales: process.env.VOICE_TRANSFER_SALES,
+    projects: process.env.VOICE_TRANSFER_PROJECTS,
+    recruitment: process.env.VOICE_TRANSFER_RECRUITMENT,
+    accounts: process.env.VOICE_TRANSFER_ACCOUNTS,
+  };
+  return settings[dept]?.trim() || envByDept[dept]?.trim() || undefined;
+}
+
+export function transferDestinationsFromEnv(): Array<Record<string, unknown>> {
+  const destinations: Array<Record<string, unknown>> = [];
+  const def = transferNumberFor('general');
+  if (def) {
+    destinations.push({
+      type: 'number',
+      number: toE164Uk(def),
+      message: 'Putting you through to the team now.',
+      description: 'Default office transfer',
+    });
+  }
+  const depts: Array<'sales' | 'projects' | 'recruitment' | 'accounts'> = [
+    'sales', 'projects', 'recruitment', 'accounts',
+  ];
+  for (const dept of depts) {
+    const n = transferNumberFor(dept);
+    if (n) {
+      destinations.push({
+        type: 'number',
+        number: toE164Uk(n),
+        message: `Connecting you to ${dept}.`,
+        description: dept,
+      });
+    }
+  }
+  return destinations;
+}
+
+export function resolveTransferNumber(department?: string): string | null {
+  const dept = String(department || 'general').toLowerCase();
+  const valid = ['general', 'sales', 'projects', 'recruitment', 'accounts'] as const;
+  const key = (valid as readonly string[]).includes(dept) ? (dept as typeof valid[number]) : 'general';
+  const pick = transferNumberFor(key) || transferNumberFor('general');
+  return pick ? toE164Uk(pick) : null;
+}
+
+export function buildVapiAssistantForParty(opts: {
+  partyPhone: string;
+  direction: 'inbound' | 'outbound';
+  campaignTemplate?: string;
+  callId?: string;
+  contactName?: string;
+}): {
+  assistant: Record<string, unknown>;
+  identity: PhoneCallerIdentity;
+  verified: boolean;
+} {
+  const identity = resolvePhoneCallerIdentity(opts.partyPhone, DEFAULT_ORG_ID);
+  const verified = opts.callId ? isPhoneAuthVerified(opts.callId) : false;
+  const existingCall = opts.callId ? getCallById(opts.callId) : undefined;
+  const languageOverride = (existingCall?.metadata as Record<string, unknown> | undefined)?.callLanguage as
+    | string
+    | undefined;
+  const { instructions, language } = buildPhoneBrainPrompt({
+    orgId: DEFAULT_ORG_ID,
+    partyPhone: opts.partyPhone,
+    direction: opts.direction,
+    campaignTemplate: opts.campaignTemplate,
+    contactName: opts.contactName || identity.name,
+    identity,
+    callId: opts.callId,
+    phoneAuthVerified: verified,
+    languageOverride,
+  });
+
+  const webhookBase = getVapiWebhookBaseUrl();
+  const toolServer = `${webhookBase}/webhooks/vapi`;
+  const firstName = (opts.contactName || identity.name || '').split(/\s+/)[0];
+
+  let firstMessage: string;
+  if (identity.kind === 'staff' || identity.kind === 'foreman') {
+    firstMessage = verified
+      ? `Hi ${firstName || 'there'}, Aria here — you're unlocked, what do you need?`
+      : `Hi ${firstName || 'there'}, Aria here — when you can, say your four-digit security code and I'll unlock your tools.`;
+  } else if (opts.direction === 'outbound') {
+    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Aria from TradePro — how are you getting on?`;
+  } else {
+    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Aria from TradePro here — how can I help?`;
+  }
+
+  const functionTools = getPhoneSessionChatTools(identity, verified).map((tool) => ({
+    type: 'function',
+    function: tool.function,
+    async: false,
+    server: { url: toolServer },
+  }));
+
+  // Always expose PIN verifier for staff sessions even if somehow filtered
+  if (identity.kind !== 'customer' && !functionTools.some((t) => t.function.name === 'verifyStaffPhonePin')) {
+    functionTools.unshift({
+      type: 'function',
+      function: VERIFY_PIN_TOOL.function,
+      async: false,
+      server: { url: toolServer },
+    });
+  }
+
+  const nativeTools: Array<Record<string, unknown>> = [
+    { type: 'endCall' },
+  ];
+  const xfer = transferDestinationsFromEnv();
+  if (xfer.length) {
+    nativeTools.push({
+      type: 'transferCall',
+      destinations: xfer,
+    });
+  }
+
+  const assistant: Record<string, unknown> = {
+    name: identity.kind === 'customer' ? 'Aria TradePro' : `Aria (${identity.role})`,
+    firstMessage,
+    model: {
+      provider: 'openai',
+      model: process.env.VAPI_LLM_MODEL?.trim() || 'gpt-4o',
+      temperature: 0.7,
+      messages: [{ role: 'system', content: instructions }],
+      tools: [...nativeTools, ...functionTools],
+    },
+    voice: getVapiVoiceConfig(),
+    transcriber: {
+      provider: 'deepgram',
+      model: 'nova-2',
+      language: deepgramLanguageForPack(language),
+    },
+    silenceTimeoutSeconds: 45,
+    maxDurationSeconds: Number(process.env.VAPI_MAX_CALL_SECONDS || 900),
+    backgroundSound: 'off',
+    // PIN via spoken digits → verifyStaffPhonePin. Do NOT send keypadInputEnabled (Vapi 400).
+    serverUrl: toolServer,
+    serverMessages: [
+      'transcript',
+      'status-update',
+      'end-of-call-report',
+      'tool-calls',
+      'hang',
+      'conversation-update',
+    ],
+  };
+
+  return { assistant, identity, verified };
+}

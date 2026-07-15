@@ -4,10 +4,15 @@ import {
   appendConversationMessage,
   upsertTeamMember,
   listTeamMembers,
+  publicTeamMember,
 } from './conversation-store';
 import { detectLanguage, translateToEnglish, translateFromEnglish } from './translation-service';
-import { enqueueOutboundCall, getDataStore } from './data-store';
+import { loadLanguagePacks, saveLanguagePacks, type LanguagePacksMap } from './language-packs';
+import { enqueueOutboundCall, getDataStore, normalizePhoneExport } from './data-store';
 import { resolveInboundChannel } from './channel-router';
+import { hashPhonePin, isValidPhonePin } from './phone-auth';
+
+const STAFF_ROLES = new Set(['super_admin', 'manager', 'staff', 'builder']);
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -51,6 +56,24 @@ export async function handleChannelRoutes(
     }
   }
 
+  if (pathname === '/api/language-packs' && req.method === 'GET') {
+    sendJson(res, 200, { packs: loadLanguagePacks() });
+    return true;
+  }
+
+  if (pathname === '/api/language-packs' && req.method === 'PUT') {
+    const body = JSON.parse(await readBody(req));
+    const packs = (body.packs ?? body) as LanguagePacksMap;
+    if (!packs || typeof packs !== 'object') {
+      sendJson(res, 400, { error: 'Expected packs object' });
+      return true;
+    }
+    const saved = saveLanguagePacks(packs);
+    sendJson(res, 200, { packs: saved });
+    return true;
+  }
+
+  // Stubs: pack-backed, no OpenAI (kept for any old clients)
   if (pathname === '/api/translate/detect' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req));
     const lang = await detectLanguage(String(body.text ?? ''));
@@ -74,19 +97,83 @@ export async function handleChannelRoutes(
 
   if (pathname === '/api/org/staff/register-phone' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req));
+    const phone = normalizePhoneExport(String(body.phone ?? ''));
+    if (!phone) {
+      sendJson(res, 400, { error: 'phone is required' });
+      return true;
+    }
+    const roleRaw = String(body.role ?? 'staff');
+    const role = (STAFF_ROLES.has(roleRaw) ? roleRaw : 'staff') as
+      'super_admin' | 'manager' | 'staff' | 'builder';
+    const pinRaw = body.phonePin != null ? String(body.phonePin) : '';
+    const existing = listTeamMembers().find(
+      (m) => m.id === String(body.id ?? '') || normalizePhoneExport(m.phone) === phone,
+    );
+    let phonePinHash = existing?.phonePinHash;
+    let phonePinUpdatedAt = existing?.phonePinUpdatedAt;
+    if (pinRaw) {
+      if (!isValidPhonePin(pinRaw)) {
+        sendJson(res, 400, { error: 'phonePin must be exactly 4 digits' });
+        return true;
+      }
+      phonePinHash = hashPhonePin(pinRaw);
+      phonePinUpdatedAt = new Date().toISOString();
+    } else if (!existing?.phonePinHash) {
+      sendJson(res, 400, { error: 'phonePin is required when registering a new staff phone' });
+      return true;
+    }
+
+    const preferredLanguageRaw = body.preferredLanguage != null
+      ? String(body.preferredLanguage).trim().toLowerCase()
+      : (existing?.preferredLanguage ?? 'en');
     const member = upsertTeamMember({
-      id: String(body.id ?? body.userId ?? `tm-${Date.now()}`),
-      userId: String(body.userId ?? body.id ?? `user-${Date.now()}`),
-      name: String(body.name ?? 'Staff'),
-      phone: String(body.phone ?? ''),
-      role: body.role ?? 'staff',
+      id: String(body.id ?? body.userId ?? existing?.id ?? `tm-${Date.now()}`),
+      userId: String(body.userId ?? body.id ?? existing?.userId ?? `user-${Date.now()}`),
+      name: String(body.name ?? existing?.name ?? 'Staff'),
+      phone,
+      role,
+      preferredLanguage: preferredLanguageRaw || existing?.preferredLanguage || 'en',
+      phonePinHash,
+      phonePinUpdatedAt,
     });
-    sendJson(res, 200, { member, members: listTeamMembers() });
+    sendJson(res, 200, {
+      member: publicTeamMember(member),
+      members: listTeamMembers().map(publicTeamMember),
+      ...(pinRaw ? { phonePinOnce: pinRaw } : {}),
+    });
+    return true;
+  }
+
+  if (pathname === '/api/org/staff/phone-pin' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const phone = normalizePhoneExport(String(body.phone ?? ''));
+    const id = body.id ? String(body.id) : '';
+    const member = listTeamMembers().find(
+      (m) => (id && m.id === id) || (phone && normalizePhoneExport(m.phone) === phone),
+    );
+    if (!member) {
+      sendJson(res, 404, { error: 'Staff member not found' });
+      return true;
+    }
+    const pinRaw = String(body.phonePin ?? '');
+    if (!isValidPhonePin(pinRaw)) {
+      sendJson(res, 400, { error: 'phonePin must be exactly 4 digits' });
+      return true;
+    }
+    const updated = upsertTeamMember({
+      ...member,
+      phonePinHash: hashPhonePin(pinRaw),
+      phonePinUpdatedAt: new Date().toISOString(),
+    });
+    sendJson(res, 200, {
+      member: publicTeamMember(updated),
+      members: listTeamMembers().map(publicTeamMember),
+    });
     return true;
   }
 
   if (pathname === '/api/org/staff/list' && req.method === 'GET') {
-    sendJson(res, 200, { members: listTeamMembers() });
+    sendJson(res, 200, { members: listTeamMembers().map(publicTeamMember) });
     return true;
   }
 

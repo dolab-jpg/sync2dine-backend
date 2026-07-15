@@ -1,6 +1,9 @@
 import {
+  appendCustomerCallActivity,
   enqueueOutboundCall,
+  getCallById,
   getDataStore,
+  lookupContactByPhone,
   saveCall,
   saveCustomerRecord,
   saveRecruitmentCandidate,
@@ -14,6 +17,75 @@ function firstString(...values: unknown[]): string | undefined {
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return undefined;
+}
+
+export interface CaptureLeadFields {
+  name?: unknown;
+  phone?: unknown;
+  email?: unknown;
+  address?: unknown;
+  postcode?: unknown;
+  interestedTrades?: unknown;
+  scope?: unknown;
+  budget?: unknown;
+  notes?: unknown;
+}
+
+/**
+ * Create-or-update a CRM lead for a phone caller. Shared by the AI `captureLead`
+ * tool (automatic, mid-call) and the staff-assisted "Create lead from this call"
+ * REST path — both must dedupe against existing customers/contacts by phone so
+ * repeat callers don't spawn duplicate lead records.
+ */
+export function captureOrUpdateLead(
+  fields: CaptureLeadFields,
+  opts: { callId?: string; fallbackPhone?: string } = {},
+): { customer: Record<string, unknown>; isNewLead: boolean } {
+  const phone = firstString(fields.phone, opts.fallbackPhone);
+  const existingLookup = phone ? lookupContactByPhone(phone) : { found: false as const };
+  const store = getDataStore();
+  const existing = existingLookup.found && existingLookup.customerId
+    ? store.customers.find((c) => String(c.id) === existingLookup.customerId)
+    : undefined;
+
+  const name = firstString(fields.name) ?? (existing?.name as string | undefined) ?? 'Unknown caller';
+  // Scope/notes text is recorded as a timestamped activity line (below) rather than
+  // baked into the `notes` field directly, so repeat calls don't duplicate old text.
+  const scopeNote = [fields.scope, fields.notes].filter(Boolean).join(' — ');
+  const newTrades = Array.isArray(fields.interestedTrades) ? fields.interestedTrades : [];
+  const existingTrades = Array.isArray(existing?.interestedTrades) ? existing?.interestedTrades as unknown[] : [];
+  const mergedTrades = [...new Set([...existingTrades, ...newTrades])];
+
+  const customer = saveCustomerRecord({
+    id: existing?.id,
+    name,
+    phone: phone ?? existing?.phone ?? '',
+    email: firstString(fields.email) ?? existing?.email ?? '',
+    address: firstString(fields.address, fields.postcode) ?? existing?.address ?? '',
+    status: existing?.status ?? 'lead',
+    interestedTrades: mergedTrades,
+    notes: existing?.notes ?? (opts.callId ? undefined : scopeNote) ?? '',
+    source: existing?.source ?? 'phone',
+    budget: fields.budget ?? existing?.budget,
+    sourceCallId: (existing?.sourceCallId as string | undefined) ?? opts.callId,
+  });
+
+  if (opts.callId) {
+    saveCall({ id: opts.callId, customerId: customer.id, intent: 'new_sales_lead', outcome: 'lead_captured' });
+    appendCustomerCallActivity({
+      customerId: String(customer.id),
+      callId: opts.callId,
+      summary: scopeNote || (existing ? 'Lead details updated from phone call' : 'Lead captured from phone call'),
+      outcome: 'lead_captured',
+    });
+    // appendCustomerCallActivity mutates notes/activities after saveCustomerRecord
+    // returned above — re-read so callers (API responses, AI tool result) see the
+    // final record rather than a stale pre-activity-log snapshot.
+    const refreshed = getDataStore().customers.find((c) => String(c.id) === customer.id);
+    if (refreshed) return { customer: refreshed, isNewLead: !existing };
+  }
+
+  return { customer, isNewLead: !existing };
 }
 
 export const PHONE_TOOLS = [
@@ -250,21 +322,14 @@ export function executePhoneTool(
   }
 
   if (name === 'captureLead') {
-    const customer = saveCustomerRecord({
-      name: input.name,
-      phone: callerPhone,
-      email: input.email ?? '',
-      address: input.address ?? input.postcode ?? '',
-      status: 'lead',
-      interestedTrades: input.interestedTrades ?? [],
-      notes: [input.scope, input.notes].filter(Boolean).join(' — '),
-      source: 'phone',
-      budget: input.budget,
-    });
-    if (callId) {
-      saveCall({ id: callId, customerId: customer.id, intent: 'new_sales_lead', outcome: 'lead_captured' });
-    }
-    return { customerId: customer.id, name: customer.name, status: 'lead', saved: true };
+    const { customer, isNewLead } = captureOrUpdateLead(input, { callId, fallbackPhone: callerPhone });
+    return {
+      customerId: customer.id,
+      name: customer.name,
+      status: customer.status ?? 'lead',
+      saved: true,
+      isNewLead,
+    };
   }
 
   if (name === 'bookCallback') {
@@ -395,10 +460,13 @@ export function executePhoneTool(
 
   if (name === 'captureMessage') {
     if (callId) {
+      // Merge — a metadata replace here used to wipe phoneAuth verified state mid-call
+      const existing = getCallById(callId);
       saveCall({
         id: callId,
         outcome: 'message_captured',
         metadata: {
+          ...((existing?.metadata as Record<string, unknown> | undefined) || {}),
           department: input.department,
           message: input.message,
           callerName: input.callerName,
