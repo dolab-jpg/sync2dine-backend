@@ -1,7 +1,7 @@
 import type { OrchestratorRequest } from './orchestrator-types';
 import { getRequestRole } from './role-permissions';
 import { DATA_COLLECTIONS } from './dataPolicy';
-import { buildAriaSystemPrompt } from './phone-prompt';
+import { buildCynthiaPhoneSystemPrompt } from './phone-prompt';
 import { FACADE_WEB_STAFF_MODES, isFacadeEnabled } from './tool-facade';
 
 const ROUTE_HINTS = `/ (dashboard), /crm, /quotes, /projects, /planning, /price-job, /approvals, /contracts, /recruitment, /team, /settings, /booking, /site-survey (surveys), /quote/{tradeId}/{customerId}, /portal/{token}, /contract/{token}, /builder, /costing, /portfolio, /changes — you may navigate to any valid route, not only these.`;
@@ -157,7 +157,7 @@ export function buildOrchestratorSystemPrompt(body: OrchestratorRequest): string
   const snapshot = formatSnapshot(body);
 
   if (mode === 'phone') {
-    return buildAriaSystemPrompt(body);
+    return buildCynthiaPhoneSystemPrompt(body);
   }
 
   const planningBlock = formatPlanningContext(body);

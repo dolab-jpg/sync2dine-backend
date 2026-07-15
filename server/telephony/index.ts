@@ -12,15 +12,17 @@ const adapters: Record<TelephonyProviderId, TelephonyProvider> = {
 };
 
 /**
- * VOICE_PROVIDER overrides TELEPHONY_PROVIDER for outbound Cynthia calls.
- * - vapi: managed SIP/media (recommended)
- * - local_realtime / soho66: custom home SIP bridge
- * Production fails closed: no implicit mock.
+ * Cynthia phone AI uses Vapi only (Soho66 SIP trunk → Vapi media → webhooks).
+ * No sip-bridge / local_realtime rollback — misconfigured providers fail closed.
  */
 export function resolveVoiceProviderId(): TelephonyProviderId {
   const voice = String(process.env.VOICE_PROVIDER || '').trim().toLowerCase();
+  if (voice === 'local_realtime' || voice === 'soho66' || voice === 'local') {
+    throw new Error(
+      `VOICE_PROVIDER=${voice} is unsupported — Cynthia phone AI requires VOICE_PROVIDER=vapi (no sip-bridge rollback)`,
+    );
+  }
   if (voice === 'vapi') return 'vapi';
-  if (voice === 'local_realtime' || voice === 'soho66' || voice === 'local') return 'soho66';
   if (voice === 'twilio') return 'twilio';
   if (voice === 'mock') {
     if (process.env.NODE_ENV === 'production' || process.env.FAIL_CLOSED === '1') {
@@ -30,11 +32,16 @@ export function resolveVoiceProviderId(): TelephonyProviderId {
   }
   const telephony = String(process.env.TELEPHONY_PROVIDER || '').trim().toLowerCase();
   if (telephony === 'vapi') return 'vapi';
-  if (telephony === 'soho66' || telephony === 'twilio') return telephony as TelephonyProviderId;
+  if (telephony === 'soho66' || telephony === 'local_realtime' || telephony === 'local') {
+    throw new Error(
+      `TELEPHONY_PROVIDER=${telephony} cannot run Cynthia phone AI — set VOICE_PROVIDER=vapi`,
+    );
+  }
+  if (telephony === 'twilio') return 'twilio';
   if (telephony === 'mock' || !telephony) {
     const allowMock = process.env.ALLOW_TELEPHONY_MOCK === '1' || process.env.NODE_ENV === 'test'
-      || (process.env.NODE_ENV !== 'production' && process.env.FAIL_CLOSED !== '1');
-    if (allowMock) return 'mock';
+      || (process.env.NODE_ENV !== 'production' && process.env.FAIL_CLOSED !== '1' && !voice);
+    if (allowMock && !voice) return 'mock';
     throw new Error('Telephony provider not configured — set VOICE_PROVIDER=vapi');
   }
   throw new Error(`Unknown telephony provider: ${telephony || voice || '(empty)'}`);

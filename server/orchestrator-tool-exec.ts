@@ -172,7 +172,7 @@ export function executeCustomerTool(
   if (name === 'logCallActivity') {
     const customerId = firstString(input.customerId, body.customerContext?.customerId);
     const callId = firstString(input.callId, body.callContext?.callId);
-    const summary = firstString(input.summary) ?? 'Aria phone call';
+    const summary = firstString(input.summary) ?? 'Cynthia phone call';
     const outcome = firstString(input.outcome);
     if (!customerId) return { logged: false, error: 'customerId required' };
     const note = appendCustomerCallActivity({

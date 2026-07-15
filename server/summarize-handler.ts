@@ -7,7 +7,7 @@ export interface SummarizeRequestBody {
 }
 
 const SUMMARY_SYSTEM_PROMPT = `You are a CRM assistant for a UK bathroom and construction sales team.
-Summarize the WhatsApp conversation between a customer and the Cyrus AI assistant for internal staff.
+Summarize the WhatsApp conversation between a customer and the Cynthia AI assistant for internal staff.
 
 Write a concise staff-facing summary (max 200 words) with these sections as bullet points:
 - Customer: who they are and contact context if known

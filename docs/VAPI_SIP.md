@@ -1,10 +1,12 @@
-# Vapi managed SIP (TradePro Aria)
+# Vapi managed SIP (Cynthia phone)
 
-Replaces the local `sip-bridge` RTP stack for production-quality two-way audio.
+Production phone AI path: Soho66 SIP ↔ Vapi (media) ↔ TradePro webhooks ↔ Cynthia brain, tools, and memory.
+
+There is **no sip-bridge / local_realtime rollback**. Cynthia phone AI requires `VOICE_PROVIDER=vapi`.
 
 ## Why
 
-Home NAT/UPnP + custom RTP pacing causes one-way/no-reply calls. Vapi hosts SIP signalling and media; TradePro keeps Cyrus brain, tools, and memory via webhooks.
+Home NAT/UPnP + custom RTP pacing caused one-way/no-reply calls. Vapi hosts SIP signalling and media; TradePro keeps Cynthia brain, tools, and memory via webhooks.
 
 ## Setup
 
@@ -33,9 +35,9 @@ cd tradepro-backend
 npm run vapi:setup
 ```
 
-This reads the Aria line from `server/data/synced-data.json` (`1005090093@sbc.soho66.co.uk:8060`) and writes `VAPI_PHONE_NUMBER_ID` / `VAPI_SIP_CREDENTIAL_ID` into `.env`.
+This reads the Cynthia AI line (`purpose: aria` compat alias) from `server/data/synced-data.json` and writes `VAPI_PHONE_NUMBER_ID` / `VAPI_SIP_CREDENTIAL_ID` into `.env`.
 
-5. Restart API (`npm run dev`). Do **not** need the local SIP bridge when `VOICE_PROVIDER=vapi`.
+5. Restart API (`npm run dev`). Local SIP bridge is **not** used for AI answering.
 
 6. Place a call:
 
@@ -62,24 +64,15 @@ Some Soho66 accounts expect SIP REGISTER from a softphone/UA. Vapi BYO trunks of
 1. Keep your Soho66 DID
 2. Add a proper BYOC trunk (Telnyx / DIDLogic)
 3. Forward/port the Soho66 number, or migrate CLI
-4. Re-run setup against that trunk — **do not** go back to custom RTP
+4. Re-run setup against that trunk — **do not** use custom RTP / sip-bridge for AI
 
 Inbound later: Soho66 Routing Wizard → external SIP URI  
 `sip:+442037453233@<credentialId>.sip.eu.vapi.ai`
-
-## Rollback
-
-```env
-VOICE_PROVIDER=local_realtime
-# or TELEPHONY_PROVIDER=soho66 without VOICE_PROVIDER=vapi
-```
-
-Then start `npm run sip-bridge:dev` again.
 
 ## Webhooks
 
 `POST /webhooks/vapi` handles:
 
-- `assistant-request` → `buildPhoneBrainPrompt()`
+- `assistant-request` → `buildPhoneBrainPrompt()` (Cynthia identity)
 - `tool-calls` → existing customer/phone tools (idempotent)
-- `transcript` / `end-of-call-report` → Call Centre + Cyrus thread
+- `transcript` / `end-of-call-report` → Call Centre + Cynthia customer threads

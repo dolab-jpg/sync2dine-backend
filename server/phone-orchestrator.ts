@@ -1,5 +1,5 @@
 import { handleOrchestrator, type OrchestratorRequest, type OrchestratorResult } from './orchestrator-handler';
-import { buildAriaSystemPrompt, buildGreeting, detectIntentFromSpeech, detectUpsetSentiment } from './phone-prompt';
+import { buildCynthiaPhoneSystemPrompt, buildGreeting, detectIntentFromSpeech, detectUpsetSentiment } from './phone-prompt';
 import { executePhoneTool, getOpenRecruitmentJobs, PHONE_AUTO_ACTIONS } from './phone-tools';
 import { executeCustomerTool } from './orchestrator-tool-exec';
 import { resolveInboundChannel } from './channel-router';
@@ -116,7 +116,7 @@ export async function handlePhoneTurn(body: PhoneOrchestratorRequest): Promise<{
     orgId: getRequestOrgId(),
     messages,
     orchestratorMode: 'phone',
-    systemPrompt: buildAriaSystemPrompt({
+    systemPrompt: buildCynthiaPhoneSystemPrompt({
       messages,
       callContext: callContext as OrchestratorRequest['callContext'],
       customerContext: body.customerContext,

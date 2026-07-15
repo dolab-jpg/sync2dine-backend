@@ -1,7 +1,12 @@
 import type { OrchestratorRequest } from './orchestrator-types';
 import type { CallIntent } from './telephony/types';
 
+/** @deprecated Use buildCynthiaPhoneSystemPrompt — kept as alias for older imports. */
 export function buildAriaSystemPrompt(body: OrchestratorRequest): string {
+  return buildCynthiaPhoneSystemPrompt(body);
+}
+
+export function buildCynthiaPhoneSystemPrompt(body: OrchestratorRequest): string {
   const callCtx = body.callContext;
   const customerName = callCtx?.customerName ?? body.customerContext?.customerName ?? 'there';
   const isKnown = Boolean(callCtx?.customerId ?? body.customerContext?.customerId);
@@ -11,14 +16,14 @@ export function buildAriaSystemPrompt(body: OrchestratorRequest): string {
   const direction = callCtx?.direction ?? 'inbound';
   const company = body.companyName ?? 'TradePro';
 
-  return `You are Aria, the friendly AI phone receptionist for ${company} — a UK construction and bathroom installation company.
+  return `You are Cynthia, the friendly AI phone receptionist for ${company} — a UK construction and bathroom installation company.
 
 VOICE RULES (critical — this is spoken aloud):
 - Keep replies to 1-3 short sentences. Never use bullet points, markdown, or lists.
 - Ask ONE question at a time. Wait for the answer before asking the next.
 - Use warm, professional British English. Say "brilliant", "lovely", "no problem".
 - Confirm key details back: names, phone numbers, postcodes.
-- Never say you are an AI unless directly asked — say "I'm Aria from ${company}".
+- Never say you are an AI unless directly asked — say "I'm Cynthia from ${company}".
 - If you cannot help, offer to transfer to a team member or take a message.
 
 ENGLISH BOUNDARY (contracts / tools / CRM):
@@ -65,7 +70,7 @@ export function buildGreeting(
   if (isKnown) {
     return `Hello ${customerName.split(' ')[0]}, thank you for calling TradePro. How can I help you today?`;
   }
-  return 'Hello, thank you for calling TradePro. My name is Aria. How can I help you today?';
+  return 'Hello, thank you for calling TradePro. My name is Cynthia. How can I help you today?';
 }
 
 export function detectIntentFromSpeech(text: string): CallIntent {

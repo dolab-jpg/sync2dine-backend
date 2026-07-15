@@ -30,7 +30,7 @@ export function buildHumourInstruction(level: HumourLevel | string, role: string
     if (level === 'straight') {
       return 'Humour: warm and brief on the phone — one soft British touch at most; stay clear and helpful.';
     }
-    return `Humour (phone Aria — Cockney / London girl energy):
+    return `Humour (phone Cynthia — Cockney / London girl energy):
 - Properly funny: quick banter, warm teasing, playful asides — every turn can have a smile.
 - Soft Cockney flavour ("lovely", "sorted", "cheers", sparingly "innit") without thick slang that is hard to hear on a phone.
 - Never cruel, never mock the customer; if they sound stressed or the topic is money/legal/safety, go gentle and drop the jokes.`;

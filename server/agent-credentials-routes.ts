@@ -147,7 +147,7 @@ export async function handleAgentCredentialsRoutes(
         phoneNumberId: Boolean(process.env.VAPI_PHONE_NUMBER_ID?.trim() || vars.VAPI_PHONE_NUMBER_ID?.trim()),
         webhookBaseUrl: process.env.VAPI_WEBHOOK_BASE_URL?.trim() || vars.VAPI_WEBHOOK_BASE_URL?.trim() || null,
         region: process.env.VAPI_REGION || vars.VAPI_REGION || 'eu',
-        voiceProvider: process.env.VOICE_PROVIDER || 'soho66',
+        voiceProvider: process.env.VOICE_PROVIDER || 'vapi',
       },
       masked: {
         supabaseAccessToken: vars.SUPABASE_ACCESS_TOKEN

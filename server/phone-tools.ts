@@ -743,7 +743,7 @@ export async function executePhoneTool(
       notes: input.notes,
       status: 'scheduled',
       duration: 30,
-      interviewers: ['Aria (AI pre-screen)'],
+      interviewers: ['Cynthia (AI pre-screen)'],
     });
     if (callId) {
       saveCall({ id: callId, outcome: 'interview_booked' });

@@ -136,7 +136,7 @@ export interface AgentSettings {
   activeVoiceId?: string;
   leadCallbackPolicy?: 'alert_only' | 'outbound_first' | 'inbound_only';
   ivrTree?: Record<string, unknown>;
-  /** Department → phone number for Aria live handoffs */
+  /** Department → phone number for Cynthia live handoffs */
   transferNumbers?: TransferNumbers;
   updatedAt: string;
 }
@@ -773,7 +773,7 @@ export function appendCustomerCallActivity(input: {
   const idx = store.customers.findIndex(c => String(c.id) === input.customerId);
   const stamp = new Date().toISOString();
   const line = [
-    `[Aria call ${stamp.slice(0, 16).replace('T', ' ')}]`,
+    `[Cynthia call ${stamp.slice(0, 16).replace('T', ' ')}]`,
     input.summary.trim(),
     input.outcome ? `Outcome: ${input.outcome.trim()}` : '',
     input.callId ? `(callId ${input.callId})` : '',
@@ -1091,7 +1091,7 @@ export function lookupContactByPhone(phone: string): {
   if (!customer && !resolved.customerId) {
     return {
       found: false,
-      message: 'Aria will create a new contact when this number calls.',
+      message: 'Cynthia will create a new contact when this number calls.',
     };
   }
 

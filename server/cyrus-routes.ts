@@ -130,7 +130,7 @@ export async function handleCyrusRoutes(
     const settings = getCompanySettings(orgId);
     const appBase = (process.env.APP_BASE_URL || 'http://localhost:5174').replace(/\/$/, '');
     const apiBase = (process.env.VITE_API_BASE_URL || process.env.APP_BASE_URL || appBase).replace(/\/$/, '');
-    const snippet = `<script src="${appBase}/cyrus-widget.js" data-org-id="${orgId}" data-api="${apiBase}" async></script>`;
+    const snippet = `<script src="${appBase}/cynthia-widget.js" data-org-id="${orgId}" data-api="${apiBase}" data-name="Cynthia" async></script>`;
     sendJson(res, 200, {
       snippet,
       website: settings.website ?? '',
@@ -178,7 +178,7 @@ export async function handleCyrusRoutes(
       const record = setHandoffMode(orgId, sessionId, mode);
       const notice = mode === 'human_takeover'
         ? 'A team member has joined this conversation.'
-        : 'Cyrus AI is handling this conversation again.';
+        : 'Cynthia AI is handling this conversation again.';
       appendConversationMessage(orgId, sessionId, {
         role: 'assistant',
         content: notice,

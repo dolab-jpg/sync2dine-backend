@@ -26,15 +26,21 @@ export interface ProviderHealth {
   errors: string[];
 }
 
-/** Hard requirements for placing/handling production Vapi calls. */
+/** Hard requirements for Cynthia phone AI (Vapi only — no sip-bridge rollback). */
 export function assertVapiProductionReady(): ProviderHealth {
   const errors: string[] = [];
   const voice = String(process.env.VOICE_PROVIDER || '').trim().toLowerCase();
-  if (isProductionRuntime()) {
+  if (voice === 'local_realtime' || voice === 'soho66' || voice === 'local') {
+    errors.push(
+      `VOICE_PROVIDER=${voice} is unsupported — Cynthia phone AI requires VOICE_PROVIDER=vapi (no rollback)`,
+    );
+  } else if (isProductionRuntime()) {
     if (voice && voice !== 'vapi') {
       errors.push(`VOICE_PROVIDER must be vapi in production (got ${voice})`);
     }
     if (!voice) errors.push('VOICE_PROVIDER must be explicitly set to vapi');
+  } else if (voice && voice !== 'vapi' && voice !== 'mock') {
+    errors.push(`VOICE_PROVIDER must be vapi (got ${voice})`);
   }
   if (!getVapiPrivateKey()) errors.push('VAPI_PRIVATE_KEY is not configured');
   if (!getVapiPublicKey() && isProductionRuntime()) errors.push('VAPI_PUBLIC_KEY is not configured');
@@ -58,13 +64,16 @@ export function assertVapiProductionReady(): ProviderHealth {
 export function rejectUnknownProvider(provider: string): string | null {
   const p = String(provider || '').trim().toLowerCase();
   if (!p) {
-    if (isProductionRuntime()) return 'Telephony provider is not configured';
+    if (isProductionRuntime()) return 'Telephony provider is not configured — set VOICE_PROVIDER=vapi';
     return null;
   }
   if (p === 'mock' && isProductionRuntime()) {
     return 'mock telephony is disabled in production';
   }
-  const known = new Set(['vapi', 'soho66', 'local_realtime', 'local', 'twilio', 'mock']);
+  if (p === 'soho66' || p === 'local_realtime' || p === 'local') {
+    return `${p} is unsupported for Cynthia phone AI — set VOICE_PROVIDER=vapi (no sip-bridge rollback)`;
+  }
+  const known = new Set(['vapi', 'twilio', 'mock']);
   if (!known.has(p)) return `Unknown telephony provider: ${p}`;
   return null;
 }
