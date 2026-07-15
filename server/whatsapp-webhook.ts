@@ -381,9 +381,11 @@ export async function handleWhatsAppWebhookPost(
           const store = getDataStore();
           const project = store.projects.find(p => String(p.id) === projectId);
           if (project) {
-            const file = {
-              id: `F${Date.now()}`,
-              storagePath: `whatsapp/${projectId}/${filename}`,
+            const storagePath = `whatsapp/${projectId}/${filename}`;
+            const fileId = `F${Date.now()}`;
+            let file: Record<string, unknown> = {
+              id: fileId,
+              storagePath,
               filename,
               mimeType: media.mimeType,
               source: 'whatsapp',
@@ -391,9 +393,40 @@ export async function handleWhatsAppWebhookPost(
               takenAt: new Date().toISOString(),
               dataUrl: `data:${media.mimeType};base64,${media.buffer.toString('base64')}`,
             };
+
+            try {
+              const { uploadProjectMedia, isSupabaseStorageConfigured } = await import('./storage.js');
+              if (isSupabaseStorageConfigured()) {
+                const stored = await uploadProjectMedia({
+                  orgId: getRequestOrgId(),
+                  projectId,
+                  relativePath: storagePath,
+                  filename,
+                  mimeType: media.mimeType,
+                  buffer: media.buffer,
+                  source: 'whatsapp',
+                  uploadedBy: resolved.contactName,
+                  fileId,
+                });
+                if (stored) {
+                  file = {
+                    id: stored.id,
+                    storagePath: stored.storagePath,
+                    filename: stored.filename,
+                    mimeType: stored.mimeType,
+                    source: stored.source,
+                    uploadedBy: stored.uploadedBy,
+                    takenAt: stored.takenAt,
+                  };
+                }
+              }
+            } catch (err) {
+              console.warn('[whatsapp] Supabase media upload failed, keeping dataUrl fallback', err);
+            }
+
             project.files = [...(project.files as unknown[] ?? []), file];
             if (media.mimeType.startsWith('image/')) {
-              project.photos = [...(project.photos as string[] ?? []), file.id];
+              project.photos = [...(project.photos as string[] ?? []), file.id as string];
             }
             syncData(store);
           }
