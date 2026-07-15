@@ -180,7 +180,11 @@ export async function handleChannelRoutes(
   if (pathname === '/api/customer/pin/verify' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req));
     const pin = String(body.pin ?? '');
-    const expected = process.env.CUSTOMER_PIN ?? '1234';
+    const expected = process.env.CUSTOMER_PIN?.trim();
+    if (!expected) {
+      sendJson(res, 503, { error: 'Customer PIN is not configured', code: 'pin_not_configured' });
+      return true;
+    }
     sendJson(res, 200, { verified: pin === expected });
     return true;
   }

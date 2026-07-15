@@ -24,8 +24,10 @@ import { handlePackageUpdatesRoute } from './mailbox/package-updates';
 import { handleLeadsRoutes } from './leads-routes';
 import { handleOrgOpenAIKeyRoutes } from './org-openai-key-routes';
 import { handleCyrusRoutes } from './cyrus-routes';
+import { handleCynthiaRoutes } from './cynthia-routes';
 import { handleChannelRoutes } from './channel-routes';
 import { handleAgentCredentialsRoutes } from './agent-credentials-routes';
+import { handlePushRoutes } from './push-routes';
 import { initDataFromSupabase } from './data-store';
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -86,9 +88,13 @@ const server = createServer(async (req, res) => {
 
     if (await handleCyrusRoutes(req, res, pathname)) return;
 
+    if (await handleCynthiaRoutes(req, res, pathname)) return;
+
     if (await handleChannelRoutes(req, res, pathname)) return;
 
     if (await handleAgentCredentialsRoutes(req, res, pathname)) return;
+
+    if (await handlePushRoutes(req, res, pathname)) return;
 
     if (pathname.startsWith('/api/ai/')) {
       await handleAiRequest(req, res, pathname);

@@ -79,3 +79,17 @@ export async function sendPushToOrg(
   }
   return sendPushToTokens(tokens, payload);
 }
+
+/** User-targeted Cynthia notifications — never broadcasts to the whole org. */
+export async function sendPushToUser(
+  orgId: string,
+  userId: string,
+  payload: PushPayload,
+): Promise<PushSendResult> {
+  const { listDeviceTokens } = await import('./deviceTokenStore');
+  const tokens = listDeviceTokens({ orgId, userId });
+  if (tokens.length === 0) {
+    return { sent: 0, dryRun: !process.env.FIREBASE_SERVER_KEY?.trim(), errors: [] };
+  }
+  return sendPushToTokens(tokens, payload);
+}

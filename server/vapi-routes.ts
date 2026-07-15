@@ -27,8 +27,13 @@ import { executePhoneTool, PHONE_AUTO_ACTIONS } from './phone-tools';
 import type { OrchestratorRequest } from './orchestrator-types';
 import {
   getVapiServerSecret,
+  getVapiPublicKey,
+  getVapiRegion,
   toE164Uk,
 } from './vapi-client';
+import { buildStaffOrchBody } from './phone-session';
+import { buildVapiAssistantForParty, resolveTransferNumber } from './vapi-assistant';
+import { assertVapiProductionReady, isProductionRuntime } from './provider-gates';
 import {
   isToolAllowedForPhoneSession,
   resolvePhoneCallerIdentity,
@@ -37,8 +42,9 @@ import {
   looksLikePhonePinEntry,
   mergePhoneAuthMetadata,
   resolvePhoneAuthCallId,
+  isIdentityBound,
 } from './phone-auth';
-import { buildVapiAssistantForParty, resolveTransferNumber } from './vapi-assistant';
+import { listTeamMembers } from './conversation-store';
 
 const CUSTOMER_TOOL_NAMES = new Set([
   'lookupCustomerByPhone',
@@ -80,7 +86,11 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 function verifyVapiRequest(req: IncomingMessage): boolean {
   const secret = getVapiServerSecret();
-  if (!secret) return true; // allow during pilot if secret unset
+  if (!secret) {
+    // Production must never accept unauthenticated webhooks
+    if (isProductionRuntime()) return false;
+    return true; // allow only in explicit non-production / mock mode
+  }
   const header = req.headers['x-vapi-secret']
     || req.headers['x-vapi-signature']
     || req.headers.authorization;
@@ -384,60 +394,13 @@ function shouldSkipDuplicateTool(callId: string, toolCallId: string): boolean {
   return false;
 }
 
-function buildStaffOrchBody(
+function buildStaffOrchBodyFromCall(
   call: Record<string, unknown>,
   callId: string,
   partyPhone: string,
   identity: ReturnType<typeof resolvePhoneCallerIdentity>,
 ): OrchestratorRequest {
-  const resolved = resolveContactByPhone(partyPhone);
-  const dataStore = getDataStore();
-  const customers = (Array.isArray(dataStore.customers) ? dataStore.customers : [])
-    .map((c: Record<string, unknown>) => ({
-      id: String(c.id ?? ''),
-      name: String(c.name ?? ''),
-      email: String(c.email ?? ''),
-      phone: String(c.phone ?? ''),
-    }));
-  const quotes = (Array.isArray(dataStore.quotes) ? dataStore.quotes : [])
-    .map((q: Record<string, unknown>) => ({
-      id: String(q.id ?? ''),
-      customerId: String(q.customerId ?? ''),
-      customerName: String(q.customerName ?? ''),
-      tradeName: String(q.tradeName ?? q.tradeId ?? ''),
-      total: Number(q.total ?? q.totalCustomerCost ?? 0),
-      status: String(q.status ?? ''),
-    }));
-  const orchMode = identity.kind === 'foreman'
-    ? 'foreman'
-    : identity.kind === 'staff'
-      ? 'staff'
-      : 'phone';
-  return {
-    orgId: DEFAULT_ORG_ID,
-    messages: [],
-    orchestratorMode: orchMode as OrchestratorRequest['orchestratorMode'],
-    callContext: {
-      callId,
-      direction: (call.direction as 'inbound' | 'outbound') || 'outbound',
-      from: String(call.from || ''),
-      to: String(call.to || ''),
-    },
-    customerContext: {
-      phone: partyPhone,
-      customerId: resolved.customerId,
-      customerName: resolved.customerName,
-      contactName: identity.kind !== 'customer' ? identity.name : resolved.contactName,
-      projectId: resolved.projectId,
-      role: identity.kind === 'customer' ? 'customer' : identity.role,
-    },
-    staffContext: {
-      role: identity.role,
-      customers,
-      quotes,
-    },
-    projectContext: resolved.projectId ? { projectId: resolved.projectId } : undefined,
-  };
+  return buildStaffOrchBody({ call, callId, partyPhone, identity, orgId: DEFAULT_ORG_ID });
 }
 
 async function executeTool(
@@ -450,6 +413,13 @@ async function executeTool(
   const identity = resolvePhoneCallerIdentity(partyPhone);
 
   if (!isToolAllowedForPhoneSession(name, callId, identity)) {
+    if (isPhoneAuthVerified(callId) && !isIdentityBound(identity)) {
+      return {
+        error: 'Staff identity is not bound to a profile UUID — privileged tools unavailable',
+        code: 'identity_not_bound',
+        phoneAuth: 'verified',
+      };
+    }
     return {
       error: 'Phone PIN required — ask the caller to enter their security code, then call verifyStaffPhonePin',
       phoneAuth: 'pending',
@@ -462,20 +432,28 @@ async function executeTool(
       return {
         ...result,
         phoneAuth: 'verified',
-        hint: 'Unlocked. Use getBusinessSnapshot for company totals, searchCustomers/getAccountBriefing for a customer, searchProjects for projects, getTeamPerformance for staff. Speak real CRM answers — do not say you cannot access data.',
+        userId: identity.userId,
+        identityBound: isIdentityBound(identity),
+        hint: isIdentityBound(identity)
+          ? 'Unlocked. Use getBusinessSnapshot for company totals, searchCustomers/getAccountBriefing for a customer, searchProjects for projects, getTeamPerformance for staff, sendToStaffCynthia when they say send it to me. Speak real CRM answers — do not say you cannot access data.'
+          : 'PIN accepted but this phone is not bound to a profiles.id — ask an admin to fix Team registration before CRM tools work.',
       };
     }
     return result;
   }
 
   if (name === 'endCall') {
+    const existing = getCallById(callId);
+    if (existing?.status === 'completed' || existing?.endedAt) {
+      return { ended: true, shouldHangup: true, alreadyEnded: true, reason: args.reason || 'agent_ended' };
+    }
     saveCall({
       id: callId,
       status: 'completed',
       endedAt: new Date().toISOString(),
       outcome: String(args.reason || 'agent_ended'),
     });
-    return { ended: true, reason: args.reason || 'agent_ended' };
+    return { ended: true, shouldHangup: true, reason: args.reason || 'agent_ended' };
   }
 
   if (name === 'setCallLanguage') {
@@ -518,7 +496,7 @@ async function executeTool(
     };
   }
 
-  const orchBody = buildStaffOrchBody(call, callId, partyPhone, identity);
+  const orchBody = buildStaffOrchBodyFromCall(call, callId, partyPhone, identity);
 
   if (CUSTOMER_TOOL_NAMES.has(name)) {
     return executeCustomerTool(name, args, orchBody);
@@ -693,16 +671,110 @@ async function handleVapiMessage(
   sendJson(res, 200, { ok: true });
 }
 
+export async function handleVapiWebSession(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const health = assertVapiProductionReady();
+  if (!health.ok && isProductionRuntime()) {
+    sendJson(res, 503, { error: 'Vapi/AI stack not connected', code: 'provider_unavailable', details: health.errors });
+    return;
+  }
+  const publicKey = getVapiPublicKey();
+  if (!publicKey) {
+    sendJson(res, 503, { error: 'VAPI_PUBLIC_KEY is not configured', code: 'provider_unavailable' });
+    return;
+  }
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
+  } catch {
+    sendJson(res, 400, { error: 'Invalid JSON' });
+    return;
+  }
+
+  const headerUser = typeof req.headers['x-user-id'] === 'string' ? req.headers['x-user-id'].trim() : '';
+  const headerOrg = typeof req.headers['x-org-id'] === 'string' ? req.headers['x-org-id'].trim() : '';
+  const staffUserId = String(body.userId || headerUser || '').trim();
+  const orgId = String(body.orgId || headerOrg || DEFAULT_ORG_ID).trim();
+  if (!staffUserId) {
+    sendJson(res, 401, { error: 'Authenticated userId required', code: 'staff_not_resolved' });
+    return;
+  }
+
+  setRequestOrgId(orgId);
+  const member = listTeamMembers(orgId).find((m) => String(m.userId || m.id) === staffUserId);
+  const partyPhone = String(body.staffPhone || member?.phone || '').trim();
+  if (!partyPhone) {
+    sendJson(res, 422, {
+      error: 'Staff phone not registered — set phone on Team profile for Cynthia voice',
+      code: 'identity_not_bound',
+    });
+    return;
+  }
+
+  const callId = `cynthia-voice-${Date.now()}`;
+  saveCall({
+    id: callId,
+    direction: 'inbound',
+    status: 'in_progress',
+    from: partyPhone,
+    to: 'cynthia_voice',
+    contactName: member?.name || 'Staff',
+    startedAt: new Date().toISOString(),
+    metadata: {
+      channel: 'cynthia_voice',
+      staffUserId,
+      orgId,
+      partyPhone: toE164Uk(partyPhone),
+    },
+  });
+
+  const { assistant, identity, verified } = buildVapiAssistantForParty({
+    partyPhone: toE164Uk(partyPhone),
+    direction: 'inbound',
+    callId,
+    contactName: member?.name,
+  });
+
+  sendJson(res, 200, {
+    ok: true,
+    publicKey,
+    region: getVapiRegion(),
+    callId,
+    staffUserId,
+    orgId,
+    identity: { kind: identity.kind, role: identity.role, name: identity.name, userId: identity.userId },
+    verified,
+    assistant,
+  });
+}
+
 export async function handleVapiRoutes(
   req: IncomingMessage,
   res: ServerResponse,
   pathname: string,
 ): Promise<boolean> {
+  if (pathname === '/api/vapi/web-session' && req.method === 'POST') {
+    await handleVapiWebSession(req, res);
+    return true;
+  }
+  if (pathname === '/api/vapi/health' && req.method === 'GET') {
+    const health = assertVapiProductionReady();
+    sendJson(res, health.ok ? 200 : 503, health);
+    return true;
+  }
   if (pathname !== '/webhooks/vapi' && pathname !== '/api/vapi/webhook') {
     return false;
   }
   if (req.method !== 'POST') {
     sendJson(res, 405, { error: 'Method not allowed' });
+    return true;
+  }
+
+  if (!verifyVapiRequest(req)) {
+    sendJson(res, 401, { error: 'Invalid or missing Vapi webhook secret' });
     return true;
   }
 

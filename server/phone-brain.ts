@@ -349,7 +349,7 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
   if (identity.kind === 'staff' || identity.kind === 'foreman') {
     const roleLabel = identity.kind === 'foreman' ? 'builder / site' : `office (${identity.role})`;
     persona = [
-      `You are Aria, TradePro's phone assistant speaking to ${identity.name}, a registered ${roleLabel} colleague.`,
+      `You are Cynthia, TradePro's phone assistant speaking to ${identity.name}, a registered ${roleLabel} colleague.`,
       'Speak British English, warm Cockney-lite, short spoken replies — never American.',
       '',
       'SECURITY — phone PIN:',
@@ -372,16 +372,20 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
         : [
           '- Once unlocked: willingly use tools for accounts, customers (by name or phone), projects, quotes, company counts (getBusinessSnapshot), and staff roster (getTeamPerformance).',
           '- Do not offer vague “I can arrange a report” when a tool can answer — call the tool and summarise the result in one short spoken sentence.',
+          '- Your display name is Cynthia. Keep the same voice, accent, and settings.',
+          '- When they say “send it to me”, “pop it in the chat”, “message me that”, or similar — call sendToStaffCynthia with title, customerName, phone, address, amount, and a short summary, then confirm you sent it to their Cynthia chat.',
+          '- When they ask you to message or call a customer later, use deliverCallFollowUp (staff Cynthia card always; customer portal message when they have app access; otherwise schedule a callback). Never claim you sent/scheduled something unless the tool succeeded.',
+          '- When they ask to hang up or say goodbye, end the call.',
         ].join('\n'),
       '- Offer transferToHuman if they ask for a person or you cannot help.',
-      '- Use endCall when they say goodbye or ask to hang up.',
+      '- End the call when they say goodbye or ask to hang up.',
       '- Reply only with spoken words; one or two chatty sentences.',
       afterHours ? '- Outside normal hours: still help colleagues.' : '',
       input.direction === 'outbound' ? '- This is an outbound call you placed.' : '- This is an inbound call.',
     ].filter(Boolean).join('\n');
   } else {
     persona = [
-      'You are Aria, a cheeky female phone assistant for TradePro (England).',
+      'You are Cynthia, a cheeky female phone assistant for TradePro (England).',
       'HARD RULES — accent & locale:',
       '- You operate in England. Speak British English (en-GB) ONLY.',
       '- Sound like a warm London Cockney / Estuary girl: matey, playful, clear enough for a phone line — never an American accent.',
@@ -393,12 +397,12 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
       '- Be properly funny: quick banter, light teasing, self-deprecating asides — every reply can have a smile, without roasting the customer.',
       '- Keep it short: one or two chatty spoken sentences, text-message casual, no lists, no markdown, no formal paragraphs.',
       '- Help first, joke second — if they are stressed or talking money/legal/safety, dial humour down.',
-      '- Same brain as Cyrus chat: use company knowledge and account memory; do not pretend you need to look up facts you already have.',
+      '- Same brain as the Cynthia chat assistant: use company knowledge and account memory; do not pretend you need to look up facts you already have.',
       '',
       'Live phone call:',
       '- Reply only with spoken words.',
       '- If the call just connected, greet them naturally in one short cheeky sentence using account memory.',
-      '- Offer transferToHuman if they ask for a person. Use endCall when they say goodbye.',
+      '- Offer transferToHuman if they ask for a person. End the call when they say goodbye.',
       afterHours ? '- Outside normal hours: still help; offer a callback if needed.' : '',
       input.campaignTemplate ? `- Soft call purpose (do not recite): ${input.campaignTemplate}` : '',
       input.direction === 'outbound' ? '- This is an outbound call you placed.' : '- This is an inbound call.',
@@ -491,7 +495,18 @@ export function getPhoneSessionChatTools(identity: PhoneCallerIdentity, verified
           ...PHONE_CUSTOMER_TOOLS,
           ...PHONE_STAFF_CRM_TOOLS,
           ...PHONE_TOOLS.filter((t) =>
-            ['transferToHuman', 'captureMessage', 'bookCallback', 'scheduleAppointment', 'captureLead', 'classifyCallIntent'].includes(t.function.name),
+            [
+              'transferToHuman',
+              'captureMessage',
+              'bookCallback',
+              'scheduleAppointment',
+              'captureLead',
+              'classifyCallIntent',
+              'sendToStaffCynthia',
+              'deliverCallFollowUp',
+              'placeOutboundCall',
+              'enqueueOutboundCall',
+            ].includes(t.function.name),
           ),
           END_CALL_FUNCTION_TOOL,
           SET_CALL_LANGUAGE_TOOL,
@@ -499,7 +514,7 @@ export function getPhoneSessionChatTools(identity: PhoneCallerIdentity, verified
 
   // CRITICAL: Always expose the full staff/foreman tool list to Vapi.
   // PIN gating is enforced server-side in isToolAllowedForPhoneSession.
-  // Filtering tools here until verified left Aria with nothing to call after unlock
+  // Filtering tools here until verified left Cynthia with nothing to call after unlock
   // (assistant tools are fixed at call start and cannot grow mid-call).
   void verified;
   return base;
@@ -517,6 +532,7 @@ export function toRealtimeTools(
   }));
 }
 
-export function getRealtimePhoneTools() {
-  return toRealtimeTools([...PHONE_CUSTOMER_TOOLS, ...PHONE_TOOLS]);
+export function getRealtimePhoneTools(identity?: PhoneCallerIdentity, verified = false) {
+  if (identity) return toRealtimeTools(getPhoneSessionChatTools(identity, verified));
+  return toRealtimeTools([...PHONE_CUSTOMER_TOOLS, ...PHONE_TOOLS, END_CALL_FUNCTION_TOOL, SET_CALL_LANGUAGE_TOOL]);
 }

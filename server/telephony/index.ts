@@ -12,25 +12,36 @@ const adapters: Record<TelephonyProviderId, TelephonyProvider> = {
 };
 
 /**
- * VOICE_PROVIDER overrides TELEPHONY_PROVIDER for outbound Aria calls.
+ * VOICE_PROVIDER overrides TELEPHONY_PROVIDER for outbound Cynthia calls.
  * - vapi: managed SIP/media (recommended)
  * - local_realtime / soho66: custom home SIP bridge
+ * Production fails closed: no implicit mock.
  */
 export function resolveVoiceProviderId(): TelephonyProviderId {
   const voice = String(process.env.VOICE_PROVIDER || '').trim().toLowerCase();
   if (voice === 'vapi') return 'vapi';
   if (voice === 'local_realtime' || voice === 'soho66' || voice === 'local') return 'soho66';
   if (voice === 'twilio') return 'twilio';
-  if (voice === 'mock') return 'mock';
-  const telephony = String(process.env.TELEPHONY_PROVIDER || 'mock').trim().toLowerCase();
+  if (voice === 'mock') {
+    if (process.env.NODE_ENV === 'production' || process.env.FAIL_CLOSED === '1') {
+      throw new Error('mock telephony is disabled in production — set VOICE_PROVIDER=vapi');
+    }
+    return 'mock';
+  }
+  const telephony = String(process.env.TELEPHONY_PROVIDER || '').trim().toLowerCase();
   if (telephony === 'vapi') return 'vapi';
-  return (telephony as TelephonyProviderId) || 'mock';
+  if (telephony === 'soho66' || telephony === 'twilio') return telephony as TelephonyProviderId;
+  if (telephony === 'mock' || !telephony) {
+    const allowMock = process.env.ALLOW_TELEPHONY_MOCK === '1' || process.env.NODE_ENV === 'test'
+      || (process.env.NODE_ENV !== 'production' && process.env.FAIL_CLOSED !== '1');
+    if (allowMock) return 'mock';
+    throw new Error('Telephony provider not configured — set VOICE_PROVIDER=vapi');
+  }
+  throw new Error(`Unknown telephony provider: ${telephony || voice || '(empty)'}`);
 }
 
 export function resolveTelephonyConfig(overrides?: Partial<TelephonyConfig>): TelephonyConfig {
-  const provider = (overrides?.provider
-    ?? resolveVoiceProviderId()
-    ?? 'mock') as TelephonyProviderId;
+  const provider = (overrides?.provider ?? resolveVoiceProviderId()) as TelephonyProviderId;
 
   return {
     provider,
@@ -57,7 +68,14 @@ export function resolveTelephonyConfig(overrides?: Partial<TelephonyConfig>): Te
 
 export function getTelephonyProvider(config?: TelephonyConfig): TelephonyProvider {
   const resolved = config ?? resolveTelephonyConfig();
-  return adapters[resolved.provider] ?? mockAdapter;
+  const adapter = adapters[resolved.provider];
+  if (!adapter) {
+    throw new Error(`No telephony adapter for provider: ${resolved.provider}`);
+  }
+  if (resolved.provider === 'mock' && (process.env.NODE_ENV === 'production' || process.env.FAIL_CLOSED === '1')) {
+    throw new Error('mock telephony adapter is disabled in production');
+  }
+  return adapter;
 }
 
 export * from './types';

@@ -604,6 +604,16 @@ export async function handleCodeFixRoutes(
     const route = String(body.route ?? '').trim();
     const orgId = resolveOrgIdForRequest(req, body as { orgId?: string }) ?? undefined;
 
+    // Only managers/super_admins may enqueue Cursor self-heal jobs that create PRs.
+    // Staff may still "offer" / report an issue card.
+    if (action === 'enqueue' && !isAdminRole(role)) {
+      sendJson(res, 403, {
+        error: 'Only managers or super-admins may approve Cursor self-heal jobs',
+        code: 'self_heal_requires_approval',
+      });
+      return true;
+    }
+
     if (action === 'offer') {
       const existing = errorCode ? findDedupe(errorCode, route) : undefined;
       if (existing) {
@@ -729,6 +739,3 @@ export async function handleCodeFixRoutes(
   sendJson(res, 405, { error: 'Method not allowed' });
   return true;
 }
-
-// Suppress unused warning for admin helper (available for future auth tightening)
-void isAdminRole;

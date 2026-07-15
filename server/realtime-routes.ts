@@ -1,5 +1,6 @@
 /**
  * OpenAI Realtime phone API: session config, tool exec, transcript persistence.
+ * Shares PIN / identity / tool gating with Vapi via phone-auth + phone-session.
  */
 import type { IncomingMessage, ServerResponse } from 'http';
 import {
@@ -17,7 +18,7 @@ import {
 } from './data-store';
 import { appendConversationMessage } from './conversation-store';
 import { getOrgOpenAIApiKey, listOrganizations, ensureOrgOpenAIKeyLoaded } from './organizations';
-import { executeCustomerTool } from './orchestrator-tool-exec';
+import { executeCustomerTool, executeServerReadTool, SERVER_READ_TOOLS } from './orchestrator-tool-exec';
 import { executePhoneTool, PHONE_AUTO_ACTIONS } from './phone-tools';
 import {
   buildPhoneBrainPrompt,
@@ -25,7 +26,16 @@ import {
   REALTIME_PHONE_MODEL_DEFAULT,
   REALTIME_PHONE_VOICE_DEFAULT,
 } from './phone-brain';
-import type { OrchestratorRequest } from './orchestrator-types';
+import {
+  isIdentityBound,
+  isPhoneAuthVerified,
+  isToolAllowedForPhoneSession,
+  looksLikePhonePinEntry,
+  resolvePhoneAuthCallId,
+  resolvePhoneCallerIdentity,
+  verifyStaffPhonePinForCall,
+} from './phone-auth';
+import { buildStaffOrchBody } from './phone-session';
 
 const CUSTOMER_TOOL_NAMES = new Set([
   'lookupCustomerByPhone',
@@ -35,6 +45,14 @@ const CUSTOMER_TOOL_NAMES = new Set([
   'getPortalLink',
   'escalateToStaff',
   'logCallActivity',
+]);
+
+const STAFF_READ_TOOL_NAMES = new Set([
+  'searchCustomers',
+  'searchProjects',
+  'searchQuotes',
+  'getBusinessSnapshot',
+  'getTeamPerformance',
 ]);
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -129,13 +147,18 @@ export async function handleRealtimeSession(
   }
 
   const direction = (String(body.direction || call.direction || 'outbound') as 'inbound' | 'outbound');
+  const identity = resolvePhoneCallerIdentity(partyPhone, orgId);
+  const verified = isPhoneAuthVerified(callId);
   const partyResolved = resolveContactByPhone(partyPhone);
   const { instructions, resolved } = buildPhoneBrainPrompt({
     orgId,
     partyPhone,
     direction,
     campaignTemplate: String(body.campaignTemplate || call.campaignTemplate || '') || undefined,
-    contactName: partyResolved.customerName || partyResolved.contactName,
+    contactName: identity.kind !== 'customer' ? identity.name : (partyResolved.customerName || partyResolved.contactName),
+    identity,
+    callId,
+    phoneAuthVerified: verified,
   });
 
   if (resolved.customerId) {
@@ -155,13 +178,21 @@ export async function handleRealtimeSession(
     model,
     voice,
     instructions,
-    tools: getRealtimePhoneTools(),
+    tools: getRealtimePhoneTools(identity, verified),
     apiKey,
     callId,
     partyPhone,
     customerId: resolved.customerId ?? null,
     customerName: resolved.customerName || resolved.contactName || null,
     orgId,
+    identity: {
+      kind: identity.kind,
+      role: identity.role,
+      name: identity.name,
+      userId: identity.userId,
+      verified,
+      identityBound: isIdentityBound(identity),
+    },
   });
 }
 
@@ -177,17 +208,18 @@ export async function handleRealtimeTool(
     return;
   }
 
-  const callId = String(body.callId || '').trim();
+  const callIdRaw = String(body.callId || '').trim();
   const name = String(body.name || '').trim();
-  if (!callId || !name) {
+  if (!callIdRaw || !name) {
     sendJson(res, 400, { error: 'callId and name required' });
     return;
   }
 
   setRequestOrgId(DEFAULT_ORG_ID);
+  const callId = resolvePhoneAuthCallId(callIdRaw);
   const call = getCallById(callId) ?? ensureCallRecord(body);
   const partyPhone = partyPhoneFromPayload({ ...body, ...call });
-  const resolved = resolveContactByPhone(partyPhone);
+  const identity = resolvePhoneCallerIdentity(partyPhone);
 
   let args: Record<string, unknown> = {};
   const rawArgs = body.arguments;
@@ -201,35 +233,76 @@ export async function handleRealtimeTool(
     args = rawArgs as Record<string, unknown>;
   }
 
-  const orchBody: OrchestratorRequest = {
+  if (!isToolAllowedForPhoneSession(name, callId, identity)) {
+    if (isPhoneAuthVerified(callId) && !isIdentityBound(identity)) {
+      sendJson(res, 200, {
+        ok: true,
+        name,
+        output: {
+          error: 'Staff identity is not bound to a profile UUID',
+          code: 'identity_not_bound',
+        },
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      name,
+      output: {
+        error: 'Phone PIN required — ask the caller to enter their security code, then call verifyStaffPhonePin',
+        phoneAuth: 'pending',
+      },
+    });
+    return;
+  }
+
+  if (name === 'verifyStaffPhonePin') {
+    const output = verifyStaffPhonePinForCall(callId, partyPhone, String(args.pin ?? args.code ?? ''));
+    sendJson(res, 200, { ok: true, name, output: { ...output, userId: identity.userId, identityBound: isIdentityBound(identity) } });
+    return;
+  }
+
+  if (name === 'endCall') {
+    const existing = getCallById(callId);
+    if (existing?.status === 'completed' || existing?.endedAt) {
+      sendJson(res, 200, {
+        ok: true,
+        name,
+        output: { ended: true, shouldHangup: true, alreadyEnded: true, reason: args.reason || 'agent_ended' },
+      });
+      return;
+    }
+    saveCall({
+      id: callId,
+      status: 'completed',
+      endedAt: new Date().toISOString(),
+      outcome: String(args.reason || 'agent_ended'),
+    });
+    sendJson(res, 200, {
+      ok: true,
+      name,
+      output: { ended: true, shouldHangup: true, reason: args.reason || 'agent_ended' },
+    });
+    return;
+  }
+
+  const orchBody = buildStaffOrchBody({
+    call,
+    callId,
+    partyPhone,
+    identity,
     orgId: DEFAULT_ORG_ID,
-    messages: [],
-    orchestratorMode: 'phone',
-    callContext: {
-      callId,
-      direction: (call.direction as 'inbound' | 'outbound') || 'outbound',
-      from: String(call.from || ''),
-      to: String(call.to || ''),
-    },
-    customerContext: {
-      phone: partyPhone,
-      customerId: resolved.customerId,
-      customerName: resolved.customerName,
-      contactName: resolved.contactName,
-      projectId: resolved.projectId,
-      role: 'customer',
-    },
-    projectContext: resolved.projectId ? { projectId: resolved.projectId } : undefined,
-  };
+  });
 
   let output: Record<string, unknown>;
   try {
     if (CUSTOMER_TOOL_NAMES.has(name)) {
       output = executeCustomerTool(name, args, orchBody);
+    } else if (STAFF_READ_TOOL_NAMES.has(name) || SERVER_READ_TOOLS.has(name)) {
+      output = executeServerReadTool(name, args, orchBody);
     } else if (PHONE_AUTO_ACTIONS.has(name) || name.startsWith('book') || name.startsWith('capture')) {
       output = executePhoneTool(name, args, orchBody);
     } else {
-      // Fall through customer then phone
       const customerTry = executeCustomerTool(name, args, orchBody);
       if (customerTry && !('error' in customerTry && String(customerTry.error).includes('Unknown'))) {
         output = customerTry;
@@ -256,22 +329,29 @@ export async function handleRealtimeTranscript(
     return;
   }
 
-  const callId = String(body.callId || '').trim();
+  const callIdRaw = String(body.callId || '').trim();
   const roleRaw = String(body.role || '').trim().toLowerCase();
   const text = String(body.text || '').trim();
-  if (!callId || !text) {
+  if (!callIdRaw || !text) {
     sendJson(res, 400, { error: 'callId and text required' });
     return;
   }
 
   setRequestOrgId(DEFAULT_ORG_ID);
+  const callId = resolvePhoneAuthCallId(callIdRaw);
   const call = getCallById(callId) ?? ensureCallRecord(body);
   const partyPhone = partyPhoneFromPayload({ ...body, ...call });
   const resolved = resolveContactByPhone(partyPhone);
+  const identity = resolvePhoneCallerIdentity(partyPhone);
 
   const isUser = roleRaw === 'user' || roleRaw === 'caller' || roleRaw === 'customer';
   const turnRole = isUser ? 'caller' : 'agent';
   const convRole = isUser ? 'user' : 'assistant';
+
+  // Spoken PIN detection (parity with Vapi)
+  if (isUser && identity.kind !== 'customer' && looksLikePhonePinEntry(text) && !isPhoneAuthVerified(callId)) {
+    verifyStaffPhonePinForCall(callId, partyPhone, text);
+  }
 
   appendCallTurn(callId, { role: turnRole, content: text });
   appendConversationMessage(
@@ -285,14 +365,14 @@ export async function handleRealtimeTranscript(
     },
     {
       channel: 'phone',
-      contactName: resolved.customerName || resolved.contactName,
+      contactName: identity.kind !== 'customer' ? identity.name : (resolved.customerName || resolved.contactName),
     },
   );
 
   const updated = getCallById(callId) ?? call;
   saveCall({
     id: callId,
-    contactName: resolved.customerName || resolved.contactName,
+    contactName: identity.kind !== 'customer' ? identity.name : (resolved.customerName || resolved.contactName),
     customerId: resolved.customerId,
     sentiment: computeCallSentiment(updated),
     durationSec: computeCallDurationSec(updated),

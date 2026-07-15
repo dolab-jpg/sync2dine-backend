@@ -109,6 +109,8 @@ export interface PhoneCallerIdentity {
   role: string;
   name: string;
   phone: string;
+  /** Canonical profiles.id when bound; null means identity_not_bound for privileged tools. */
+  userId: string | null;
   member?: TeamMember;
   pinConfigured: boolean;
   needsPin: boolean;
@@ -122,12 +124,14 @@ export function resolvePhoneCallerIdentity(partyPhone: string, orgId?: string): 
       (m) => normalizePhoneExport(m.phone) === phone,
     );
     const pinConfigured = Boolean(member?.phonePinHash);
+    const userId = String(member?.userId || route.userId || '').trim() || null;
     return {
       kind: 'staff',
       route,
       role: route.role || member?.role || 'staff',
       name: route.name || member?.name || 'Staff',
       phone,
+      userId,
       member,
       pinConfigured,
       needsPin: true,
@@ -138,12 +142,14 @@ export function resolvePhoneCallerIdentity(partyPhone: string, orgId?: string): 
       (m) => normalizePhoneExport(m.phone) === phone && m.role === 'builder',
     );
     const pinConfigured = Boolean(member?.phonePinHash);
+    const userId = String(member?.userId || route.userId || '').trim() || null;
     return {
       kind: 'foreman',
       route,
       role: 'builder',
       name: route.name || member?.name || 'Builder',
       phone,
+      userId,
       member,
       pinConfigured,
       needsPin: true,
@@ -155,6 +161,7 @@ export function resolvePhoneCallerIdentity(partyPhone: string, orgId?: string): 
     role: 'customer',
     name: route.name || 'Guest',
     phone,
+    userId: null,
     pinConfigured: false,
     needsPin: false,
   };
@@ -342,6 +349,10 @@ export const STAFF_PHONE_TOOL_NAMES = [
   'classifyCallIntent',
   'transferToHuman',
   'escalateToStaff',
+  'sendToStaffCynthia',
+  'deliverCallFollowUp',
+  'placeOutboundCall',
+  'enqueueOutboundCall',
   'endCall',
   'setCallLanguage',
 ] as const;
@@ -355,9 +366,36 @@ export const BUILDER_PHONE_TOOL_NAMES = [
   'logCallActivity',
   'captureMessage',
   'transferToHuman',
+  'sendToStaffCynthia',
   'endCall',
   'setCallLanguage',
 ] as const;
+
+/** Tools that require a bound profiles.id after PIN (no privileged CRM without UUID). */
+const BOUND_IDENTITY_TOOLS = new Set([
+  'lookupCustomerByPhone',
+  'getAccountBriefing',
+  'lookupQuote',
+  'lookupProjectStatus',
+  'getPortalLink',
+  'logCallActivity',
+  'searchCustomers',
+  'searchProjects',
+  'searchQuotes',
+  'getBusinessSnapshot',
+  'getTeamPerformance',
+  'sendToStaffCynthia',
+  'deliverCallFollowUp',
+  'placeOutboundCall',
+  'enqueueOutboundCall',
+  'bookCallback',
+  'scheduleAppointment',
+  'escalateToStaff',
+]);
+
+export function isIdentityBound(identity: PhoneCallerIdentity): boolean {
+  return Boolean(identity.userId || identity.member?.userId);
+}
 
 export function isToolAllowedForPhoneSession(
   toolName: string,
@@ -367,6 +405,7 @@ export function isToolAllowedForPhoneSession(
   if (identity.kind === 'customer') return true;
   if (PRE_AUTH_PHONE_TOOLS.has(toolName)) return true;
   if (!isPhoneAuthVerified(callId)) return false;
+  if (BOUND_IDENTITY_TOOLS.has(toolName) && !isIdentityBound(identity)) return false;
   const allowed = identity.kind === 'foreman' ? BUILDER_PHONE_TOOL_NAMES : STAFF_PHONE_TOOL_NAMES;
   return (allowed as readonly string[]).includes(toolName);
 }

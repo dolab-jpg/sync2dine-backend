@@ -496,14 +496,43 @@ export async function executeChannelWrite(
   const phoneTools = new Set([
     'classifyCallIntent', 'captureLead', 'bookCallback', 'scheduleAppointment', 'screenCandidate',
     'bookInterview', 'logCandidate', 'transferToHuman', 'enqueueOutboundCall', 'captureMessage',
+    'sendToStaffCynthia',
   ]);
   if (phoneTools.has(action)) {
-    const output = executePhoneTool(action, { ...input, phone: phone ?? input.phone }, body);
-    const ok = !output.error;
+    const firstStr = (...values: unknown[]): string | undefined => {
+      for (const value of values) {
+        if (typeof value === 'string' && value.trim()) return value.trim();
+      }
+      return undefined;
+    };
+    if (action === 'sendToStaffCynthia' && (input.sent === true || firstStr(input.cardId))) {
+      return {
+        action,
+        executed: true,
+        summary: String(input.spokenConfirm || 'Sent to Cynthia chat.'),
+        output: input,
+      };
+    }
+    const output = executePhoneTool(
+      action,
+      {
+        ...input,
+        phone: phone ?? input.phone,
+        staffPhone: firstStr(input.staffPhone, phone),
+        staffUserId: firstStr(input.staffUserId, body.staffContext?.userId),
+      },
+      body,
+    );
+    const ok = !output.error && (action !== 'sendToStaffCynthia' || Boolean(output.sent));
     return {
       action,
       executed: ok,
-      summary: ok ? `${action} completed.` : String(output.error),
+      summary:
+        action === 'sendToStaffCynthia' && output.spokenConfirm
+          ? String(output.spokenConfirm)
+          : ok
+            ? `${action} completed.`
+            : String(output.error ?? `${action} failed.`),
       output,
     };
   }
@@ -563,7 +592,7 @@ export const CHANNEL_WRITE_TOOLS = [
   'recordCouncil', 'raiseChangeRequest', 'resolveChangeRequest', 'setDeadline', 'addComment', 'portalStatusCheck',
   'sendCouncilReply', 'sendCourtesyEmail', 'markDecision', 'generatePostApprovalTasks', 'convertToProject',
   'classifyCallIntent', 'captureLead', 'bookCallback', 'scheduleAppointment', 'screenCandidate', 'bookInterview',
-  'logCandidate', 'transferToHuman', 'enqueueOutboundCall', 'captureMessage',
+  'logCandidate', 'transferToHuman', 'enqueueOutboundCall', 'captureMessage', 'sendToStaffCynthia',
   'draftEmailReply', 'sendEmailReply', 'sendEmailWithAttachment', 'updateProject', 'escalateToStaff',
 ] as const;
 

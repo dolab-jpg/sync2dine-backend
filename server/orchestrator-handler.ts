@@ -1077,6 +1077,109 @@ const EMAIL_TOOLS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'generateQuotePdf',
+      description: 'Generate a quote PDF for inline display in Cynthia chat',
+      parameters: {
+        type: 'object',
+        properties: {
+          customerName: { type: 'string' },
+          total: { type: 'number' },
+          tradeName: { type: 'string' },
+          quoteId: { type: 'string' },
+          lineItems: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                description: { type: 'string' },
+                amount: { type: 'number' },
+              },
+            },
+          },
+        },
+        required: ['customerName', 'total'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'generateOpsReport',
+      description: 'Create an operations report (sales, pipeline, jobs) for Cynthia chat',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          reportType: {
+            type: 'string',
+            enum: ['sales_week', 'pipeline', 'jobs_on_site', 'quotes_awaiting', 'custom'],
+          },
+          markdown: { type: 'string', description: 'Optional pre-written report body in markdown' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'placeOutboundCall',
+      description: 'Place an outbound phone call to a customer (requires staff confirmation)',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string' },
+          customerName: { type: 'string' },
+          reason: { type: 'string' },
+        },
+        required: ['to'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'sendToStaffCynthia',
+      description:
+        'Push a rich card (address, amount, Call) into the staff Cynthia APK inbox — use when staff say send it to me',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          customerName: { type: 'string' },
+          phone: { type: 'string' },
+          address: { type: 'string' },
+          amount: { type: 'number' },
+          summary: { type: 'string' },
+          notes: { type: 'string' },
+          quoteId: { type: 'string' },
+          projectId: { type: 'string' },
+          customerId: { type: 'string' },
+          staffUserId: { type: 'string' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'requestCodeFix',
+      description: 'Offer a Cursor-powered code fix for a bug reported in chat',
+      parameters: {
+        type: 'object',
+        properties: {
+          errorCode: { type: 'string' },
+          description: { type: 'string' },
+          route: { type: 'string' },
+        },
+        required: ['description'],
+      },
+    },
+  },
 ];
 
 const CUSTOMER_TOOLS = [
@@ -1470,6 +1573,11 @@ const AUTO_ACTION_NAMES = new Set([
   'draftEmailReply',
   'sendEmailReply',
   'sendEmailWithAttachment',
+  'generateQuotePdf',
+  'generateOpsReport',
+  'sendToStaffCynthia',
+  'requestCodeFix',
+  'placeOutboundCall',
   ...PHONE_AUTO_ACTIONS,
   ...PLANNING_ACTION_NAMES,
 ]);
@@ -2747,6 +2855,8 @@ async function runStaffOrchestrator(
   body: OrchestratorRequest,
   messages: OrchestratorMessage[]
 ): Promise<OrchestratorResult> {
+  const { resolveOrgIdFromBody } = await import('./org-context');
+  const orgId = resolveOrgIdFromBody(body as { orgId?: string });
   const model = body.model ?? 'gpt-4o-mini';
   const mode = resolveMode(body);
   const lastMessage = messages[messages.length - 1]?.content ?? '';
@@ -2815,6 +2925,11 @@ async function runStaffOrchestrator(
 
       if (SERVER_READ_TOOLS.has(toolName)) {
         output = await executeServerReadTool(toolName, parsedInput, body);
+      } else if (toolName === 'sendToStaffCynthia') {
+        // Persist the Cynthia card server-side so phone/WhatsApp/channel paths land
+        // even when no browser client is online to run toolRuntime.
+        output = executePhoneTool(toolName, parsedInput, { ...body, orgId });
+        proposedActions.push({ action: toolName, input: parsedInput, output });
       } else {
         output = toolName === 'updateLeadStatus'
           ? executeUpdateLeadStatus(parsedInput)
@@ -2861,11 +2976,23 @@ async function runStaffOrchestrator(
     finalContent = summaryPass.choices[0]?.message?.content ?? null;
   }
 
+  // Append spoken confirm when a Cynthia card was pushed server-side
+  let content =
+    finalContent ?? buildActionsSummaryText(proposedActions) ?? 'How can I help with your quote or project today?';
+  for (const action of proposedActions) {
+    if (action.action === 'sendToStaffCynthia' && action.output?.spokenConfirm) {
+      const confirm = String(action.output.spokenConfirm);
+      if (!content.toLowerCase().includes('cynthia')) {
+        content = `${content} ${confirm}`.trim();
+      }
+    }
+  }
+
   const autoActions = proposedActions.filter((action) => AUTO_ACTION_NAMES.has(action.action));
   const clientProposed = proposedActions.filter((action) => !AUTO_ACTION_NAMES.has(action.action));
 
   return applyRoleGate(body, {
-    content: finalContent ?? buildActionsSummaryText(proposedActions) ?? 'How can I help with your quote or project today?',
+    content,
     proposedActions: clientProposed,
     autoActions,
     detectedTrades,

@@ -126,6 +126,10 @@ async function runRealtimeConversation({
         direction,
       });
       output = result.output ?? result;
+      if (output && (output.shouldHangup || (output.ended && name === 'endCall'))) {
+        try { session.hangup?.(); } catch { /* ignore */ }
+        closeAll('agent_endCall');
+      }
     } catch (e) {
       output = { error: e.message };
     }
@@ -138,7 +142,7 @@ async function runRealtimeConversation({
       },
     });
     pendingToolBatch -= 1;
-    if (pendingToolBatch <= 0) {
+    if (pendingToolBatch <= 0 && !closed) {
       pendingToolBatch = 0;
       sendEvent({ type: 'response.create' });
     }

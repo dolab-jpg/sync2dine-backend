@@ -1,8 +1,9 @@
 import {
   appendCustomerCallActivity,
+  appendProjectMessageRecord,
   enqueueOutboundCall,
-  getCallById,
   getDataStore,
+  getRequestOrgId,
   lookupContactByPhone,
   saveCall,
   saveCustomerRecord,
@@ -11,6 +12,8 @@ import {
 } from './data-store';
 import type { CallIntent, OutboundCampaignTemplate } from './telephony/types';
 import type { OrchestratorRequest } from './orchestrator-types';
+import { sendToStaffCynthiaInternal } from './cynthia-routes';
+import { actionRequiresConfirmation } from './action-registry';
 
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -49,9 +52,8 @@ export function captureOrUpdateLead(
     : undefined;
 
   const name = firstString(fields.name) ?? (existing?.name as string | undefined) ?? 'Unknown caller';
-  // Scope/notes text is recorded as a timestamped activity line (below) rather than
-  // baked into the `notes` field directly, so repeat calls don't duplicate old text.
   const scopeNote = [fields.scope, fields.notes].filter(Boolean).join(' — ');
+  const combinedNotes = [existing?.notes, scopeNote].filter(Boolean).join(' | ');
   const newTrades = Array.isArray(fields.interestedTrades) ? fields.interestedTrades : [];
   const existingTrades = Array.isArray(existing?.interestedTrades) ? existing?.interestedTrades as unknown[] : [];
   const mergedTrades = [...new Set([...existingTrades, ...newTrades])];
@@ -64,7 +66,7 @@ export function captureOrUpdateLead(
     address: firstString(fields.address, fields.postcode) ?? existing?.address ?? '',
     status: existing?.status ?? 'lead',
     interestedTrades: mergedTrades,
-    notes: existing?.notes ?? (opts.callId ? undefined : scopeNote) ?? '',
+    notes: combinedNotes,
     source: existing?.source ?? 'phone',
     budget: fields.budget ?? existing?.budget,
     sourceCallId: (existing?.sourceCallId as string | undefined) ?? opts.callId,
@@ -78,11 +80,6 @@ export function captureOrUpdateLead(
       summary: scopeNote || (existing ? 'Lead details updated from phone call' : 'Lead captured from phone call'),
       outcome: 'lead_captured',
     });
-    // appendCustomerCallActivity mutates notes/activities after saveCustomerRecord
-    // returned above — re-read so callers (API responses, AI tool result) see the
-    // final record rather than a stale pre-activity-log snapshot.
-    const refreshed = getDataStore().customers.find((c) => String(c.id) === customer.id);
-    if (refreshed) return { customer: refreshed, isNewLead: !existing };
   }
 
   return { customer, isNewLead: !existing };
@@ -288,6 +285,83 @@ export const PHONE_TOOLS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'sendToStaffCynthia',
+      description:
+        'When staff say "send it to me", "pop it in the chat", or "send me the details", push a rich card (address, amount, phone, summary) into their Cynthia APK chat so they can open it and call the customer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Card title e.g. Quote ready — Mrs Smith' },
+          customerName: { type: 'string' },
+          phone: { type: 'string', description: 'Customer phone for Call button' },
+          address: { type: 'string' },
+          amount: { type: 'number', description: 'Quote or job amount in GBP' },
+          summary: { type: 'string' },
+          notes: { type: 'string' },
+          quoteId: { type: 'string' },
+          projectId: { type: 'string' },
+          customerId: { type: 'string' },
+          staffUserId: { type: 'string', description: 'Staff user id if known' },
+          staffPhone: { type: 'string', description: 'Staff phone to resolve inbox' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'placeOutboundCall',
+      description:
+        'Place or queue an outbound customer call. Prefer payment_reminder when chasing an outstanding invoice. Require spoken confirmation before calling.',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string' },
+          template: {
+            type: 'string',
+            enum: ['quote_chase', 'payment_reminder', 'appointment_reminder', 'recruitment_screening', 'satisfaction_check', 'lead_callback'],
+          },
+          confirmed: { type: 'boolean', description: 'Must be true after the caller confirmed verbally' },
+          context: { type: 'object' },
+          scheduledAt: { type: 'string' },
+        },
+        required: ['to', 'template', 'confirmed'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'deliverCallFollowUp',
+      description:
+        'Fulfil a promised follow-up after the call: always send a staff Cynthia card; if the customer has portal/app access deliver customerMessage there; otherwise schedule a callback. Never claim success without tool success.',
+      parameters: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string' },
+          customerMessage: { type: 'string' },
+          customerId: { type: 'string' },
+          projectId: { type: 'string' },
+          assignedStaffUserId: { type: 'string' },
+          confirmed: { type: 'boolean' },
+          callback: {
+            type: 'object',
+            properties: {
+              reason: { type: 'string' },
+              scheduledAt: { type: 'string' },
+              template: { type: 'string', enum: ['lead_callback', 'payment_reminder', 'quote_chase'] },
+              to: { type: 'string' },
+            },
+          },
+        },
+        required: ['summary'],
+      },
+    },
+  },
 ];
 
 export const PHONE_AUTO_ACTIONS = new Set([
@@ -300,7 +374,10 @@ export const PHONE_AUTO_ACTIONS = new Set([
   'logCandidate',
   'transferToHuman',
   'enqueueOutboundCall',
+  'placeOutboundCall',
   'captureMessage',
+  'sendToStaffCynthia',
+  'deliverCallFollowUp',
   'escalateToStaff',
   'saveCustomer',
 ]);
@@ -447,7 +524,14 @@ export function executePhoneTool(
     };
   }
 
-  if (name === 'enqueueOutboundCall') {
+  if (name === 'enqueueOutboundCall' || name === 'placeOutboundCall') {
+    if (name === 'placeOutboundCall' && actionRequiresConfirmation(name) && input.confirmed !== true) {
+      return {
+        queued: false,
+        needsConfirmation: true,
+        error: 'Ask the caller to confirm before placing the outbound call, then call again with confirmed:true',
+      };
+    }
     const job = enqueueOutboundCall({
       to: input.to,
       template: input.template as OutboundCampaignTemplate,
@@ -460,13 +544,10 @@ export function executePhoneTool(
 
   if (name === 'captureMessage') {
     if (callId) {
-      // Merge — a metadata replace here used to wipe phoneAuth verified state mid-call
-      const existing = getCallById(callId);
       saveCall({
         id: callId,
         outcome: 'message_captured',
         metadata: {
-          ...((existing?.metadata as Record<string, unknown> | undefined) || {}),
           department: input.department,
           message: input.message,
           callerName: input.callerName,
@@ -478,6 +559,178 @@ export function executePhoneTool(
       captured: true,
       department: input.department ?? 'general',
       urgency: input.urgency ?? 'medium',
+    };
+  }
+
+  if (name === 'sendToStaffCynthia') {
+    const amountRaw = input.amount;
+    const amount = typeof amountRaw === 'number' ? amountRaw : Number(amountRaw);
+    const fromStaffContext = Boolean(body.staffContext?.userId || body.staffContext?.role);
+    const result = sendToStaffCynthiaInternal({
+      orgId: body.orgId || getRequestOrgId(),
+      userId: firstString(input.staffUserId, input.userId, body.staffContext?.userId),
+      staffPhone: firstString(
+        input.staffPhone,
+        fromStaffContext ? callerPhone : undefined,
+        body.callContext?.from,
+      ),
+      title: firstString(input.title) ?? 'Details from call',
+      customerName: firstString(input.customerName, body.customerContext?.customerName),
+      phone: firstString(
+        input.phone,
+        fromStaffContext ? undefined : callerPhone,
+        body.customerContext?.phone,
+      ),
+      address: firstString(input.address),
+      amount: Number.isFinite(amount) ? amount : undefined,
+      summary: firstString(input.summary),
+      notes: firstString(input.notes),
+      quoteId: firstString(input.quoteId),
+      projectId: firstString(input.projectId),
+      customerId: firstString(input.customerId, body.customerContext?.customerId),
+      source: body.orchestratorMode === 'phone' || body.callContext ? 'phone' : 'cynthia',
+    });
+    if (!result.ok || !result.card) {
+      return {
+        sent: false,
+        error: result.error || 'Failed to send Cynthia card',
+        code: result.code || 'staff_not_resolved',
+        spokenConfirm: 'I could not send that to your Cynthia chat — your staff profile is not fully registered.',
+      };
+    }
+    return {
+      sent: true,
+      cardId: result.card.id,
+      route: result.route,
+      userId: result.userId,
+      spokenConfirm: "I've sent it to your Cynthia chat — open the app for address, amount, and Call.",
+    };
+  }
+
+  if (name === 'deliverCallFollowUp') {
+    const followUps: Array<Record<string, unknown>> = [];
+    const summary = firstString(input.summary) || 'Call follow-up';
+    const customerId = firstString(input.customerId, body.customerContext?.customerId);
+    const projectId = firstString(input.projectId, body.projectContext?.projectId);
+    const staffUserId = firstString(input.assignedStaffUserId, body.staffContext?.userId);
+    const fromStaffContext = Boolean(body.staffContext?.userId || body.staffContext?.role);
+
+    const staffResult = sendToStaffCynthiaInternal({
+      orgId: body.orgId || getRequestOrgId(),
+      userId: staffUserId,
+      staffPhone: firstString(
+        fromStaffContext ? callerPhone : undefined,
+        body.callContext?.from,
+      ),
+      title: `Follow-up — ${summary.slice(0, 80)}`,
+      customerName: firstString(body.customerContext?.customerName),
+      phone: firstString(body.customerContext?.phone, callerPhone),
+      summary,
+      customerId,
+      projectId,
+      source: 'phone',
+      notes: firstString(input.customerMessage),
+    });
+    followUps.push({
+      type: 'staff_cynthia',
+      status: staffResult.ok ? 'completed' : 'failed',
+      entityId: staffResult.card?.id,
+      error: staffResult.error,
+      completedAt: staffResult.ok ? new Date().toISOString() : undefined,
+    });
+
+    let portalDelivered = false;
+    const customerMessage = firstString(input.customerMessage);
+    if (customerMessage && (projectId || customerId)) {
+      const store = getDataStore();
+      const project = projectId
+        ? store.projects.find((p) => String(p.id) === projectId)
+        : store.projects.find((p) => String(p.customerId) === customerId && p.portalToken);
+      if (project?.portalToken) {
+        appendProjectMessageRecord(String(project.id), {
+          id: `msg-${Date.now()}`,
+          role: 'staff',
+          author: 'Cynthia',
+          body: customerMessage,
+          createdAt: new Date().toISOString(),
+          channel: 'portal',
+          source: 'deliverCallFollowUp',
+        });
+        portalDelivered = true;
+        followUps.push({
+          type: 'customer_portal',
+          status: 'completed',
+          entityId: String(project.id),
+          completedAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    let callbackQueued = false;
+    const callback = input.callback && typeof input.callback === 'object'
+      ? (input.callback as Record<string, unknown>)
+      : undefined;
+    if (!portalDelivered && callback) {
+      const to = firstString(callback.to, body.customerContext?.phone, callerPhone);
+      if (to) {
+        const job = enqueueOutboundCall({
+          to,
+          template: String(callback.template || 'lead_callback') as OutboundCampaignTemplate,
+          status: 'queued',
+          context: { reason: callback.reason, summary, customerId, projectId },
+          scheduledAt: callback.scheduledAt,
+        });
+        callbackQueued = true;
+        followUps.push({
+          type: 'scheduled_callback',
+          status: 'completed',
+          entityId: job.id,
+          completedAt: new Date().toISOString(),
+        });
+      } else {
+        followUps.push({
+          type: 'scheduled_callback',
+          status: 'failed',
+          error: 'No customer phone for callback',
+        });
+      }
+    } else if (!portalDelivered && customerMessage) {
+      followUps.push({
+        type: 'customer_portal',
+        status: 'failed',
+        error: 'Customer has no portal/app access',
+      });
+    }
+
+    if (callId) {
+      const store = getDataStore();
+      const fresh = store.calls.find((c) => String(c.id) === callId);
+      saveCall({
+        id: callId,
+        metadata: {
+          ...((fresh?.metadata as Record<string, unknown> | undefined) || {}),
+          followUps,
+        },
+      });
+    }
+
+    const staffOk = staffResult.ok;
+    const customerOk = portalDelivered || callbackQueued || !customerMessage;
+    const ok = staffOk && customerOk;
+    return {
+      ok,
+      followUps,
+      portalDelivered,
+      callbackQueued,
+      staffCardId: staffResult.card?.id,
+      spokenConfirm: ok
+        ? portalDelivered
+          ? 'Done — sent to your Cynthia chat and the customer portal.'
+          : callbackQueued
+            ? 'Done — sent to your Cynthia chat and scheduled the callback.'
+            : "Done — I've put that in your Cynthia chat."
+        : 'I could not complete that follow-up fully — check the details in Cynthia.',
+      error: ok ? undefined : 'One or more follow-up actions failed',
     };
   }
 

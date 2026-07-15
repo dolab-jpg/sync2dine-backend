@@ -99,20 +99,24 @@ export function buildVapiAssistantForParty(opts: {
   let firstMessage: string;
   if (identity.kind === 'staff' || identity.kind === 'foreman') {
     firstMessage = verified
-      ? `Hi ${firstName || 'there'}, Aria here — you're unlocked, what do you need?`
-      : `Hi ${firstName || 'there'}, Aria here — when you can, say your four-digit security code and I'll unlock your tools.`;
+      ? `Hi ${firstName || 'there'}, Cynthia here — you're unlocked, what do you need?`
+      : `Hi ${firstName || 'there'}, Cynthia here — when you can, say your four-digit security code and I'll unlock your tools.`;
   } else if (opts.direction === 'outbound') {
-    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Aria from TradePro — how are you getting on?`;
+    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Cynthia from TradePro — how are you getting on?`;
   } else {
-    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Aria from TradePro here — how can I help?`;
+    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Cynthia from TradePro here — how can I help?`;
   }
 
-  const functionTools = getPhoneSessionChatTools(identity, verified).map((tool) => ({
-    type: 'function',
-    function: tool.function,
-    async: false,
-    server: { url: toolServer },
-  }));
+  // Vapi uses native { type: 'endCall' } — do not also expose a function endCall
+  // (that path only marks the DB completed and leaves the live session open).
+  const functionTools = getPhoneSessionChatTools(identity, verified)
+    .filter((tool) => tool.function.name !== 'endCall')
+    .map((tool) => ({
+      type: 'function',
+      function: tool.function,
+      async: false,
+      server: { url: toolServer },
+    }));
 
   // Always expose PIN verifier for staff sessions even if somehow filtered
   if (identity.kind !== 'customer' && !functionTools.some((t) => t.function.name === 'verifyStaffPhonePin')) {
@@ -136,7 +140,7 @@ export function buildVapiAssistantForParty(opts: {
   }
 
   const assistant: Record<string, unknown> = {
-    name: identity.kind === 'customer' ? 'Aria TradePro' : `Aria (${identity.role})`,
+    name: identity.kind === 'customer' ? 'Cynthia TradePro' : `Cynthia (${identity.role})`,
     firstMessage,
     model: {
       provider: 'openai',

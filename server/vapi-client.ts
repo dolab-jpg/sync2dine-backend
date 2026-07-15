@@ -32,20 +32,32 @@ export function getVapiWebhookBaseUrl(): string {
   ).replace(/\/$/, '');
 }
 
-/** Prefer a real British female ElevenLabs voice once configured. */
+/** Prefer a configured ElevenLabs voice — production fails closed without an explicit id. */
 export function getVapiVoiceConfig(): Record<string, unknown> {
   const voiceId = process.env.VAPI_ELEVENLABS_VOICE_ID?.trim()
     || process.env.ELEVENLABS_VOICE_ID?.trim()
-    || 'EQx6HGDYjkDpcli6vorJ'; // Lizzie — Cockney Character
+    || '';
+  if (!voiceId) {
+    const allowDevFallback = process.env.ALLOW_TELEPHONY_MOCK === '1'
+      || process.env.NODE_ENV === 'test'
+      || (process.env.NODE_ENV !== 'production' && process.env.FAIL_CLOSED !== '1');
+    if (!allowDevFallback) {
+      throw new Error('VAPI_ELEVENLABS_VOICE_ID (or ELEVENLABS_VOICE_ID) must be configured');
+    }
+  }
   return {
     provider: '11labs',
-    voiceId,
+    voiceId: voiceId || 'EQx6HGDYjkDpcli6vorJ', // Lizzie — Cockney Character (dev/test only)
     model: process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_turbo_v2_5',
     stability: 0.35,
     similarityBoost: 0.8,
     style: 0.45,
     optimizeStreamingLatency: 3,
   };
+}
+
+export function getVapiPublicKey(): string | null {
+  return process.env.VAPI_PUBLIC_KEY?.trim() || null;
 }
 
 export function toE164Uk(input: string): string {
