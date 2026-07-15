@@ -35,6 +35,8 @@
     "pdf-lib": "^1.17.1",
     "stripe": "^18.5.0",
     "stun": "^2.1.0",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.34.7",
     "ws": "^8.21.1"
   },
   "devDependencies": {

@@ -12,6 +12,7 @@ import {
   setRequestOrgId,
 } from './data-store';
 import { getOrganizationByWhatsAppPhoneNumberId } from './organizations';
+import { sendWWebMessage, sendWWebDocument, getWWebStatus } from './whatsapp-web-client';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -513,16 +514,6 @@ export async function handleMessageSend(req: IncomingMessage, res: ServerRespons
   const { channel, to, body: text, config, templateId, templateVars, attachment, groupId, sourceLang } = body;
 
   if (channel === 'whatsapp') {
-    const token = config?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
-    const phoneId = config?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-    if (!token || !phoneId) {
-      sendJson(res, 400, { error: 'WhatsApp not configured' });
-      return;
-    }
-
-    // This is a manually composed message (e.g. from a CRM/staff UI) that may have been typed
-    // by a non-English-speaking worker — it must be canonical English before it reaches a
-    // customer's WhatsApp.
     const { ensureEnglishForCustomerSend } = await import('./outbound-english-guard');
     const guard = await ensureEnglishForCustomerSend(String(text ?? ''), sourceLang, getRequestOrgId());
     if (!guard.ok) {
@@ -530,6 +521,30 @@ export async function handleMessageSend(req: IncomingMessage, res: ServerRespons
       return;
     }
     const englishText = guard.english;
+
+    // Prefer WhatsApp Web.js when connected
+    if (getWWebStatus() === 'ready') {
+      const target = groupId || to;
+      const msgId = await sendWWebMessage(target, englishText);
+      if (!msgId) {
+        sendJson(res, 500, { success: false, error: 'WhatsApp Web send failed' });
+        return;
+      }
+      if (attachment?.content) {
+        const buf = Buffer.from(attachment.content, 'base64');
+        await sendWWebDocument(to, buf, attachment.mimeType || 'application/pdf', attachment.filename || 'document.pdf', englishText.slice(0, 100));
+      }
+      sendJson(res, 200, { success: true, mode: 'wweb', messageId: msgId });
+      return;
+    }
+
+    // Fallback: Meta Cloud API (legacy)
+    const token = config?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+    const phoneId = config?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+    if (!token || !phoneId) {
+      sendJson(res, 400, { error: 'WhatsApp not configured — connect via QR code in Integrations' });
+      return;
+    }
 
     const inWindow = isWithin24hWindow(to);
     const portalLink = templateVars?.portalLink ?? '';

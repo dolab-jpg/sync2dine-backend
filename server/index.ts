@@ -28,6 +28,7 @@ import { handleCynthiaRoutes } from './cynthia-routes';
 import { handleChannelRoutes } from './channel-routes';
 import { handleAgentCredentialsRoutes } from './agent-credentials-routes';
 import { handlePushRoutes } from './push-routes';
+import { handleWWebRoutes } from './whatsapp-web-routes';
 import { initDataFromSupabase } from './data-store';
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -96,6 +97,8 @@ const server = createServer(async (req, res) => {
 
     if (await handlePushRoutes(req, res, pathname)) return;
 
+    if (await handleWWebRoutes(req, res, pathname)) return;
+
     if (pathname.startsWith('/api/ai/')) {
       await handleAiRequest(req, res, pathname);
       return;
@@ -119,4 +122,8 @@ server.listen(PORT, async () => {
   await initDataFromSupabase();
   console.log(`TradePro API server running on port ${PORT}`);
   void import('./code-fix-handler').then(({ startCodeFixWorker }) => startCodeFixWorker());
+  void import('./whatsapp-web-client').then(({ initWWebClient }) => {
+    console.log('Starting WhatsApp Web.js client...');
+    initWWebClient().catch(err => console.error('WhatsApp Web.js init failed:', err));
+  });
 });
