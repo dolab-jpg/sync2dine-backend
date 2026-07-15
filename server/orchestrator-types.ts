@@ -108,6 +108,8 @@ export interface OrchestratorRequest {
     campaignTemplate?: string;
     isAfterHours?: boolean;
   };
+  /** Data-URL or https images for vision on the latest user turn. */
+  images?: string[];
 }
 
 export interface OrchestratorAction {

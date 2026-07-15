@@ -2,6 +2,7 @@ import type { OrchestratorRequest } from './orchestrator-types';
 import { getRequestRole } from './role-permissions';
 import { DATA_COLLECTIONS } from './dataPolicy';
 import { buildAriaSystemPrompt } from './phone-prompt';
+import { FACADE_WEB_STAFF_MODES, isFacadeEnabled } from './tool-facade';
 
 const ROUTE_HINTS = `/ (dashboard), /crm, /quotes, /projects, /planning, /price-job, /approvals, /contracts, /recruitment, /team, /settings, /booking, /site-survey (surveys), /quote/{tradeId}/{customerId}, /portal/{token}, /contract/{token}, /builder, /costing, /portfolio, /changes — you may navigate to any valid route, not only these.`;
 
@@ -56,6 +57,27 @@ PRICING & CONTRACTS TOOLS:
 - saveContract: build a draft contract from an APPROVED quote (quoteId, optional templateId, optional stages). Generates the schedule if none given.
 - sendContract: email a secure signing link to the customer (contractId) — requires confirmation. Customer signs via the link; staff cannot sign on their behalf.
 Flow: price (priceSmallJob/saveQuote) → submitForApproval → manager approveQuote → saveContract → sendContract. Contracts can only be made from approved quotes.
+${redLines(role)}`;
+}
+
+/** Concise 12-tool guide shown instead of the legacy laundry list when AI_TOOL_FACADE is on. */
+function facadeToolGuide(role: string): string {
+  return `TOOLS — you have exactly 12 domain tools. Every call takes an "operation" (see each tool's description for its operations and payload fields) plus a "payload" object with the detail fields:
+- searchRecords: find customers, projects, quotes, leads, emails, business snapshot, team performance, project profit/costs, or read any collection (${COLLECTION_LIST}).
+- manageCustomer: link/save customers, update lead status, log follow-ups, merge duplicates (merge needs confirmation).
+- manageQuote: detect trades, stage wizard fields, start/save/update quotes, add or replace lines, duplicate/archive, price small jobs, submit for approval.
+- managePricing: approve/reject quote prices (MANAGER/ADMIN only, human confirmation required) and suggest payment schedules.
+- manageContract: quote drafts + PDFs, contract drafts, save contracts from APPROVED quotes, send signing links (confirmation), contract PDFs.
+- manageProject: convert won quotes to projects, payment plans, schedules, change orders, handover, contractor assignment, close projects, mark payments received, client receipts.
+- siteOperations: builder/contractor briefs, foreman plans, payment gates, site photos, task status, photo tagging, progress/extra assessment, hours, costs, timesheets, supplier orders.
+- manageInvoices: draft invoices, invoice PDFs, send invoices (confirmation).
+- managePayments: categorise/match/flag bank transactions; refunds, Open Banking payments, subscriptions (managers, confirmation).
+- sendMessage: customer/builder message drafts, change-order notifications, email draft/send, SMS, WhatsApp, outbound calls (all sends need confirmation).
+- managePlanning: Planning & Consents operations (available only with an active planning application).
+- appControl: navigate routes (${ROUTE_HINTS}), staff Cynthia cards, ops reports, calendar events, reminders, project files, code fixes, escalation, portal links, and generic writeData (collection, operation create|update|delete, id, data — deletes need confirmation).
+
+Pricing/contract flow: manageQuote {operation:"priceSmallJob" or "save"} → manageQuote {operation:"submitApproval"} → manager managePricing {operation:"approve"} → manageContract {operation:"save"} → manageContract {operation:"send"}. Contracts only from approved quotes; never claim a price is approved without the human confirmation.
+If guidance elsewhere mentions a legacy tool name, call the domain tool whose operation replaces it — e.g. saveQuote → manageQuote {operation:"save"}, convertQuoteToProject → manageProject {operation:"convertFromQuote"}, readData → searchRecords {operation:"readCollection"}, writeData → appControl {operation:"writeData"}, navigate → appControl {operation:"navigate"}, sendToStaffCynthia → appControl {operation:"staffCard"}, searchLeads → searchRecords {operation:"leads"}, updateLeadStatus → manageCustomer {operation:"updateLead"}, logFollowUp → manageCustomer {operation:"logFollowUp"}, getBusinessSnapshot/getTeamPerformance → searchRecords.
 ${redLines(role)}`;
 }
 
@@ -157,6 +179,13 @@ LINKS: only share links exactly as returned by tools. NEVER invent domains or UR
 Chat naturally like a helpful human — direct, warm, gently witty British tone. Always act in ${company}'s best interests (protect confidential data, don't over-promise). If a tool fails, say so plainly and offer the office.`;
   }
 
+  // Facade gating mirrors getToolsForMode: web-staff modes only, and only for
+  // requests that actually carry staff/planning context (never phone/customer).
+  const facadeActive =
+    isFacadeEnabled()
+    && FACADE_WEB_STAFF_MODES.has(mode)
+    && (Boolean(body.orchestratorMode) || Boolean(body.staffContext) || Boolean(body.planningApplicationContext));
+
   return `You are TradePro AI — the full company assistant for ${company}.
 You are talking to ${userName} (role: ${role}, user id: ${userId ?? 'session'}) on page ${route}.
 Operating mode: ${mode}.
@@ -165,7 +194,7 @@ ${planningBlock ? `\n${planningBlock}\n` : ''}
 ${rolePersona(role)}
 ${redLines(role)}
 
-${genericToolGuide(role)}
+${facadeActive ? facadeToolGuide(role) : genericToolGuide(role)}
 
 You have full access to your tools. Use them to look up data, save customers and quotes, update projects, and navigate the user's screen.
 Never claim you cannot access the system — use tools instead. When you act, explain what you did conversationally.
@@ -174,7 +203,9 @@ LINKS: only share links exactly as returned by tools. NEVER invent domains or UR
 If a tool errors, say so plainly and offer the manual path.
 
 Available trades: bathroom, kitchen, electrical, plumbing, roofing, flooring, painting, plastering, extensions, windows, loft, landscaping.
-Use readData/writeData/navigate for open-ended tasks, or specialized tools (saveCustomer, saveQuote, proposeSchedule, convertQuoteToProject, etc.) for structured workflows.
+${facadeActive
+    ? 'Use searchRecords and appControl for open-ended reads, writes, and navigation; use the other domain tools for structured workflows.'
+    : 'Use readData/writeData/navigate for open-ended tasks, or specialized tools (saveCustomer, saveQuote, proposeSchedule, convertQuoteToProject, etc.) for structured workflows.'}
 
 TASK PLANNING (big or vague requests):
 - For large multi-step jobs: ask up to 4 targeted questions before creating records (customer identity, trade, budget, timeline, site address).

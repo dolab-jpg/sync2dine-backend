@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { getOrganizationById } from './organizations';
 import { getUserById, sanitizeUser, verifyPassword, getUserByEmail, type PlatformUser } from './users';
+import { getHomeOrgId, sanitizeOrgId } from './home-org';
 
 const JWT_EXPIRY = '7d';
 
@@ -136,20 +137,28 @@ export function resolveOrgIdForRequest(
   req: IncomingMessage,
   body?: { orgId?: string },
 ): string | null {
+  const clean = (value: string | null | undefined): string | null => {
+    if (!value?.trim()) return null;
+    const trimmed = value.trim();
+    if (trimmed === 'default') return getHomeOrgId();
+    return sanitizeOrgId(trimmed) ?? null;
+  };
+
   if (isAuthEnforced()) {
     const ctx = requireAuth(req);
-    if (ctx?.orgId) return ctx.orgId;
+    if (ctx?.orgId) return clean(ctx.orgId) ?? ctx.orgId;
     if (ctx?.role === 'platform_owner') {
       const header = req.headers['x-org-id'];
-      if (typeof header === 'string' && header.trim()) return header.trim();
-      if (body?.orgId?.trim()) return body.orgId.trim();
+      if (typeof header === 'string' && header.trim()) return clean(header) ?? getHomeOrgId();
+      if (body?.orgId?.trim()) return clean(body.orgId) ?? getHomeOrgId();
     }
     return null;
   }
 
   const header = req.headers['x-org-id'];
-  if (typeof header === 'string' && header.trim()) return header.trim();
-  if (body?.orgId?.trim()) return body.orgId.trim();
+  if (typeof header === 'string' && header.trim()) return clean(header) ?? getHomeOrgId();
+  if (body?.orgId?.trim()) return clean(body.orgId) ?? getHomeOrgId();
   // Local/dev without Supabase session: keep AI + org keys resolvable.
-  return (process.env.DEFAULT_ORG_ID || 'default').trim() || 'default';
+  const fromEnv = (process.env.DEFAULT_ORG_ID || process.env.HOME_ORG_ID || '').trim();
+  return clean(fromEnv) || getHomeOrgId() || 'default';
 }

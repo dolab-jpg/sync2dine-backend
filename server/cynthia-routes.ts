@@ -9,6 +9,7 @@ import {
   type CynthiaStaffCard,
 } from './cynthia-staff-store';
 import { sendPushToUser } from './push/pushSender';
+import { emitAgentActivity } from './agent-activity';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -223,6 +224,7 @@ export function sendToStaffCynthiaInternal(input: {
     customerId: input.customerId,
     source: input.source || 'phone',
   });
+  emitAgentActivity({ orgId, targetUserId: userId, channel: input.source || 'phone', action: 'sendToStaffCynthia', phase: 'changed', summary: `Card sent: ${card.title}`, route: `/cynthia?card=${card.id}` });
   void notifyStaffPush({
     orgId,
     userId,

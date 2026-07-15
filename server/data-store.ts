@@ -1,15 +1,27 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { BDIDDIES_HOME_ORG_LEGACY_ID, getHomeOrgId, sanitizeOrgId } from './home-org';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
 export const DEFAULT_ORG_ID = 'default';
 
 let requestOrgId = DEFAULT_ORG_ID;
 const memoryStores = new Map<string, SyncedData>();
+let legacyHomeMigrated = false;
+
+function resolveStorageOrgId(orgId: string | null | undefined): string {
+  const raw = orgId?.trim() || '';
+  if (!raw || raw === DEFAULT_ORG_ID) {
+    // Prefer configured home uuid so phone/API leads land with the CRM org
+    const home = getHomeOrgId();
+    return home || DEFAULT_ORG_ID;
+  }
+  return sanitizeOrgId(raw) ?? raw;
+}
 
 export function setRequestOrgId(orgId: string | null | undefined): void {
-  requestOrgId = orgId?.trim() || DEFAULT_ORG_ID;
+  requestOrgId = resolveStorageOrgId(orgId);
 }
 
 export function getRequestOrgId(): string {
@@ -18,7 +30,7 @@ export function getRequestOrgId(): string {
 
 export function withOrgContext<T>(orgId: string, fn: () => T): T {
   const prev = requestOrgId;
-  requestOrgId = orgId?.trim() || DEFAULT_ORG_ID;
+  requestOrgId = resolveStorageOrgId(orgId);
   try {
     return fn();
   } finally {
@@ -41,6 +53,8 @@ export interface SyncedData {
   /** Cyrus / WhatsApp / phone shared conversation memory keyed by orgId:phone */
   whatsappConversations?: Record<string, WhatsAppConversationRecord>;
   teamMembers?: TeamMemberRecord[];
+  pendingConfirmations?: PendingConfirmationRecord[];
+  companySettings?: { website?: string; companyName?: string };
   calls: Array<Record<string, unknown>>;
   outboundQueue: Array<Record<string, unknown>>;
   recruitmentJobs: Array<Record<string, unknown>>;
@@ -77,6 +91,16 @@ export interface WhatsAppConversationRecord {
   handoffMode?: ConversationHandoffMode;
 }
 
+export interface PendingConfirmationRecord {
+  id: string;
+  phone: string;
+  orgId: string;
+  action: string;
+  input: Record<string, unknown>;
+  createdAt: string;
+  expiresAt: string;
+}
+
 export type PhoneLineStatus = 'disconnected' | 'registering' | 'registered' | 'error';
 
 export type PhoneLinePurpose = 'staff' | 'aria';
@@ -110,12 +134,17 @@ export interface TransferNumbers {
 export interface AgentSettings {
   isActive: boolean;
   activeVoiceId?: string;
+  leadCallbackPolicy?: 'alert_only' | 'outbound_first' | 'inbound_only';
+  ivrTree?: Record<string, unknown>;
+  /** Department → phone number for Aria live handoffs */
   transferNumbers?: TransferNumbers;
   updatedAt: string;
 }
 
 const defaultAgentSettings: AgentSettings = {
   isActive: true,
+  leadCallbackPolicy: 'alert_only',
+  transferNumbers: {},
   updatedAt: new Date().toISOString(),
 };
 
@@ -133,6 +162,7 @@ const defaultData: SyncedData = {
   whatsappGroups: {},
   whatsappConversations: {},
   teamMembers: [],
+  pendingConfirmations: [],
   calls: [],
   outboundQueue: [],
   recruitmentJobs: defaultRecruitmentJobs,
@@ -168,6 +198,12 @@ function loadFromDisk(orgId: string): SyncedData {
         whatsappGroups: parsed.whatsappGroups ?? {},
         whatsappConversations: parsed.whatsappConversations ?? {},
         teamMembers: Array.isArray(parsed.teamMembers) ? parsed.teamMembers : [],
+        pendingConfirmations: Array.isArray(parsed.pendingConfirmations)
+          ? parsed.pendingConfirmations
+          : [],
+        companySettings: parsed.companySettings && typeof parsed.companySettings === 'object'
+          ? parsed.companySettings
+          : undefined,
         calls: Array.isArray(parsed.calls) ? parsed.calls : [],
         outboundQueue: Array.isArray(parsed.outboundQueue) ? parsed.outboundQueue : [],
         recruitmentJobs: Array.isArray(parsed.recruitmentJobs) && parsed.recruitmentJobs.length
@@ -218,17 +254,94 @@ function migrateLegacySoho66Line(data: SyncedData): void {
   }];
 }
 
+function mergeRecordArrays(
+  primary: Array<Record<string, unknown>>,
+  secondary: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const map = new Map<string, Record<string, unknown>>();
+  for (const item of secondary) {
+    const id = String(item.id ?? '');
+    if (id) map.set(id, item);
+  }
+  for (const item of primary) {
+    const id = String(item.id ?? '');
+    if (id) map.set(id, item);
+  }
+  return [...map.values()];
+}
+
+/** One-time: fold legacy "default" / "bdiddies" disk stores into the home org uuid file. */
+function migrateLegacyOrgDiskStores(): void {
+  if (legacyHomeMigrated) return;
+  legacyHomeMigrated = true;
+  const homeId = getHomeOrgId();
+  if (!homeId || homeId === DEFAULT_ORG_ID) return;
+
+  const home = loadFromDisk(homeId);
+  const legacyDefault = loadFromDisk(DEFAULT_ORG_ID);
+  const legacySlug = loadFromDisk(BDIDDIES_HOME_ORG_LEGACY_ID);
+
+  const mergedCustomers = mergeRecordArrays(
+    home.customers,
+    mergeRecordArrays(legacyDefault.customers, legacySlug.customers),
+  );
+  const mergedQuotes = mergeRecordArrays(
+    home.quotes,
+    mergeRecordArrays(legacyDefault.quotes, legacySlug.quotes),
+  );
+  const mergedCalls = mergeRecordArrays(
+    home.calls,
+    mergeRecordArrays(legacyDefault.calls, legacySlug.calls),
+  );
+  const mergedContacts = mergeRecordArrays(
+    home.contacts,
+    mergeRecordArrays(legacyDefault.contacts, legacySlug.contacts),
+  );
+
+  const gained =
+    mergedCustomers.length > home.customers.length
+    || mergedQuotes.length > home.quotes.length
+    || mergedCalls.length > home.calls.length
+    || mergedContacts.length > home.contacts.length;
+
+  if (!gained && home.customers.length > 0) {
+    memoryStores.set(homeId, home);
+    return;
+  }
+
+  const next: SyncedData = {
+    ...home,
+    customers: mergedCustomers,
+    quotes: mergedQuotes,
+    calls: mergedCalls,
+    contacts: mergedContacts,
+    projects: home.projects.length ? home.projects : (legacyDefault.projects.length ? legacyDefault.projects : legacySlug.projects),
+    phoneLines: home.phoneLines.length ? home.phoneLines : (legacyDefault.phoneLines.length ? legacyDefault.phoneLines : legacySlug.phoneLines),
+    agentSettings: home.agentSettings ?? legacyDefault.agentSettings ?? legacySlug.agentSettings,
+    teamMembers: home.teamMembers?.length ? home.teamMembers : (legacyDefault.teamMembers?.length ? legacyDefault.teamMembers : legacySlug.teamMembers),
+  };
+  memoryStores.set(homeId, next);
+  ensureDir();
+  try {
+    writeFileSync(dataFileForOrg(homeId), JSON.stringify(next, null, 2));
+  } catch {
+    // ignore
+  }
+}
+
 function ensureOrgLoaded(orgId: string): SyncedData {
-  let store = memoryStores.get(orgId);
+  migrateLegacyOrgDiskStores();
+  const id = resolveStorageOrgId(orgId);
+  let store = memoryStores.get(id);
   if (!store) {
-    store = loadFromDisk(orgId);
-    memoryStores.set(orgId, store);
+    store = loadFromDisk(id);
+    memoryStores.set(id, store);
   }
   return store;
 }
 
 export function getDataStore(orgId?: string): SyncedData {
-  const id = orgId ?? requestOrgId;
+  const id = resolveStorageOrgId(orgId ?? requestOrgId);
   const store = ensureOrgLoaded(id);
   if (store.projects.length === 0 && store.contacts.length === 0 && store.phoneLines.length === 0) {
     const loaded = loadFromDisk(id);
@@ -239,7 +352,7 @@ export function getDataStore(orgId?: string): SyncedData {
 }
 
 export function syncData(data: Partial<SyncedData>, orgId?: string): void {
-  const id = orgId ?? requestOrgId;
+  const id = resolveStorageOrgId(orgId ?? requestOrgId);
   const memoryStore = ensureOrgLoaded(id);
   const next: SyncedData = {
     ...memoryStore,
@@ -248,6 +361,7 @@ export function syncData(data: Partial<SyncedData>, orgId?: string): void {
     whatsappGroups: data.whatsappGroups ?? memoryStore.whatsappGroups,
     whatsappConversations: data.whatsappConversations ?? memoryStore.whatsappConversations ?? {},
     teamMembers: data.teamMembers ?? memoryStore.teamMembers ?? [],
+    pendingConfirmations: data.pendingConfirmations ?? memoryStore.pendingConfirmations ?? [],
     agentSettings: data.agentSettings ?? memoryStore.agentSettings,
     phoneLines: data.phoneLines ?? memoryStore.phoneLines,
   };
@@ -283,7 +397,8 @@ export function syncData(data: Partial<SyncedData>, orgId?: string): void {
 
 /** Preload org data from Supabase on server startup */
 export async function initDataFromSupabase(orgId?: string): Promise<void> {
-  const id = orgId ?? DEFAULT_ORG_ID;
+  // Resolve through home-org so hydration lands in the same store requests read from.
+  const id = resolveStorageOrgId(orgId ?? DEFAULT_ORG_ID);
   try {
     const { isSupabaseConfigured, loadSyncedDataFromSupabase } = await import('./supabase-data.js');
     if (!isSupabaseConfigured()) return;
@@ -368,8 +483,28 @@ export function resolveContactByPhone(phone: string): {
     contactName: contact ? String(contact.name) : 'Guest',
     contactRole: contact ? String(contact.role ?? 'primary') : 'guest',
     projectId: project ? String(project.id) : null,
-    activeQuotes: [],
+    activeQuotes: getActiveQuotes(customerId),
   };
+}
+
+// Local copy (quote-lookup.ts imports this module, so importing it back would be a cycle).
+function getActiveQuotes(customerId: string | null): Array<{
+  tradeName?: string;
+  total: number;
+  status: string;
+  expiresAt: string;
+}> {
+  if (!customerId) return [];
+  const store = getDataStore();
+  return (store.quotes ?? [])
+    .filter((q) => String(q.customerId ?? '') === customerId)
+    .filter((q) => !['rejected', 'expired'].includes(String(q.status ?? '')))
+    .map((q) => ({
+      tradeName: String(q.tradeName ?? q.tradeId ?? ''),
+      total: Number(q.total ?? 0),
+      status: String(q.status ?? 'draft'),
+      expiresAt: String(q.expiresAt ?? ''),
+    }));
 }
 
 export function getProjectById(id: string): Record<string, unknown> | undefined {
@@ -579,21 +714,52 @@ export function saveRecruitmentInterview(interview: Record<string, unknown>): Re
 
 export function saveCustomerRecord(customer: Record<string, unknown>): Record<string, unknown> {
   const store = getDataStore();
-  const id = String(customer.id ?? `C${Date.now()}`);
-  const existing = store.customers.findIndex(c => String(c.id) === id);
+  const phone = String(customer.phone ?? '');
+  const email = String(customer.email ?? '').trim().toLowerCase();
+
+  let id = customer.id ? String(customer.id) : '';
+  let existingIdx = id ? store.customers.findIndex(c => String(c.id) === id) : -1;
+
+  // AI/phone/WhatsApp callers rarely pass an id — match by phone/email to avoid duplicate CRM rows.
+  if (existingIdx < 0 && (phone || email)) {
+    const dup = store.customers.find(c => {
+      if (phone && normalizePhone(String(c.phone ?? '')) === normalizePhone(phone)) return true;
+      if (email && String(c.email ?? '').trim().toLowerCase() === email && email.length > 3) return true;
+      return false;
+    });
+    if (dup) {
+      existingIdx = store.customers.findIndex(c => String(c.id) === String(dup.id));
+      id = String(dup.id);
+    }
+  }
+
+  if (!id) id = `C${Date.now()}`;
+
   const record = {
     ...customer,
     id,
     status: customer.status ?? 'lead',
     createdAt: customer.createdAt ?? new Date().toISOString(),
+    mergedFromDuplicate: existingIdx >= 0 && !customer.id ? true : customer.mergedFromDuplicate,
   };
-  if (existing >= 0) {
-    store.customers[existing] = { ...store.customers[existing], ...record };
+  if (existingIdx >= 0) {
+    store.customers[existingIdx] = { ...store.customers[existingIdx], ...record };
   } else {
     store.customers.unshift(record);
   }
   syncData(store);
-  return record;
+  const saved = store.customers.find(c => String(c.id) === id) ?? record;
+  // Direct mirror to public.customers under the home-org uuid. syncData's full sync also upserts
+  // customers, but it resolves the org via a cloud organizations lookup that can fall back to the
+  // shared default org — this mirror guarantees the row lands where the CRM UI reads it.
+  void import('./supabase-crm')
+    .then(({ mirrorCustomerToSupabaseAsync }) => {
+      mirrorCustomerToSupabaseAsync(saved as Record<string, unknown>, getRequestOrgId());
+    })
+    .catch((err) => {
+      console.warn('[data-store] supabase mirror import failed:', err);
+    });
+  return saved;
 }
 
 /** Append a phone-call activity note onto the customer record. */
@@ -664,6 +830,21 @@ export function updateAgentSettings(patch: Partial<AgentSettings>): AgentSetting
   };
   syncData(store);
   return store.agentSettings;
+}
+
+export function getTransferNumbers(): TransferNumbers {
+  return { ...(getAgentSettings().transferNumbers ?? {}) };
+}
+
+export function updateTransferNumbers(patch: TransferNumbers): TransferNumbers {
+  const cleaned: TransferNumbers = {};
+  const keys: Array<keyof TransferNumbers> = ['general', 'sales', 'projects', 'recruitment', 'accounts'];
+  for (const key of keys) {
+    const val = patch[key];
+    if (typeof val === 'string' && val.trim()) cleaned[key] = val.trim();
+  }
+  updateAgentSettings({ transferNumbers: cleaned });
+  return getTransferNumbers();
 }
 
 export function listPhoneLines(): PhoneLine[] {

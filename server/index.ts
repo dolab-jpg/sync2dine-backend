@@ -29,7 +29,12 @@ import { handleChannelRoutes } from './channel-routes';
 import { handleAgentCredentialsRoutes } from './agent-credentials-routes';
 import { handlePushRoutes } from './push-routes';
 import { handleWWebRoutes } from './whatsapp-web-routes';
+import { handleGapApiRoutes } from './gap-api-routes';
+import { handleAgentActivityRoutes } from './agent-activity-routes';
 import { initDataFromSupabase } from './data-store';
+import { startMailboxPoller } from './mailbox/imapSyncService';
+import { startOutboundWorker } from './outbound-worker';
+import { ensureBdiddiesHomeOrg } from './organizations';
 
 const PORT = Number(process.env.PORT) || 3001;
 const ALLOWED_ORIGIN = process.env.APP_BASE_URL?.trim() || '*';
@@ -39,11 +44,16 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const pathname = url.pathname;
 
-    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    // Widget on company site needs dynamic CORS — cyrus-routes sets it for /api/cyrus/web*
+    const isCyrusWeb = pathname.startsWith('/api/cyrus/web');
+    if (!isCyrusWeb) {
+      res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Org-Id, X-User-Id, X-User-Role');
 
     if (req.method === 'OPTIONS') {
+      if (isCyrusWeb && await handleCyrusRoutes(req, res, pathname)) return;
       res.statusCode = 204;
       res.end();
       return;
@@ -99,6 +109,10 @@ const server = createServer(async (req, res) => {
 
     if (await handleWWebRoutes(req, res, pathname)) return;
 
+    if (await handleGapApiRoutes(req, res, pathname, url)) return;
+
+    if (await handleAgentActivityRoutes(req, res, pathname)) return;
+
     if (pathname.startsWith('/api/ai/')) {
       await handleAiRequest(req, res, pathname);
       return;
@@ -121,6 +135,9 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, async () => {
   await initDataFromSupabase();
   console.log(`TradePro API server running on port ${PORT}`);
+  ensureBdiddiesHomeOrg();
+  startMailboxPoller();
+  startOutboundWorker();
   void import('./code-fix-handler').then(({ startCodeFixWorker }) => startCodeFixWorker());
   void import('./whatsapp-web-client').then(({ initWWebClient }) => {
     console.log('Starting WhatsApp Web.js client...');

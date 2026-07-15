@@ -28,6 +28,8 @@ import type {
   OrchestratorResult,
 } from './orchestrator-types';
 import { PLANNING_ACTION_NAMES, PLANNING_TOOLS } from './planning-tools';
+import { GAP_AUTO_ACTIONS, GAP_CLOSING_TOOLS } from './gap-closing-tools';
+import { expandFacadeCall, FACADE_TOOLS, FACADE_WEB_STAFF_MODES, isFacadeEnabled } from './tool-facade';
 import {
   buildClarifyIntro,
   classifyTaskIntent,
@@ -1080,8 +1082,37 @@ const EMAIL_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'draftQuote',
+      description:
+        'Present a structured quote draft in chat for staff review. Do NOT generate a PDF. Use this before generateQuotePdf so the user can confirm line items and totals.',
+      parameters: {
+        type: 'object',
+        properties: {
+          customerName: { type: 'string' },
+          total: { type: 'number' },
+          tradeName: { type: 'string' },
+          notes: { type: 'string' },
+          lineItems: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                description: { type: 'string' },
+                amount: { type: 'number' },
+              },
+            },
+          },
+        },
+        required: ['customerName', 'total'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'generateQuotePdf',
-      description: 'Generate a quote PDF for inline display in Cynthia chat',
+      description:
+        'Generate a multi-page quote PDF for Cynthia after the user has confirmed the draft in chat. Do not call until the user says the draft looks good.',
       parameters: {
         type: 'object',
         properties: {
@@ -1504,24 +1535,37 @@ export function sanitizeToolsForOpenAI<T extends { type: 'function'; function: {
   });
 }
 
-function getToolsForMode(mode: OrchestratorMode, body?: OrchestratorRequest) {
+export function getToolsForMode(mode: OrchestratorMode, body?: OrchestratorRequest) {
   const hasProject = Boolean(body?.projectContext?.projectId);
   const planning = hasPlanningContext(body);
+
+  // AI_TOOL_FACADE: web-staff modes get the 12 domain facade tools instead of
+  // the full schema list. Phone and customer/cyrus packs are never affected.
+  // Role/permission gating still happens post-expansion on canonical action
+  // names (applyRoleGate / AUTO_ACTION_NAMES), so no per-tool role filter here.
+  if (isFacadeEnabled() && FACADE_WEB_STAFF_MODES.has(mode)) {
+    const planningActive = mode === 'planning' || planning;
+    const facadeTools = planningActive
+      ? FACADE_TOOLS
+      : FACADE_TOOLS.filter((tool) => tool.function.name !== 'managePlanning');
+    return sanitizeToolsForOpenAI(facadeTools);
+  }
+
   let tools;
   if (mode === 'planning') {
-    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...NAVIGATION_TOOLS, ...PLANNING_TOOLS];
+    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...NAVIGATION_TOOLS, ...PLANNING_TOOLS, ...GAP_CLOSING_TOOLS];
   } else if (mode === 'staff') {
     tools = hasProject
-      ? [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS]
-      : [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS];
+      ? [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS]
+      : [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS];
   } else if (mode === 'project' || mode === 'foreman') {
-    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS];
+    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS];
   } else if (mode === 'customer' || mode === 'cyrus') {
     tools = [...GENERIC_TOOLS, ...CUSTOMER_TOOLS];
   } else if (mode === 'phone') {
     tools = [...GENERIC_TOOLS, ...CUSTOMER_TOOLS, ...PHONE_TOOLS];
   } else {
-    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS];
+    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS];
   }
 
   if (planning && mode !== 'planning') {
@@ -1535,15 +1579,12 @@ function getToolsForMode(mode: OrchestratorMode, body?: OrchestratorRequest) {
       tools = tools.filter((tool) =>
         isGenericTool(tool.function.name) || canExecuteActionForRole(role, tool.function.name)
       );
-      // #region agent log
-      try{const fs=require('fs');const names=tools.map((t)=>t.function.name);fs.appendFileSync('debug-75bc70.log',JSON.stringify({sessionId:'75bc70',timestamp:Date.now(),location:'orchestrator-handler.ts:getToolsForMode',message:'tools after role gate',hypothesisId:'A',runId:'post-fix',data:{role,contractToolsPresent:['priceSmallJob','saveContract','approveQuote'].map((n)=>({name:n,present:names.includes(n)}))}})+'\n');}catch{}
-      // #endregion
     }
   }
   return sanitizeToolsForOpenAI(tools);
 }
 
-const AUTO_ACTION_NAMES = new Set([
+export const AUTO_ACTION_NAMES = new Set([
   'navigateTo',
   'navigate',
   'writeData',
@@ -1573,6 +1614,7 @@ const AUTO_ACTION_NAMES = new Set([
   'draftEmailReply',
   'sendEmailReply',
   'sendEmailWithAttachment',
+  'draftQuote',
   'generateQuotePdf',
   'generateOpsReport',
   'sendToStaffCynthia',
@@ -1580,6 +1622,7 @@ const AUTO_ACTION_NAMES = new Set([
   'placeOutboundCall',
   ...PHONE_AUTO_ACTIONS,
   ...PLANNING_ACTION_NAMES,
+  ...GAP_AUTO_ACTIONS,
 ]);
 
 function applyRoleGate(body: OrchestratorRequest, result: OrchestratorResult): OrchestratorResult {
@@ -2884,12 +2927,28 @@ async function runStaffOrchestrator(
   }
 
   const tools = getToolsForMode(mode, body);
+  const attachedImages = Array.isArray(body.images) ? body.images.filter((u): u is string => typeof u === 'string' && u.length > 0).slice(0, 6) : [];
   const chatMessages: Array<Record<string, unknown>> = [
     { role: 'system', content: resolveSystemPrompt(body) },
-    ...messages.map((message) => ({
-      role: toMessageRole(message.role),
-      content: message.content,
-    })),
+    ...messages.map((message, index) => {
+      const isLastUser =
+        index === messages.length - 1
+        && toMessageRole(message.role) === 'user'
+        && attachedImages.length > 0;
+      if (isLastUser) {
+        const parts: Array<Record<string, unknown>> = [
+          { type: 'text', text: message.content || 'Please review the attached image(s).' },
+        ];
+        for (const url of attachedImages) {
+          parts.push({ type: 'image_url', image_url: { url } });
+        }
+        return { role: toMessageRole(message.role), content: parts };
+      }
+      return {
+        role: toMessageRole(message.role),
+        content: message.content,
+      };
+    }),
   ];
   const proposedActions: OrchestratorAction[] = [];
   let detectedTrades: OrchestratorResult['detectedTrades'] = [];
@@ -2919,8 +2978,21 @@ async function runStaffOrchestrator(
 
     for (const call of toolCalls) {
       if (call.type !== 'function') continue;
-      const parsedInput = safeParseObject(call.function.arguments);
-      const toolName = call.function.name;
+      let parsedInput = safeParseObject(call.function.arguments);
+      let toolName = call.function.name;
+
+      // Expand facade calls (searchRecords, manageQuote, …) to their CANONICAL
+      // action + flat args BEFORE any execution, AUTO_ACTION_NAMES splitting,
+      // or role filtering — so every downstream gate sees canonical names and
+      // proposedActions/autoActions stay client-compatible. The facade name is
+      // kept as requestedAs for the conversation audit trail.
+      const facade = expandFacadeCall(toolName, parsedInput);
+      let requestedAs: string | undefined;
+      if (facade) {
+        requestedAs = toolName;
+        toolName = facade.canonicalAction;
+        parsedInput = facade.canonicalArgs;
+      }
       let output: Record<string, unknown>;
 
       if (SERVER_READ_TOOLS.has(toolName)) {
@@ -2929,7 +3001,11 @@ async function runStaffOrchestrator(
         // Persist the Cynthia card server-side so phone/WhatsApp/channel paths land
         // even when no browser client is online to run toolRuntime.
         output = await executePhoneTool(toolName, parsedInput, { ...body, orgId });
-        proposedActions.push({ action: toolName, input: parsedInput, output });
+        proposedActions.push({
+          action: toolName,
+          input: parsedInput,
+          output: requestedAs ? { ...output, requestedAs } : output,
+        });
       } else {
         output = toolName === 'updateLeadStatus'
           ? executeUpdateLeadStatus(parsedInput)
@@ -2943,7 +3019,11 @@ async function runStaffOrchestrator(
           visionKey
         );
         if (executedOutput) output = executedOutput;
-        proposedActions.push({ action: toolName, input: parsedInput, output });
+        proposedActions.push({
+          action: toolName,
+          input: parsedInput,
+          output: requestedAs ? { ...output, requestedAs } : output,
+        });
       }
 
       if (toolName === 'detectTrades' && Array.isArray(output.trades)) {

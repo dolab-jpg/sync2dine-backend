@@ -19,9 +19,24 @@ function isLocalhost(req: IncomingMessage): boolean {
   return host.startsWith('localhost:') || host.startsWith('127.0.0.1:');
 }
 
+/**
+ * deploy.env resolution order:
+ * 1. DEPLOY_ENV_PATH env var (explicit override for standalone/VPS deployments)
+ * 2. <repo root>/.cursor/local/deploy.env
+ * (Writes always target the resolved path so reads and writes stay consistent.)
+ */
 function getDeployEnvPath(): string {
+  const fromEnv = process.env.DEPLOY_ENV_PATH?.trim();
+  if (fromEnv) return fromEnv;
   const serverDir = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(serverDir, '..', '.cursor', 'local', 'deploy.env');
+}
+
+/** Dev-only sibling fallback: ../<frontend workspace>/.cursor/local/deploy.env */
+function getDeployEnvFallbackPath(): string | null {
+  if (process.env.NODE_ENV === 'production') return null;
+  const serverDir = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(serverDir, '..', '..', 'Bathroom Sales Estimation Platform', '.cursor', 'local', 'deploy.env');
 }
 
 function maskSecret(value: string): string {
@@ -43,14 +58,19 @@ function parseEnvFile(content: string): Record<string, string> {
 }
 
 async function readDeployEnv(): Promise<{ vars: Record<string, string>; savedAt: string | null }> {
-  const deployPath = getDeployEnvPath();
-  try {
-    const content = await readFile(deployPath, 'utf8');
-    const fileStat = await stat(deployPath);
-    return { vars: parseEnvFile(content), savedAt: fileStat.mtime.toISOString() };
-  } catch {
-    return { vars: {}, savedAt: null };
+  const candidates = [getDeployEnvPath(), getDeployEnvFallbackPath()].filter(
+    (p): p is string => Boolean(p),
+  );
+  for (const deployPath of candidates) {
+    try {
+      const content = await readFile(deployPath, 'utf8');
+      const fileStat = await stat(deployPath);
+      return { vars: parseEnvFile(content), savedAt: fileStat.mtime.toISOString() };
+    } catch {
+      // try next candidate
+    }
   }
+  return { vars: {}, savedAt: null };
 }
 
 async function writeDeployEnv(updates: Record<string, string>): Promise<void> {

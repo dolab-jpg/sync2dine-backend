@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { sanitizeOrgId } from './home-org';
 
 export type UserRole =
   | 'platform_owner'
@@ -329,14 +330,24 @@ export async function handleAccountAuthRoutes(
         sendJson(res, 400, { error: 'Invalid role' });
         return true;
       }
-      const orgId = resolveOrgIdForProfile(profile, req, body.orgId);
+      let orgId = resolveOrgIdForProfile(profile, req, body.orgId);
+      const supabase = getSupabaseAdmin();
+      if (!orgId && profile.role === 'super_admin') {
+        const { data: organization } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('contact_email', String(profile.email).trim().toLowerCase())
+          .maybeSingle();
+        if (organization?.id) {
+          orgId = organization.id as string;
+        }
+      }
       if (!orgId) {
         sendJson(res, 400, { error: 'Organization is required' });
         return true;
       }
 
       const inviteToken = randomBytes(24).toString('hex');
-      const supabase = getSupabaseAdmin();
       const { data: invite, error } = await supabase
         .from('org_invites')
         .insert({
@@ -454,7 +465,7 @@ export async function handleAccountAuthRoutes(
         return true;
       }
       const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
-      const orgId = resolveOrgIdForProfile(profile, req, url.searchParams.get('orgId'));
+      const orgId = sanitizeOrgId(resolveOrgIdForProfile(profile, req, url.searchParams.get('orgId')));
       if (!orgId && profile.role === 'platform_owner') {
         sendJson(res, 200, { members: [] });
         return true;
@@ -579,7 +590,7 @@ export async function handleAccountAuthRoutes(
         sendJson(res, 401, { error: 'Unauthorized' });
         return true;
       }
-      const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+      const url = new URL(req.url || '', 'http://localhost');
       const orgId = resolveOrgIdForProfile(profile, req, url.searchParams.get('orgId'));
       if (!orgId) {
         sendJson(res, 200, { invites: [] });
@@ -593,7 +604,7 @@ export async function handleAccountAuthRoutes(
         .is('accepted_at', null)
         .gt('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false });
-      const baseUrl = process.env.APP_BASE_URL?.trim() || 'http://localhost:5174';
+      const baseUrl = process.env.APP_BASE_URL?.trim() || 'https://app.b-diddies.com';
       sendJson(res, 200, {
         invites: (data ?? []).map((i) => ({
           id: i.id,

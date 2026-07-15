@@ -2,6 +2,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { decryptSecret, encryptSecret } from './crypto';
+import { BDIDDIES_HOME_ORG_ID, BDIDDIES_HOME_ORG_LEGACY_ID, BDIDDIES_COMPANY, getHomeOrgId } from './home-org';
+import { setCompanySettings } from './conversation-store';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
 const ORGS_FILE = join(DATA_DIR, 'organizations.json');
@@ -74,10 +76,66 @@ function persist() {
 }
 
 export function listOrganizations(): Organization[] {
-  if (memoryOrgs.length === 0) memoryOrgs = loadFromDisk();
+  if (memoryOrgs.length === 0) {
+    memoryOrgs = loadFromDisk();
+    ensureBdiddiesHomeOrg();
+  }
   return [...memoryOrgs].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
+}
+
+/** Seed Builder Diddies as the platform home org if missing. Migrates legacy "bdiddies" slug → uuid. */
+export function ensureBdiddiesHomeOrg(): Organization {
+  if (memoryOrgs.length === 0) memoryOrgs = loadFromDisk();
+  const homeId = getHomeOrgId();
+
+  const legacy = memoryOrgs.find((o) => o.id === BDIDDIES_HOME_ORG_LEGACY_ID);
+  if (legacy && homeId !== BDIDDIES_HOME_ORG_LEGACY_ID) {
+    memoryOrgs = memoryOrgs.map((o) =>
+      o.id === BDIDDIES_HOME_ORG_LEGACY_ID ? { ...o, id: homeId, name: BDIDDIES_COMPANY.companyName } : o,
+    );
+    persist();
+  }
+
+  const existing = memoryOrgs.find((o) => o.id === homeId || o.id === BDIDDIES_HOME_ORG_ID);
+  if (existing) {
+    try {
+      setCompanySettings(existing.id, {
+        companyName: BDIDDIES_COMPANY.companyName,
+        website: BDIDDIES_COMPANY.website,
+      });
+    } catch {
+      // data store may not be ready in some import orders
+    }
+    return existing;
+  }
+  const now = new Date().toISOString();
+  const org: Organization = {
+    id: homeId,
+    name: BDIDDIES_COMPANY.companyName,
+    contactName: 'Platform Owner',
+    contactEmail: BDIDDIES_COMPANY.email,
+    contactPhone: BDIDDIES_COMPANY.phone,
+    status: 'active',
+    plan: 'enterprise',
+    openaiApiKeyEncrypted: '',
+    monthlyTokenCap: PLAN_CONFIG.enterprise.monthlyTokenCap,
+    createdAt: now,
+    updatedAt: now,
+    notes: 'Platform home org (Builder Diddies). Staff invited by platform_owner land here.',
+  };
+  memoryOrgs = [org, ...memoryOrgs];
+  persist();
+  try {
+    setCompanySettings(homeId, {
+      companyName: BDIDDIES_COMPANY.companyName,
+      website: BDIDDIES_COMPANY.website,
+    });
+  } catch {
+    // ignore
+  }
+  return org;
 }
 
 export function getOrganizationById(id: string): Organization | undefined {
@@ -428,6 +486,14 @@ export function createOrganization(input: CreateOrganizationInput): Organization
 
   memoryOrgs = [org, ...listOrganizations()];
   persist();
+  try {
+    setCompanySettings(org.id, {
+      companyName: org.name,
+      website: '',
+    });
+  } catch {
+    // ignore
+  }
   return org;
 }
 

@@ -13,10 +13,39 @@ const STORE_PATH = join(__dirname, 'data', 'code-fix-jobs.json');
 
 const FRONTEND_REPO = 'https://github.com/dolab-jpg/tradepro-frontend';
 const BACKEND_REPO = 'https://github.com/dolab-jpg/tradepro-backend';
+const REQUIRED_REPOS = ['dolab-jpg/tradepro-frontend', 'dolab-jpg/tradepro-backend'] as const;
 const MAX_CONCURRENCY = 2;
 const MAX_ATTEMPTS = 3;
 const STUCK_MS = 30 * 60 * 1000;
 const DEDUPE_MS = 15 * 60 * 1000;
+const HEALTH_CACHE_MS = 10 * 60 * 1000;
+const HTTP_CLASS_ERROR_CODES = new Set(['HTTP_401', 'HTTP_400', 'HTTP_503']);
+const OFFER_DEDUPE_STATUSES: CodeFixStatus[] = [
+  'offered',
+  'asking',
+  'queued',
+  'running',
+  'awaiting_cursor_approval',
+  'pr_open',
+];
+const ACTIVE_ENQUEUE_STATUSES: CodeFixStatus[] = [
+  'queued',
+  'running',
+  'pr_open',
+  'awaiting_cursor_approval',
+];
+
+export interface CodeFixHealth {
+  live: boolean;
+  keyValid: boolean;
+  reposAccessible: boolean;
+  missingRepos: string[];
+  githubTokenConfigured: boolean;
+  checkedAt: string;
+  reason: string;
+}
+
+let healthCache: { at: number; value: CodeFixHealth } | null = null;
 
 export type CodeFixScope = 'surgical' | 'needs_cursor_approval';
 export type CodeFixStatus =
@@ -97,22 +126,43 @@ function newId() {
   return `cf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function parseDeployEnv(): Record<string, string> {
-  const deployPath = join(__dirname, '..', '.cursor', 'local', 'deploy.env');
-  try {
-    const content = readFileSync(deployPath, 'utf-8');
-    const result: Record<string, string> = {};
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eq = trimmed.indexOf('=');
-      if (eq === -1) continue;
-      result[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
-    }
-    return result;
-  } catch {
-    return {};
+/**
+ * deploy.env resolution order:
+ * 1. DEPLOY_ENV_PATH env var (explicit override for standalone/VPS deployments)
+ * 2. <repo root>/.cursor/local/deploy.env
+ * 3. Dev-only sibling fallback: ../<frontend workspace>/.cursor/local/deploy.env
+ */
+function resolveDeployEnvCandidates(): string[] {
+  const candidates: string[] = [];
+  const fromEnv = process.env.DEPLOY_ENV_PATH?.trim();
+  if (fromEnv) candidates.push(fromEnv);
+  candidates.push(join(__dirname, '..', '.cursor', 'local', 'deploy.env'));
+  if (process.env.NODE_ENV !== 'production') {
+    candidates.push(
+      join(__dirname, '..', '..', 'Bathroom Sales Estimation Platform', '.cursor', 'local', 'deploy.env'),
+    );
   }
+  return candidates;
+}
+
+function parseDeployEnv(): Record<string, string> {
+  for (const deployPath of resolveDeployEnvCandidates()) {
+    try {
+      const content = readFileSync(deployPath, 'utf-8');
+      const result: Record<string, string> = {};
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eq = trimmed.indexOf('=');
+        if (eq === -1) continue;
+        result[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+      }
+      return result;
+    } catch {
+      // try next candidate
+    }
+  }
+  return {};
 }
 
 function resolveCursorApiKey(): string | null {
@@ -120,6 +170,235 @@ function resolveCursorApiKey(): string | null {
   if (fromEnv) return fromEnv;
   const fromDeploy = parseDeployEnv().CURSOR_API_KEY?.trim();
   return fromDeploy || null;
+}
+
+function resolveGithubToken(): string | null {
+  const fromEnv = process.env.GITHUB_TOKEN?.trim();
+  if (fromEnv) return fromEnv;
+  const fromDeploy = parseDeployEnv().GITHUB_TOKEN?.trim();
+  return fromDeploy || null;
+}
+
+function cursorAuthHeader(apiKey: string): string {
+  return `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}`;
+}
+
+function repoSlugFromUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.replace(/\.git$/, '').split('/').filter(Boolean);
+    if (parts.length >= 2) return `${parts[0]}/${parts[1]}`.toLowerCase();
+  } catch {
+    // ignore
+  }
+  return url.toLowerCase();
+}
+
+function parsePrUrl(prUrl: string): { owner: string; repo: string; number: number } | null {
+  const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i);
+  if (!match) return null;
+  return { owner: match[1], repo: match[2], number: Number(match[3]) };
+}
+
+function extractPrUrlFromAgent(data: Record<string, unknown>): string | undefined {
+  const agent = (data.agent ?? data) as Record<string, unknown>;
+  const git = (agent.git ?? data.git ?? {}) as Record<string, unknown>;
+  const prs = (git.pullRequests ?? git.prs ?? []) as Array<{ url?: string }>;
+  const repos = (agent.repos ?? data.repos ?? []) as Array<{ prUrl?: string; url?: string }>;
+  const repoPr = repos.map((r) => r.prUrl).find((u): u is string => Boolean(u));
+  return (
+    (typeof data.prUrl === 'string' && data.prUrl) ||
+    (typeof agent.prUrl === 'string' && agent.prUrl) ||
+    prs[0]?.url ||
+    repoPr ||
+    undefined
+  );
+}
+
+async function getCursorHealth(force = false): Promise<CodeFixHealth> {
+  const now = Date.now();
+  if (!force && healthCache && now - healthCache.at < HEALTH_CACHE_MS) {
+    return healthCache.value;
+  }
+
+  const checkedAt = nowIso();
+  const apiKey = resolveCursorApiKey();
+  const githubTokenConfigured = Boolean(resolveGithubToken());
+
+  if (!apiKey) {
+    const value: CodeFixHealth = {
+      live: false,
+      keyValid: false,
+      reposAccessible: false,
+      missingRepos: [...REQUIRED_REPOS],
+      githubTokenConfigured,
+      checkedAt,
+      reason:
+        'CURSOR_API_KEY not configured. Add it to server env or .cursor/local/deploy.env.',
+    };
+    healthCache = { at: now, value };
+    return value;
+  }
+
+  try {
+    const meRes = await fetch('https://api.cursor.com/v1/me', {
+      headers: { Authorization: cursorAuthHeader(apiKey) },
+    });
+    if (!meRes.ok) {
+      const value: CodeFixHealth = {
+        live: false,
+        keyValid: false,
+        reposAccessible: false,
+        missingRepos: [...REQUIRED_REPOS],
+        githubTokenConfigured,
+        checkedAt,
+        reason: `Cursor API key invalid (GET /v1/me → ${meRes.status}).`,
+      };
+      healthCache = { at: now, value };
+      return value;
+    }
+
+    const reposRes = await fetch('https://api.cursor.com/v1/repositories', {
+      headers: { Authorization: cursorAuthHeader(apiKey) },
+    });
+    if (!reposRes.ok) {
+      const value: CodeFixHealth = {
+        live: false,
+        keyValid: true,
+        reposAccessible: false,
+        missingRepos: [...REQUIRED_REPOS],
+        githubTokenConfigured,
+        checkedAt,
+        reason:
+          reposRes.status === 429
+            ? 'Cursor repositories endpoint rate-limited — retry shortly.'
+            : `Cannot list GitHub repos via Cursor (GET /v1/repositories → ${reposRes.status}).`,
+      };
+      // Shorter cache on rate limit so we recover faster
+      healthCache = { at: now - (reposRes.status === 429 ? HEALTH_CACHE_MS - 60_000 : 0), value };
+      return value;
+    }
+
+    const reposData = (await reposRes.json().catch(() => ({}))) as Record<string, unknown>;
+    const list = (reposData.repositories ?? reposData.repos ?? reposData.items ?? []) as Array<
+      string | { url?: string; fullName?: string; full_name?: string; name?: string }
+    >;
+    const slugs = new Set(
+      list.map((r) => {
+        if (typeof r === 'string') return repoSlugFromUrl(r);
+        const raw = r.fullName || r.full_name || r.url || r.name || '';
+        return repoSlugFromUrl(String(raw));
+      }),
+    );
+    const missingRepos = REQUIRED_REPOS.filter((r) => !slugs.has(r));
+    const reposAccessible = missingRepos.length === 0;
+    const live = reposAccessible;
+    const value: CodeFixHealth = {
+      live,
+      keyValid: true,
+      reposAccessible,
+      missingRepos: [...missingRepos],
+      githubTokenConfigured,
+      checkedAt,
+      reason: live
+        ? githubTokenConfigured
+          ? 'LIVE — Cursor API key valid and both TradePro repos accessible. Merges enabled.'
+          : 'LIVE — Cursor OK. GITHUB_TOKEN missing — Approve merge will open GitHub for manual merge.'
+        : `Cursor key valid but missing repo access: ${missingRepos.join(', ')}. Connect GitHub in Cursor Dashboard.`,
+    };
+    healthCache = { at: now, value };
+    return value;
+  } catch (err) {
+    const value: CodeFixHealth = {
+      live: false,
+      keyValid: false,
+      reposAccessible: false,
+      missingRepos: [...REQUIRED_REPOS],
+      githubTokenConfigured,
+      checkedAt,
+      reason: `Cursor health check failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+    healthCache = { at: now, value };
+    return value;
+  }
+}
+
+async function mergeGithubPr(prUrl: string): Promise<{
+  merged: boolean;
+  needsManualMerge?: boolean;
+  error?: string;
+  sha?: string;
+}> {
+  const parsed = parsePrUrl(prUrl);
+  if (!parsed) {
+    return { merged: false, needsManualMerge: true, error: 'Invalid GitHub PR URL' };
+  }
+  const token = resolveGithubToken();
+  if (!token) {
+    return {
+      merged: false,
+      needsManualMerge: true,
+      error: 'GITHUB_TOKEN not configured. Open the PR on GitHub to merge manually.',
+    };
+  }
+  const res = await fetch(
+    `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/pulls/${parsed.number}/merge`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'TradePro-SelfHeal',
+      },
+      body: JSON.stringify({
+        merge_method: 'squash',
+        commit_title: `Self-heal: merge PR #${parsed.number}`,
+      }),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (res.status === 200 || data.merged === true) {
+    return { merged: true, sha: typeof data.sha === 'string' ? data.sha : undefined };
+  }
+  if (res.status === 405 || res.status === 409) {
+    return {
+      merged: false,
+      needsManualMerge: true,
+      error: typeof data.message === 'string' ? data.message : `GitHub merge ${res.status}`,
+    };
+  }
+  return {
+    merged: false,
+    needsManualMerge: true,
+    error: typeof data.message === 'string' ? data.message : `GitHub API ${res.status}`,
+  };
+}
+
+async function pollAgentForPr(job: CodeFixJob): Promise<void> {
+  if (!job.cursorAgentId || job.prUrl) return;
+  const apiKey = resolveCursorApiKey();
+  if (!apiKey) return;
+  try {
+    const res = await fetch(`https://api.cursor.com/v1/agents/${job.cursorAgentId}`, {
+      headers: { Authorization: cursorAuthHeader(apiKey) },
+    });
+    if (!res.ok) return;
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const prUrl = extractPrUrlFromAgent(data);
+    if (!prUrl) return;
+    upsertJob({
+      ...job,
+      status: 'pr_open',
+      prUrl,
+      updatedAt: nowIso(),
+      lastError: undefined,
+      metadata: { ...job.metadata, prDetectedAt: nowIso() },
+    });
+  } catch {
+    // ignore poll errors
+  }
 }
 
 function classifyScope(input: {
@@ -144,6 +423,14 @@ function classifyScope(input: {
     if (/(improve|prettier|modernize|overhaul)/i.test(text)) return 'needs_cursor_approval';
   }
   return 'surgical';
+}
+
+/** Gateway / billing / rate-limit — never create Cursor jobs for these. */
+function isNonFixableOpsError(errorCode: string, description: string): boolean {
+  if (/^HTTP_(429|502|503|504)$/i.test(errorCode.trim())) return true;
+  return /no credit|usage limit|billing|quota|insufficient_quota|rate.?limit|openai key rejected|econnreset|econnrefused|etimedout|bad gateway|service unavailable|gateway|upstream|temporarily unavailable|CURSOR_API_KEY not configured/i.test(
+    `${errorCode} ${description}`,
+  );
 }
 
 function pickRepo(route: string, description: string): string {
@@ -176,9 +463,14 @@ function findJob(id: string): CodeFixJob | undefined {
 function findDedupe(errorCode: string, route: string): CodeFixJob | undefined {
   const cutoff = Date.now() - DEDUPE_MS;
   return readJobs().find((j) => {
-    if (j.errorCode !== errorCode || j.route !== route) return false;
+    if (j.errorCode !== errorCode) return false;
     if (new Date(j.createdAt).getTime() < cutoff) return false;
-    return ['offered', 'asking', 'queued', 'running', 'awaiting_cursor_approval', 'pr_open'].includes(j.status);
+    if (!OFFER_DEDUPE_STATUSES.includes(j.status)) return false;
+    // HTTP class errors: dedupe globally by errorCode (ignore route)
+    if (HTTP_CLASS_ERROR_CODES.has(errorCode)) return true;
+    // Active pipeline jobs: same errorCode on any route blocks duplicate enqueue
+    if (ACTIVE_ENQUEUE_STATUSES.includes(j.status)) return true;
+    return j.route === route;
   });
 }
 
@@ -187,6 +479,7 @@ function jobAlerts(jobs: CodeFixJob[]) {
   return jobs.filter((j) => {
     if (j.status === 'failed') return true;
     if (j.status === 'awaiting_cursor_approval') return true;
+    if (j.status === 'pr_open') return true;
     if (['queued', 'running'].includes(j.status) && now - new Date(j.updatedAt).getTime() > STUCK_MS) {
       return true;
     }
@@ -232,7 +525,7 @@ async function launchCursorAgent(job: CodeFixJob): Promise<{
     const res = await fetch('https://api.cursor.com/v1/agents', {
       method: 'POST',
       headers: {
-        Authorization: `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}`,
+        Authorization: cursorAuthHeader(apiKey),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -271,7 +564,7 @@ async function launchCursorAgent(job: CodeFixJob): Promise<{
   const res = await fetch('https://api.cursor.com/v1/agents', {
     method: 'POST',
     headers: {
-      Authorization: `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}`,
+      Authorization: cursorAuthHeader(apiKey),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -292,12 +585,7 @@ async function launchCursorAgent(job: CodeFixJob): Promise<{
   }
 
   const agent = (data.agent ?? data) as Record<string, unknown>;
-  const git = (agent.git ?? data.git ?? {}) as Record<string, unknown>;
-  const prs = (git.pullRequests ?? git.prs ?? []) as Array<{ url?: string }>;
-  const prUrl =
-    (typeof data.prUrl === 'string' && data.prUrl) ||
-    (typeof agent.prUrl === 'string' && agent.prUrl) ||
-    prs[0]?.url;
+  const prUrl = extractPrUrlFromAgent(data);
 
   return {
     agentId: String(agent.id ?? ''),
@@ -358,25 +646,12 @@ async function processOneJob(job: CodeFixJob): Promise<void> {
       cursorAgentUrl: result.agentUrl,
       prUrl: result.prUrl,
       updatedAt: nowIso(),
-      // If no PR yet, agent may still be working — leave running and poll later via status
-      ...(result.prUrl ? {} : { metadata: { ...running.metadata, launchedAt: nowIso() } }),
+      lastError: undefined,
+      metadata: {
+        ...running.metadata,
+        ...(result.prUrl ? {} : { launchedAt: nowIso() }),
+      },
     });
-
-    // If agent launched without PR URL yet, mark pr_open when we at least have agent URL
-    if (!result.prUrl && result.agentUrl) {
-      upsertJob({
-        ...running,
-        status: 'pr_open',
-        cursorAgentId: result.agentId,
-        cursorAgentUrl: result.agentUrl,
-        updatedAt: nowIso(),
-        lastError: undefined,
-        metadata: {
-          ...running.metadata,
-          note: 'Agent started; PR link will appear when Cursor opens it. Check agent URL.',
-        },
-      });
-    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (running.attemptCount < running.maxAttempts) {
@@ -399,6 +674,16 @@ async function processOneJob(job: CodeFixJob): Promise<void> {
 }
 
 async function tickWorker(): Promise<void> {
+  // Fill real PR URLs for agents that are still running
+  const needingPr = readJobs().filter(
+    (j) =>
+      (j.status === 'running' || (j.status === 'pr_open' && !j.prUrl)) &&
+      Boolean(j.cursorAgentId),
+  );
+  for (const job of needingPr.slice(0, 5)) {
+    void pollAgentForPr(job);
+  }
+
   if (activeRuns >= MAX_CONCURRENCY) return;
   const jobs = readJobs();
   const now = Date.now();
@@ -453,8 +738,72 @@ export async function handleCodeFixRoutes(
 
   startCodeFixWorker();
 
+  // GET /api/ai/code-fix/health — unauthenticated probe (must run before requireAuth)
+  if (req.method === 'GET' && pathname === '/api/ai/code-fix/health') {
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    const force = url.searchParams.get('force') === '1';
+    const health = await getCursorHealth(force);
+    sendJson(res, 200, health);
+    return true;
+  }
+
   if (isAuthEnforced() && !requireAuth(req)) {
     sendJson(res, 401, { error: 'Unauthorized' });
+    return true;
+  }
+
+  // POST /api/ai/code-fix/merge-batch
+  if (req.method === 'POST' && pathname === '/api/ai/code-fix/merge-batch') {
+    let body: { ids?: string[]; allOpen?: boolean } = {};
+    try {
+      body = JSON.parse(await readBody(req) || '{}') as { ids?: string[]; allOpen?: boolean };
+    } catch {
+      body = {};
+    }
+    const jobs = readJobs();
+    const targets = body.allOpen
+      ? jobs.filter((j) => j.status === 'pr_open' && Boolean(j.prUrl))
+      : (body.ids ?? [])
+          .map((id) => jobs.find((j) => j.id === id))
+          .filter((j): j is CodeFixJob => Boolean(j && j.status === 'pr_open' && j.prUrl));
+
+    const results: Array<{
+      id: string;
+      ok: boolean;
+      job?: CodeFixJob;
+      needsManualMerge?: boolean;
+      prUrl?: string;
+      error?: string;
+    }> = [];
+
+    for (const job of targets) {
+      const mergeResult = await mergeGithubPr(job.prUrl!);
+      if (mergeResult.merged) {
+        const next: CodeFixJob = {
+          ...job,
+          status: 'merged',
+          updatedAt: nowIso(),
+          lastError: undefined,
+          metadata: { ...job.metadata, mergedAt: nowIso(), mergeSha: mergeResult.sha },
+        };
+        upsertJob(next);
+        results.push({ id: job.id, ok: true, job: next });
+      } else {
+        results.push({
+          id: job.id,
+          ok: false,
+          needsManualMerge: true,
+          prUrl: job.prUrl,
+          error: mergeResult.error,
+        });
+      }
+    }
+
+    sendJson(res, 200, {
+      results,
+      merged: results.filter((r) => r.ok).length,
+      needsManual: results.filter((r) => r.needsManualMerge).length,
+    });
     return true;
   }
 
@@ -476,12 +825,14 @@ export async function handleCodeFixRoutes(
     }
     const alerts = jobAlerts(jobs);
     const queueDepth = jobs.filter((j) => j.status === 'queued').length;
+    const health = await getCursorHealth();
     sendJson(res, 200, {
       jobs,
       alerts,
       queueDepth,
       activeRuns,
-      cursorConfigured: Boolean(resolveCursorApiKey()),
+      cursorConfigured: health.keyValid,
+      health,
     });
     return true;
   }
@@ -498,6 +849,49 @@ export async function handleCodeFixRoutes(
       job,
       queuePosition: queuePosition(job.id),
       alerts: jobAlerts([job]),
+    });
+    return true;
+  }
+
+  // POST /api/ai/code-fix/:id/merge
+  const mergeMatch = pathname.match(/^\/api\/ai\/code-fix\/([^/]+)\/merge$/);
+  if (req.method === 'POST' && mergeMatch) {
+    const job = findJob(mergeMatch[1]);
+    if (!job) {
+      sendJson(res, 404, { error: 'Job not found' });
+      return true;
+    }
+    if (job.status !== 'pr_open') {
+      sendJson(res, 400, { error: `Cannot merge job in status ${job.status}` });
+      return true;
+    }
+    if (!job.prUrl || !parsePrUrl(job.prUrl)) {
+      sendJson(res, 400, {
+        error: 'No GitHub PR URL yet — wait for the agent to open a PR, or merge via Cursor agent link.',
+        needsManualMerge: true,
+        cursorAgentUrl: job.cursorAgentUrl,
+      });
+      return true;
+    }
+    const mergeResult = await mergeGithubPr(job.prUrl);
+    if (mergeResult.merged) {
+      const next: CodeFixJob = {
+        ...job,
+        status: 'merged',
+        updatedAt: nowIso(),
+        lastError: undefined,
+        metadata: { ...job.metadata, mergedAt: nowIso(), mergeSha: mergeResult.sha },
+      };
+      upsertJob(next);
+      sendJson(res, 200, { job: next, merged: true });
+      return true;
+    }
+    sendJson(res, 200, {
+      job,
+      merged: false,
+      needsManualMerge: true,
+      prUrl: job.prUrl,
+      error: mergeResult.error,
     });
     return true;
   }
@@ -604,12 +998,13 @@ export async function handleCodeFixRoutes(
     const route = String(body.route ?? '').trim();
     const orgId = resolveOrgIdForRequest(req, body as { orgId?: string }) ?? undefined;
 
-    // Only managers/super_admins may enqueue Cursor self-heal jobs that create PRs.
-    // Staff may still "offer" / report an issue card.
-    if (action === 'enqueue' && !isAdminRole(role)) {
-      sendJson(res, 403, {
-        error: 'Only managers or super-admins may approve Cursor self-heal jobs',
-        code: 'self_heal_requires_approval',
+    if (isNonFixableOpsError(errorCode, description)) {
+      sendJson(res, 200, {
+        skipped: true,
+        reason: 'ops_infra',
+        message:
+          'This is an ops/infra or billing failure (not an application code defect). No Cursor fix was created.',
+        errorCode,
       });
       return true;
     }
@@ -739,3 +1134,6 @@ export async function handleCodeFixRoutes(
   sendJson(res, 405, { error: 'Method not allowed' });
   return true;
 }
+
+// Suppress unused warning for admin helper (available for future auth tightening)
+void isAdminRole;

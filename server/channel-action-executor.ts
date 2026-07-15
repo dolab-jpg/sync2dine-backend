@@ -14,6 +14,15 @@ import { researchTaskPrices, pickHigherEnd } from './price-research-service';
 import { savePendingConfirmation, consumePendingConfirmation } from './conversation-store';
 import type { OrchestratorRequest } from './orchestrator-types';
 import { randomBytes } from 'crypto';
+import { emitAgentActivity } from './agent-activity';
+import { resolveStaffUserId } from './cynthia-staff-store';
+
+/** Staff user targeted by the live activity feed (explicit context first, then registered phone). */
+function activityTargetUser(ctx: { orgId: string; phone?: string; orchestratorBody?: OrchestratorRequest }): string | null {
+  const explicit = ctx.orchestratorBody?.staffContext?.userId?.trim();
+  if (explicit && explicit !== 'default-staff') return explicit;
+  return resolveStaffUserId({ staffPhone: ctx.phone, orgId: ctx.orgId });
+}
 
 export const CONFIRM_ACTIONS = new Set([
   'sendContract',
@@ -571,6 +580,7 @@ export async function executeChannelActions(
   ctx: Parameters<typeof executeChannelAction>[2]
 ): Promise<ChannelActionResult[]> {
   const results: ChannelActionResult[] = [];
+  const activityUser = activityTargetUser(ctx);
   for (const item of actions) {
     const merged = { ...item.input, ...item.output };
     if (CONFIRM_ACTIONS.has(item.action) && ctx.phone && !ctx.skipConfirm) {
@@ -602,7 +612,10 @@ export async function executeChannelActions(
       });
       continue;
     }
-    results.push(await executeChannelAction(item.action, merged, ctx));
+    if (activityUser) emitAgentActivity({ orgId: ctx.orgId, targetUserId: activityUser, channel: 'channel', action: item.action, phase: 'started', summary: `Running ${item.action}…` });
+    const result = await executeChannelAction(item.action, merged, ctx);
+    if (activityUser) emitAgentActivity({ orgId: ctx.orgId, targetUserId: activityUser, channel: 'channel', action: item.action, phase: result.executed ? 'completed' : result.needsConfirm ? 'working' : 'error', summary: result.summary, route: typeof result.output?.route === 'string' ? String(result.output.route) : undefined });
+    results.push(result);
   }
   return results;
 }

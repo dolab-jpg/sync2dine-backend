@@ -22,6 +22,7 @@ export async function handleProjectRoutes(
   res: ServerResponse,
   pathname: string
 ): Promise<boolean> {
+  // Customer deposit Checkout (optional — requires STRIPE_SECRET_KEY + price with amount)
   if (pathname === '/api/project-deposit-checkout' && req.method === 'POST') {
     try {
       const body = JSON.parse(await readBody(req)) as {
@@ -53,14 +54,14 @@ export async function handleProjectRoutes(
               unit_amount: Math.round(amount * 100),
               product_data: {
                 name: 'Booking deposit',
-                description: body.projectId ? `Project ${body.projectId}` : 'TradePro deposit',
+                description: body.projectId ? `Project ${body.projectId}` : 'Builder Diddies deposit',
               },
             },
           },
         ],
         success_url: body.portalToken
           ? `${origin}/portal/${body.portalToken}?deposit=paid`
-          : `${origin}/?deposit=paid`,
+          : `${origin}/portal?deposit=paid`,
         cancel_url: body.portalToken
           ? `${origin}/portal/${body.portalToken}?deposit=cancelled`
           : `${origin}/`,
@@ -68,6 +69,67 @@ export async function handleProjectRoutes(
           projectId: body.projectId ?? '',
           stageId: body.stageId ?? '',
           kind: 'customer_deposit',
+        },
+      });
+      if (!session.url) {
+        sendJson(res, 500, { error: 'Stripe did not return a checkout URL' });
+        return true;
+      }
+      sendJson(res, 200, { url: session.url });
+      return true;
+    } catch (err) {
+      sendJson(res, 500, { error: err instanceof Error ? err.message : 'Checkout failed' });
+      return true;
+    }
+  }
+
+  // Contract stage / deposit Checkout (same Stripe pattern as project deposit)
+  if (pathname === '/api/contract-stage-checkout' && req.method === 'POST') {
+    try {
+      const body = JSON.parse(await readBody(req)) as {
+        amount?: number;
+        contractId?: string;
+        stageId?: string;
+        stageLabel?: string;
+        customerName?: string;
+      };
+      const amount = Number(body.amount) || 0;
+      if (amount <= 0) {
+        sendJson(res, 400, { error: 'Invalid payment amount' });
+        return true;
+      }
+      const secret = process.env.STRIPE_SECRET_KEY;
+      if (!secret) {
+        sendJson(res, 501, { error: 'Stripe customer checkout not configured' });
+        return true;
+      }
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(secret);
+      const origin = process.env.APP_BASE_URL ?? 'https://app.b-diddies.com';
+      const label = body.stageLabel?.trim() || 'Contract payment';
+      const session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: 'gbp',
+              unit_amount: Math.round(amount * 100),
+              product_data: {
+                name: label,
+                description: body.customerName
+                  ? `${body.customerName} — contract ${body.contractId ?? ''}`
+                  : `Contract ${body.contractId ?? ''}`,
+              },
+            },
+          },
+        ],
+        success_url: `${origin}/contracts?paid=1&contractId=${encodeURIComponent(body.contractId ?? '')}`,
+        cancel_url: `${origin}/contracts?cancelled=1`,
+        metadata: {
+          contractId: body.contractId ?? '',
+          stageId: body.stageId ?? '',
+          kind: 'contract_stage',
         },
       });
       if (!session.url) {

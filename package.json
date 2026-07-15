@@ -17,7 +17,7 @@
     "supabase:push": "npx supabase db push",
     "supabase:reset": "npx supabase db reset",
     "functions:deploy": "npx supabase functions deploy",
-    "test": "tsx --test server/translation-english.test.ts",
+    "test": "tsx --experimental-test-module-mocks --test server/translation-english.test.ts server/ai-proxy-auth.test.ts server/agent-activity.test.ts server/tool-facade.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
