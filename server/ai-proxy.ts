@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { OpenAIConnectionError } from './openai-connection';
 import { resolveOrgIdForRequest, isAuthEnforced, requireAuth } from './auth';
+import { getProfileByBearer } from './account-auth';
 import { QuotaExceededError } from './usage';
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -30,8 +31,31 @@ function sendOpenAIConnectionError(res: ServerResponse, err: unknown) {
   sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
 }
 
-function attachOrgContext(req: IncomingMessage, body: Record<string, unknown>) {
-  const orgId = resolveOrgIdForRequest(req, body as { orgId?: string });
+type RequestAuth = { orgId: string | null; role: string };
+
+async function authenticateRequest(req: IncomingMessage): Promise<RequestAuth | null> {
+  const legacy = requireAuth(req);
+  if (legacy) return { orgId: legacy.orgId, role: legacy.role };
+
+  const profile = await getProfileByBearer(req);
+  if (!profile) return null;
+  return {
+    orgId: typeof profile.org_id === 'string' ? profile.org_id : null,
+    role: String(profile.role ?? ''),
+  };
+}
+
+function attachOrgContext(req: IncomingMessage, body: Record<string, unknown>, auth: RequestAuth | null) {
+  let orgId = auth?.orgId ?? null;
+  if (!orgId && auth?.role === 'platform_owner') {
+    const header = req.headers['x-org-id'];
+    orgId = typeof header === 'string' && header.trim()
+      ? header.trim()
+      : typeof body.orgId === 'string' && body.orgId.trim()
+        ? body.orgId.trim()
+        : null;
+  }
+  if (!auth) orgId = resolveOrgIdForRequest(req, body as { orgId?: string });
   if (orgId) body.orgId = orgId;
   return orgId;
 }
@@ -54,9 +78,13 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
     return;
   }
 
-  if (isAuthEnforced() && !requireAuth(req)) {
-    sendJson(res, 401, { error: 'Unauthorized' });
-    return;
+  let auth: RequestAuth | null = null;
+  if (isAuthEnforced()) {
+    auth = await authenticateRequest(req);
+    if (!auth) {
+      sendJson(res, 401, { error: 'Unauthorized' });
+      return;
+    }
   }
 
   if (pathname === '/api/ai/transcribe') {
@@ -70,7 +98,7 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   }
 
   const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
-  const orgId = attachOrgContext(req, body);
+  const orgId = attachOrgContext(req, body, auth);
   const { resolveOpenAIApiKeyAsync } = await import('./openai-connection');
   const apiKey = await resolveOpenAIApiKeyAsync(body.apiKey as string | undefined, orgId);
 
