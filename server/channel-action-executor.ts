@@ -99,6 +99,7 @@ async function execPriceSmallJob(
   const { items: lines } = await researchTaskPrices(tasks, {
     tradeName: firstString(input.tradeName) ?? 'Small Jobs',
     postcode: firstString(input.postcode) ?? String(customer?.address ?? ''),
+    orgId: (input as { orgId?: string }).orgId ?? null,
   });
   const quoteItems = lines.map((line, idx) => {
     const price = pickHigherEnd(line);

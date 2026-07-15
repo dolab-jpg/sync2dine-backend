@@ -23,6 +23,7 @@ import { handleMailboxRoutes } from './mailbox-routes';
 import { handlePackageUpdatesRoute } from './mailbox/package-updates';
 import { handleLeadsRoutes } from './leads-routes';
 import { handleOrgOpenAIKeyRoutes } from './org-openai-key-routes';
+import { handleCyrusRoutes } from './cyrus-routes';
 import { handleChannelRoutes } from './channel-routes';
 import { handleAgentCredentialsRoutes } from './agent-credentials-routes';
 import { initDataFromSupabase } from './data-store';
@@ -82,6 +83,8 @@ const server = createServer(async (req, res) => {
     if (await handlePlatformRoutes(req, res, pathname)) return;
 
     if (await handleLeadsRoutes(req, res, pathname, url)) return;
+
+    if (await handleCyrusRoutes(req, res, pathname)) return;
 
     if (await handleChannelRoutes(req, res, pathname)) return;
 

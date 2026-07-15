@@ -1,41 +1,29 @@
 import type { PriceRange } from './price-research-routes';
-
-function mockRange(task: string): PriceRange {
-  const base = 80 + (task.length % 12) * 25;
-  return {
-    task,
-    low: base,
-    typical: Math.round(base * 1.4),
-    high: Math.round(base * 1.9),
-    unit: 'job',
-    sources: [],
-  };
-}
+import { OpenAIConnectionError } from './openai-connection';
 
 export async function researchTaskPrices(tasks: string[], options?: {
   tradeName?: string;
   postcode?: string;
   region?: string;
+  orgId?: string | null;
 }): Promise<{ provider: string; items: PriceRange[] }> {
   const region = options?.region || 'UK';
   const location = options?.postcode ? `${options.postcode} ${region}` : region;
 
+  const { createLLMClientForOrg, defaultChatModelForProvider } = await import('./llm-connection');
+  const { client, provider } = await createLLMClientForOrg(options?.orgId ?? null, '/api/ai/price-research');
+  const model = defaultChatModelForProvider(provider, 'gpt-4o-mini');
+
+  const systemPrompt = [
+    `You are a UK construction pricing researcher for region "${location}".`,
+    `Estimate realistic CURRENT local market prices (in GBP) for each task.`,
+    `Bias toward the HIGHER end of the typical local range, but stay realistic.`,
+    `Return JSON: { "items": [ { "task": string, "low": number, "typical": number, "high": number, "unit": "job"|"day"|"sqm"|"item"|"hour", "sources": [] } ] }.`,
+  ].join('\n');
+
   try {
-    const { resolveOpenAIApiKeyAsync } = await import('./openai-connection');
-    const openaiKey = await resolveOpenAIApiKeyAsync();
-    if (!openaiKey) throw new Error('OpenAI key missing');
-    const { default: OpenAI } = await import('openai');
-    const openai = new OpenAI({ apiKey: openaiKey });
-
-    const systemPrompt = [
-      `You are a UK construction pricing researcher for region "${location}".`,
-      `Estimate realistic CURRENT local market prices (in GBP) for each task.`,
-      `Bias toward the HIGHER end of the typical local range, but stay realistic.`,
-      `Return JSON: { "items": [ { "task": string, "low": number, "typical": number, "high": number, "unit": "job"|"day"|"sqm"|"item"|"hour", "sources": [] } ] }.`,
-    ].join('\n');
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const completion = await client.chat.completions.create({
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         {
@@ -56,9 +44,13 @@ export async function researchTaskPrices(tasks: string[], options?: {
       unit: item.unit ?? 'job',
       sources: Array.isArray(item.sources) ? item.sources : [],
     }));
-    return { provider: 'openai', items };
-  } catch {
-    return { provider: 'mock', items: tasks.map(mockRange) };
+    return { provider: provider === 'deepseek' ? 'deepseek' : 'openai', items };
+  } catch (err) {
+    if (err instanceof OpenAIConnectionError) throw err;
+    throw new OpenAIConnectionError(
+      err instanceof Error ? err.message : 'Price research failed',
+      'rejected',
+    );
   }
 }
 

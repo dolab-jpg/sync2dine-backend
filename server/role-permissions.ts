@@ -20,6 +20,9 @@ const CUSTOMER_SELF_SERVICE = new Set([
   'lookupProjectStatus',
   'getPortalLink',
   'escalateToStaff',
+  'lookupCustomerByPhone',
+  'getAccountBriefing',
+  'logCallActivity',
   'navigateTo',
 ]);
 
@@ -135,6 +138,7 @@ const ACCOUNTS = new Set([
   'categorizeTransaction',
   'matchTransactionToProject',
   'draftClientReceipt',
+  'sendClientReceipt',
 ]);
 
 const PLANNING = new Set([
@@ -177,7 +181,15 @@ const ROLE_ACTIONS: Record<ServerAgentRole, Set<string>> = {
     'searchProjects',
   ]),
   recruitment: new Set([...SALES_QUOTING, 'searchCustomers', ...RECRUITMENT, ...PHONE_RECEPTION]),
-  unknown: new Set(['lookupQuote', 'lookupProjectStatus', 'escalateToStaff', ...PHONE_RECEPTION]),
+  unknown: new Set([
+    'lookupQuote',
+    'lookupProjectStatus',
+    'escalateToStaff',
+    'lookupCustomerByPhone',
+    'getAccountBriefing',
+    'logCallActivity',
+    ...PHONE_RECEPTION,
+  ]),
 };
 
 export function canExecuteActionForRole(role: ServerAgentRole, action: string): boolean {

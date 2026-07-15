@@ -3,9 +3,13 @@ import { isAuthEnforced, requireAuth, resolveOrgIdForRequest } from './auth';
 import {
   ensureOrgOpenAIKeyLoaded,
   getOrgOpenAIKeyStatus,
+  setOrgAIBrainConfig,
   setOrgOpenAIApiKey,
   syncOrgOpenAIKeyToSupabase,
+  type AIBrainProvider,
 } from './organizations';
+import { probeLLMConnection, resolveBrainProvider } from './llm-connection';
+import { resolveOpenAIApiKeyAsync, mapOpenAIError } from './openai-connection';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -64,7 +68,6 @@ function assertCanManageOrgKey(req: IncomingMessage, res: ServerResponse, orgId:
     return true;
   }
 
-  // Dev / Supabase session: UI is gated to super_admin; accept role header or body.
   const role = headerString(req, 'x-user-role') || bodyRole;
   if (role && role !== 'super_admin' && role !== 'platform_owner') {
     sendJson(res, 403, { error: 'Forbidden — super admin only' });
@@ -78,11 +81,10 @@ export async function handleOrgOpenAIKeyRoutes(
   res: ServerResponse,
   pathname: string,
 ): Promise<boolean> {
-  if (pathname !== '/api/org/openai-key') return false;
+  if (pathname !== '/api/org/openai-key' && pathname !== '/api/org/ai-brain') return false;
 
   if (req.method === 'GET') {
     const orgId = resolveOrgIdForRequest(req);
-    // Any org member can read configured status (never the raw key).
     if (!assertHasOrg(req, res, orgId)) return true;
     await ensureOrgOpenAIKeyLoaded(orgId!);
     sendJson(res, 200, getOrgOpenAIKeyStatus(orgId!));
@@ -90,7 +92,15 @@ export async function handleOrgOpenAIKeyRoutes(
   }
 
   if (req.method === 'PUT' || req.method === 'POST') {
-    let body: { apiKey?: string; orgId?: string; role?: string } = {};
+    let body: {
+      apiKey?: string;
+      openaiApiKey?: string;
+      deepseekApiKey?: string;
+      provider?: AIBrainProvider;
+      orgId?: string;
+      role?: string;
+      probe?: boolean;
+    } = {};
     try {
       const raw = await readBody(req);
       if (raw.trim()) body = JSON.parse(raw) as typeof body;
@@ -102,19 +112,60 @@ export async function handleOrgOpenAIKeyRoutes(
     const orgId = resolveOrgIdForRequest(req, body);
     if (!assertCanManageOrgKey(req, res, orgId, body.role)) return true;
 
-    const apiKey = String(body.apiKey ?? '').trim();
-    if (!apiKey) {
-      sendJson(res, 400, { error: 'apiKey is required' });
+    const openaiApiKey = String(body.openaiApiKey ?? body.apiKey ?? '').trim();
+    const deepseekApiKey = body.deepseekApiKey !== undefined
+      ? String(body.deepseekApiKey).trim()
+      : undefined;
+    const provider = body.provider === 'deepseek' || body.provider === 'openai'
+      ? body.provider
+      : undefined;
+
+    if (!openaiApiKey && deepseekApiKey === undefined && !provider) {
+      sendJson(res, 400, { error: 'apiKey (OpenAI) is required, or provide DeepSeek/provider updates' });
       return true;
     }
 
-    const updated = setOrgOpenAIApiKey(orgId!, apiKey);
+    let updated;
+    if (deepseekApiKey !== undefined || provider || pathname === '/api/org/ai-brain') {
+      updated = setOrgAIBrainConfig(orgId!, {
+        openaiApiKey: openaiApiKey || undefined,
+        deepseekApiKey,
+        provider,
+      });
+    } else {
+      updated = setOrgOpenAIApiKey(orgId!, openaiApiKey);
+    }
+
     const syncResult = await syncOrgOpenAIKeyToSupabase(orgId!, updated.openaiApiKeyEncrypted);
-    sendJson(res, 200, {
-      configured: true,
-      maskedHint: getOrgOpenAIKeyStatus(orgId!).maskedHint,
+
+    let probeOk = true;
+    let probeMessage: string | undefined;
+    if (body.probe !== false && openaiApiKey) {
+      try {
+        const key = await resolveOpenAIApiKeyAsync(openaiApiKey, orgId);
+        if (key) await probeLLMConnection('openai', key);
+      } catch (err) {
+        probeOk = false;
+        probeMessage = mapOpenAIError(err).message;
+      }
+    } else if (body.probe !== false && provider === 'deepseek' && deepseekApiKey) {
+      try {
+        await probeLLMConnection('deepseek', deepseekApiKey);
+      } catch (err) {
+        probeOk = false;
+        probeMessage = mapOpenAIError(err).message;
+      }
+    }
+
+    const status = getOrgOpenAIKeyStatus(orgId!);
+    sendJson(res, probeOk ? 200 : 200, {
+      ...status,
+      configured: status.configured || Boolean(openaiApiKey),
       syncedToCloud: syncResult.synced,
       cloudSyncWarning: syncResult.warning,
+      connected: probeOk && (status.configured || Boolean(openaiApiKey)),
+      probeMessage,
+      provider: resolveBrainProvider(provider, orgId),
     });
     return true;
   }

@@ -7,7 +7,7 @@ export const OPENAI_TTS_VOICE_IDS = new Set(['fable', 'alloy', 'nova', 'shimmer'
 export interface TtsResult {
   buffer: Buffer;
   contentType: string;
-  provider: 'chatterbox' | 'openai';
+  provider: 'chatterbox' | 'openai' | 'elevenlabs';
 }
 
 export interface ChatterboxConfig {
@@ -63,7 +63,69 @@ function isOpenAiVoiceId(voiceId: string | null | undefined): boolean {
 
 function resolveVoiceId(override?: string | null): string | null {
   if (override) return override;
-  return getAgentSettings().activeVoiceId ?? null;
+  return (
+    getAgentSettings().activeVoiceId
+    || process.env.ELEVENLABS_VOICE_ID?.trim()
+    || process.env.VAPI_ELEVENLABS_VOICE_ID?.trim()
+    || null
+  );
+}
+
+function getElevenLabsConfig(): { apiKey: string; voiceId: string; modelId: string } | null {
+  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  if (!apiKey) return null;
+  const voiceId = (
+    process.env.ELEVENLABS_VOICE_ID?.trim()
+    || process.env.VAPI_ELEVENLABS_VOICE_ID?.trim()
+    || 'EQx6HGDYjkDpcli6vorJ'
+  );
+  const modelId = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_turbo_v2_5';
+  return { apiKey, voiceId, modelId };
+}
+
+async function synthesizeWithElevenLabs(
+  text: string,
+  voiceId: string,
+  format: 'mp3' | 'pcm' | 'mulaw' = 'mp3',
+): Promise<TtsResult> {
+  const cfg = getElevenLabsConfig();
+  if (!cfg) throw new Error('ELEVENLABS_API_KEY not configured');
+  const outputFormat = format === 'mulaw'
+    ? 'ulaw_8000'
+    : format === 'pcm'
+      ? 'pcm_24000'
+      : 'mp3_44100_128';
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=${outputFormat}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': cfg.apiKey,
+      'Content-Type': 'application/json',
+      Accept: 'audio/*,application/octet-stream,*/*',
+    },
+    body: JSON.stringify({
+      text,
+      model_id: cfg.modelId,
+      voice_settings: {
+        stability: 0.35,
+        similarity_boost: 0.8,
+        style: 0.45,
+        use_speaker_boost: true,
+      },
+    }),
+    signal: AbortSignal.timeout(45000),
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(`ElevenLabs TTS error (${response.status})${errText ? `: ${errText.slice(0, 200)}` : ''}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const contentType = format === 'mulaw'
+    ? 'audio/basic'
+    : format === 'pcm'
+      ? 'audio/L16; rate=24000; channels=1'
+      : 'audio/mpeg';
+  return { buffer, contentType, provider: 'elevenlabs' };
 }
 
 function resolveTtsOrgId(): string | null {
@@ -153,13 +215,24 @@ export async function synthesizeSpeech(
     throw new Error('TTS text is required');
   }
 
-  const voiceId = resolveVoiceId(voiceIdOverride);
+  const eleven = getElevenLabsConfig();
+  const voiceId = resolveVoiceId(voiceIdOverride) || eleven?.voiceId || null;
   const chatterbox = getChatterboxConfig();
   const orgId = resolveTtsOrgId();
   const openAiKey = await resolveOpenAIApiKeyAsync(undefined, orgId);
 
+  // Prefer ElevenLabs (Cockney Aria) whenever configured — including phone μ-law
+  if (eleven && voiceId && !isOpenAiVoiceId(voiceId)) {
+    try {
+      return await synthesizeWithElevenLabs(trimmed, voiceId, format);
+    } catch (err) {
+      console.warn('[tts] ElevenLabs failed, falling back', err instanceof Error ? err.message : err);
+      if (!openAiKey && !chatterbox) throw err;
+    }
+  }
+
   if (format === 'mulaw' || format === 'pcm') {
-    if (!openAiKey) throw new Error('OpenAI key required for mulaw/pcm TTS');
+    if (!openAiKey) throw new Error('OpenAI or ElevenLabs key required for mulaw/pcm TTS');
     return synthesizeWithOpenAI(trimmed, voiceId ?? 'fable', format);
   }
 
@@ -179,7 +252,7 @@ export async function synthesizeSpeech(
     return synthesizeWithChatterbox(trimmed, voiceId, chatterbox);
   }
 
-  throw new Error('No TTS provider configured — set CHATTERBOX_BASE_URL or OpenAI key in Integrations');
+  throw new Error('No TTS provider configured — set ELEVENLABS_API_KEY, CHATTERBOX_BASE_URL, or OpenAI key');
 }
 
 export function resolveTtsTextFromCall(callId: string): string | null {
@@ -210,6 +283,7 @@ export function buildAgentTtsUrl(
 }
 
 export function shouldUsePlayAudio(): boolean {
+  if (getElevenLabsConfig()) return true;
   const settings = getAgentSettings();
   if (!settings.activeVoiceId) return false;
   if (getChatterboxConfig()) return true;

@@ -182,6 +182,11 @@ TASK PLANNING (big or vague requests):
 - After answers: chain tools logically (customer → quote → project → payment plan → navigate).
 - Summarise actions taken in plain English after execution.
 
+LANGUAGE BOUNDARY (highest priority for tools/documents):
+- You may reply to staff/foremen conversationally in their preferred language when instructed.
+- Tool payloads, CRM writes, quotes, invoices, contracts, briefs, and any text that will reach a customer MUST be formal UK English only — never another language.
+- Contracts and signing materials are English-only always.
+
 QUOTE WON → PROJECT:
 - When user says quote is won / gone ahead / make a job: use convertQuoteToProject (with withPaymentPlan: true when payment plan requested).
 - NEVER use writeData create on projects collection — it is not supported.

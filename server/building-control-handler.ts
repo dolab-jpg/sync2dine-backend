@@ -1,4 +1,5 @@
 import { searchBuildingRegs } from './building-control-kb';
+import { translateSearchQuery } from './translation-service';
 
 interface BCMessage {
   role: string;
@@ -136,13 +137,17 @@ RULES:
 - Use UK English. Be practical and concise for site staff.`;
 }
 
-function executeBCTool(
+async function executeBCTool(
   name: string,
   args: Record<string, unknown>,
-  tradeId?: string | null
-): Record<string, unknown> {
+  tradeId?: string | null,
+  orgId?: string | null,
+): Promise<Record<string, unknown>> {
   if (name === 'searchBuildingRegs') {
-    const query = String(args.query ?? '');
+    const rawQuery = String(args.query ?? '');
+    // The knowledge base (UK Approved Documents) is English-only — translate a
+    // foreign-language query before searching it.
+    const query = await translateSearchQuery(rawQuery, undefined, orgId);
     const filterTrade = String(args.tradeId ?? tradeId ?? '') || undefined;
     const results = searchBuildingRegs(query, { tradeId: filterTrade, limit: 8 });
     return {
@@ -302,7 +307,7 @@ export async function handleBuildingControl(body: BuildingControlRequest): Promi
     for (const call of choice.tool_calls) {
       if (call.type !== 'function') continue;
       const args = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>;
-      const output = executeBCTool(call.function.name, args, body.tradeId);
+      const output = await executeBCTool(call.function.name, args, body.tradeId, orgId);
 
       if (call.function.name === 'citeSource' && Array.isArray(output.citations)) {
         for (const c of output.citations as BCCitation[]) {

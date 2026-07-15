@@ -173,41 +173,32 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   }
 
   if (!apiKey) {
-    if (pathname === '/api/ai/estimate') {
-      sendJson(res, 200, {
-        suggestions: { length: { value: 2.5, confidence: 0.5 }, width: { value: 2.0, confidence: 0.5 } },
-        risks: ['Mock mode — set OPENAI_API_KEY in .env.local'],
-        summary: 'Mock AI estimation. Configure API key for real vision analysis.',
-      });
-      return;
-    }
     if (pathname === '/api/ai/receipt') {
       const { handleReceiptRequest } = await import('./receipt-handler');
       const result = await handleReceiptRequest(body);
       sendJson(res, 200, result);
       return;
     }
-    if (pathname === '/api/ai/chat') {
-      sendJson(res, 200, { content: 'TradePro AI mock mode. Set OPENAI_API_KEY in .env.local or Integrations Hub for real responses.' });
-      return;
-    }
-    if (pathname === '/api/ai/cyrus') {
-      const name = (body.customerContext as { customerName?: string })?.customerName ?? 'there';
-      sendJson(res, 200, { content: `Hi ${name}! I'm Cyrus (mock mode). Configure OpenAI in Settings → Integrations for live responses.` });
-      return;
-    }
-    sendJson(res, 503, { error: 'OpenAI API key not configured' });
+    // Never silently mock estimate/chat — require Company AI Brain / OpenAI.
+    sendJson(res, 503, {
+      error: 'OpenAI API key not configured — add your API key in Settings → Integrations → Company AI Brain and Save.',
+      code: 'missing',
+    });
     return;
   }
 
   try {
-    const { createOpenAIClientForOrg } = await import('./openai-connection');
+    const { createLLMClientForOrg, defaultChatModelForProvider } = await import('./llm-connection');
     const { meteredSpeechCreate } = await import('./metered-openai');
-    const openai = await createOpenAIClientForOrg(orgId, pathname, body.apiKey as string | undefined);
+    const { client: openai, provider: brainProvider } = await createLLMClientForOrg(orgId, pathname, {
+      bodyOpenAIApiKey: body.apiKey as string | undefined,
+      bodyDeepSeekApiKey: body.deepseekApiKey as string | undefined,
+      provider: body.provider as string | undefined,
+    });
 
     if (pathname === '/api/ai/chat') {
       const completion = await openai.chat.completions.create({
-        model: (body.model as string) ?? 'gpt-4o-mini',
+        model: defaultChatModelForProvider(brainProvider, (body.model as string) ?? 'gpt-4o-mini'),
         messages: [
           { role: 'system', content: (body.systemPrompt as string) ?? 'You are a helpful construction assistant.' },
           ...(body.messages as Array<{ role: string; content: string }>),
@@ -218,21 +209,30 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
     }
 
     if (pathname === '/api/ai/estimate') {
+      // Vision always uses OpenAI specialist client
+      const { createOpenAISpecialistClientForOrg } = await import('./llm-connection');
+      const vision = await createOpenAISpecialistClientForOrg(orgId, pathname, body.apiKey as string | undefined);
       const imageContent = (body.images as string[]).map((img: string) => ({
         type: 'image_url' as const,
         image_url: { url: img },
       }));
+      const docText = typeof body.documentText === 'string' && body.documentText.trim()
+        ? `\n\nExtracted document text:\n${body.documentText.trim().slice(0, 12000)}`
+        : '';
       const schemaHint = body.schema
         ? `\n\nReturn JSON matching this schema exactly:\n${JSON.stringify(body.schema)}`
         : '';
-      const completion = await openai.chat.completions.create({
+      const completion = await vision.chat.completions.create({
         model: 'gpt-4o',
         messages: [
           { role: 'system', content: `${body.systemPrompt}${schemaHint}\n\nEach suggestion must have value, confidence (0-1), and optional reason.` },
           {
             role: 'user',
             content: [
-              { type: 'text', text: `Analyze these site photos for trade: ${body.tradeId}. Return JSON with suggestions, risks (array), and summary.` },
+              {
+                type: 'text',
+                text: `Analyze these site photos${docText ? ' and documents' : ''} for trade: ${body.tradeId}. Return JSON with suggestions, risks (array), and summary.${docText}`,
+              },
               ...imageContent,
             ],
           },
@@ -257,6 +257,13 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
       res.statusCode = 200;
       res.setHeader('Content-Type', tts.contentType);
       res.end(tts.buffer);
+      return;
+    }
+
+    if (pathname === '/api/ai/render') {
+      const { handleAiRender } = await import('./render-handler');
+      const result = await handleAiRender(body as { image?: string; prompt?: string; tradeId?: string }, openai);
+      sendJson(res, 200, result);
       return;
     }
 

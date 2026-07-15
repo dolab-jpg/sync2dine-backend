@@ -81,6 +81,8 @@ export async function loadSyncedDataFromSupabase(orgId?: string | null): Promise
     builders: rowToRecord(buildersRes.data ?? []),
     sessions,
     whatsappGroups,
+    whatsappConversations: {},
+    teamMembers: [],
     calls: rowToRecord(callsRes.data ?? []),
     outboundQueue: rowToRecord(outboundRes.data ?? []),
     recruitmentJobs: rowToRecord(jobsRes.data ?? []),

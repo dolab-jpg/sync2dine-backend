@@ -120,10 +120,17 @@ async function getProfileByBearer(req: IncomingMessage) {
   if (!authData?.user) return null;
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, email, name, username, role, org_id')
+    .select('id, email, name, username, role, org_id, preferred_language')
     .eq('id', authData.user.id)
     .maybeSingle();
   return profile ?? null;
+}
+
+const ALLOWED_PROFILE_LANGS = new Set(['en', 'sq', 'uk', 'ru', 'zh', 'es', 'pl', 'fa']);
+
+function normalizePreferredLanguage(raw: unknown): string {
+  const code = String(raw ?? 'en').toLowerCase().split('-')[0];
+  return ALLOWED_PROFILE_LANGS.has(code) ? code : 'en';
 }
 
 export async function handleAccountAuthRoutes(
@@ -442,7 +449,7 @@ export async function handleAccountAuthRoutes(
       const supabase = getSupabaseAdmin();
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, name, email, username, role, created_at')
+        .select('id, name, email, username, role, preferred_language, created_at')
         .eq('org_id', orgId)
         .order('created_at', { ascending: true });
       if (error) {
@@ -450,6 +457,59 @@ export async function handleAccountAuthRoutes(
         return true;
       }
       sendJson(res, 200, { members: data ?? [] });
+      return true;
+    }
+
+    if (pathname.startsWith('/api/auth/members/') && req.method === 'PATCH') {
+      const profile = await getProfileByBearer(req);
+      if (!profile || !['super_admin', 'platform_owner', 'manager'].includes(String(profile.role))) {
+        sendJson(res, 401, { error: 'Unauthorized' });
+        return true;
+      }
+      const memberId = decodeURIComponent(pathname.slice('/api/auth/members/'.length)).trim();
+      if (!memberId) {
+        sendJson(res, 400, { error: 'Member id is required' });
+        return true;
+      }
+      const body = JSON.parse(await readBody(req)) as {
+        preferred_language?: string;
+        preferredLanguage?: string;
+        name?: string;
+      };
+      const supabase = getSupabaseAdmin();
+      const { data: target } = await supabase
+        .from('profiles')
+        .select('id, org_id, role')
+        .eq('id', memberId)
+        .maybeSingle();
+      if (!target) {
+        sendJson(res, 404, { error: 'Member not found' });
+        return true;
+      }
+      if (profile.role !== 'platform_owner' && target.org_id !== profile.org_id) {
+        sendJson(res, 403, { error: 'Member is not in your organization' });
+        return true;
+      }
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (body.preferred_language != null || body.preferredLanguage != null) {
+        patch.preferred_language = normalizePreferredLanguage(
+          body.preferred_language ?? body.preferredLanguage,
+        );
+      }
+      if (body.name != null && String(body.name).trim()) {
+        patch.name = String(body.name).trim();
+      }
+      const { data: updated, error } = await supabase
+        .from('profiles')
+        .update(patch)
+        .eq('id', memberId)
+        .select('id, name, email, username, role, preferred_language, created_at')
+        .maybeSingle();
+      if (error) {
+        sendJson(res, 500, { error: error.message });
+        return true;
+      }
+      sendJson(res, 200, { member: updated });
       return true;
     }
 

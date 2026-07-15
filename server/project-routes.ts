@@ -22,6 +22,66 @@ export async function handleProjectRoutes(
   res: ServerResponse,
   pathname: string
 ): Promise<boolean> {
+  if (pathname === '/api/project-deposit-checkout' && req.method === 'POST') {
+    try {
+      const body = JSON.parse(await readBody(req)) as {
+        amount?: number;
+        projectId?: string;
+        stageId?: string;
+        portalToken?: string;
+      };
+      const amount = Number(body.amount) || 0;
+      if (amount <= 0) {
+        sendJson(res, 400, { error: 'Invalid deposit amount' });
+        return true;
+      }
+      const secret = process.env.STRIPE_SECRET_KEY;
+      if (!secret) {
+        sendJson(res, 501, { error: 'Stripe customer checkout not configured' });
+        return true;
+      }
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(secret);
+      const origin = process.env.APP_BASE_URL ?? 'http://localhost:5174';
+      const session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: 'gbp',
+              unit_amount: Math.round(amount * 100),
+              product_data: {
+                name: 'Booking deposit',
+                description: body.projectId ? `Project ${body.projectId}` : 'TradePro deposit',
+              },
+            },
+          },
+        ],
+        success_url: body.portalToken
+          ? `${origin}/portal/${body.portalToken}?deposit=paid`
+          : `${origin}/?deposit=paid`,
+        cancel_url: body.portalToken
+          ? `${origin}/portal/${body.portalToken}?deposit=cancelled`
+          : `${origin}/`,
+        metadata: {
+          projectId: body.projectId ?? '',
+          stageId: body.stageId ?? '',
+          kind: 'customer_deposit',
+        },
+      });
+      if (!session.url) {
+        sendJson(res, 500, { error: 'Stripe did not return a checkout URL' });
+        return true;
+      }
+      sendJson(res, 200, { url: session.url });
+      return true;
+    } catch (err) {
+      sendJson(res, 500, { error: err instanceof Error ? err.message : 'Checkout failed' });
+      return true;
+    }
+  }
+
   if (pathname === '/api/data/sync' && req.method === 'POST') {
     if (isAuthEnforced() && !requireAuth(req)) {
       sendJson(res, 401, { error: 'Unauthorized' });

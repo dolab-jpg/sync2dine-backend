@@ -12,7 +12,7 @@ export class OpenAIConnectionError extends Error {
   }
 }
 
-function sanitizeBodyApiKey(bodyApiKey?: string): string | undefined {
+export function sanitizeBodyApiKey(bodyApiKey?: string): string | undefined {
   const key = (bodyApiKey || '').trim();
   if (!key) return undefined;
   // Client may have stored a masked UI placeholder — never treat it as a real key.
@@ -44,12 +44,12 @@ export function requireOpenAIApiKey(bodyApiKey?: string, orgId?: string | null):
   if (!key) {
     if (orgId) {
       throw new OpenAIConnectionError(
-        'OpenAI API key not configured for this company — add a key in Settings → Integrations → OpenAI (Super Admin).',
+        'OpenAI API key not configured for this company — add a key in Settings → Integrations → Company AI Brain (Super Admin).',
         'missing',
       );
     }
     throw new OpenAIConnectionError(
-      'OpenAI not connected — add your API key in Settings → Integrations → OpenAI and Save.',
+      'OpenAI not connected — add your API key in Settings → Integrations → Company AI Brain and Save.',
       'missing',
     );
   }
@@ -64,12 +64,12 @@ export async function requireOpenAIApiKeyAsync(
   if (!key) {
     if (orgId) {
       throw new OpenAIConnectionError(
-        'OpenAI API key not configured for this company — add a key in Settings → Integrations → OpenAI (Super Admin).',
+        'OpenAI API key not configured for this company — add a key in Settings → Integrations → Company AI Brain (Super Admin).',
         'missing',
       );
     }
     throw new OpenAIConnectionError(
-      'OpenAI not connected — add your API key in Settings → Integrations → OpenAI and Save.',
+      'OpenAI not connected — add your API key in Settings → Integrations → Company AI Brain and Save.',
       'missing',
     );
   }
@@ -113,9 +113,7 @@ export async function createOpenAIClientForOrg(
   endpoint: string,
   bodyApiKey?: string,
 ) {
-  const { default: OpenAI } = await import('openai');
-  const { wrapOpenAIWithMetering } = await import('./metered-openai');
-  const apiKey = await requireOpenAIApiKeyAsync(bodyApiKey, orgId);
-  const openai = new OpenAI({ apiKey });
-  return wrapOpenAIWithMetering(openai, orgId, endpoint);
+  // Specialist OpenAI client (vision/TTS/etc). Text brains prefer createLLMClientForOrg.
+  const { createOpenAISpecialistClientForOrg } = await import('./llm-connection');
+  return createOpenAISpecialistClientForOrg(orgId, endpoint, bodyApiKey);
 }

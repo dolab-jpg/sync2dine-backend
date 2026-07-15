@@ -434,6 +434,15 @@ class SipStack {
               resPlay();
               return;
             }
+            if (rtp._duplex) {
+              rtp.enqueue(silenceMulaw(80));
+              rtp.enqueue(audio);
+              rtp.enqueue(silenceMulaw(240));
+              const expectedMs = Math.ceil((audio.length / 8000) * 1000) + 400;
+              setTimeout(resPlay, expectedMs);
+              console.log('[sip] playMulaw duplex enqueue bytes=', audio.length);
+              return;
+            }
             rtp.stopIdle();
             rtp.stop();
             rtp.clearQueue();
@@ -458,6 +467,14 @@ class SipStack {
         const listenUtterance = (opts) => rtp.listenUtterance(opts);
         const startIdle = () => rtp.startIdle();
         const stopIdle = () => rtp.stopIdle();
+        const startDuplex = () => rtp.startDuplex();
+        const stopDuplex = () => rtp.stopDuplex();
+        const enqueueMulaw = (buf) => rtp.enqueue(buf);
+        const clearOutbound = () => rtp.clearQueue();
+        const onInboundFrame = (fn) => {
+          rtp.on('inbound-frame', fn);
+          return () => rtp.off('inbound-frame', fn);
+        };
 
         this.activeCalls.set(inviteCallId, { hangup, rtp, dialog });
 
@@ -470,6 +487,11 @@ class SipStack {
             listenUtterance,
             startIdle,
             stopIdle,
+            startDuplex,
+            stopDuplex,
+            enqueueMulaw,
+            clearOutbound,
+            onInboundFrame,
             hangup,
             isAlive: () => !hungUp,
           });

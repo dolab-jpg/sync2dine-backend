@@ -204,7 +204,7 @@ const STAFF_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'saveCustomer',
-      description: 'Create or update a customer record in CRM with name, contact details, and interested trades',
+      description: 'Create or update a customer record in CRM with name, contact details, interested trades, and preferred language pack',
       parameters: {
         type: 'object',
         properties: {
@@ -214,6 +214,10 @@ const STAFF_TOOLS = [
           phone: { type: 'string' },
           address: { type: 'string' },
           interestedTrades: { type: 'array', items: { type: 'string' } },
+          preferredLanguage: {
+            type: 'string',
+            description: 'Saved language pack code: en, sq, uk, zh, es, pl, or fa',
+          },
           isNew: { type: 'boolean' },
         },
         required: ['name'],
@@ -982,6 +986,99 @@ const ACCOUNTS_TOOLS = [
   },
 ];
 
+const EMAIL_TOOLS = [
+  {
+    type: 'function' as const,
+    function: {
+      name: 'listRecentEmails',
+      description: 'List recent emails from the connected mailbox inbox',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number' },
+          connectionId: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'getEmailThread',
+      description: 'Get full email thread by threadId or messageId',
+      parameters: {
+        type: 'object',
+        properties: {
+          threadId: { type: 'string' },
+          messageId: { type: 'string' },
+          connectionId: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'draftEmailReply',
+      description: 'Prepare an email draft without sending (for user review)',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string' },
+          subject: { type: 'string' },
+          body: { type: 'string' },
+        },
+        required: ['to', 'subject', 'body'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'sendEmailReply',
+      description: 'Send an email reply from the connected mailbox',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string' },
+          subject: { type: 'string' },
+          body: { type: 'string' },
+          connectionId: { type: 'string' },
+        },
+        required: ['to', 'subject', 'body'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'sendEmailWithAttachment',
+      description: 'Send email with base64 attachment from connected mailbox',
+      parameters: {
+        type: 'object',
+        properties: {
+          to: { type: 'string' },
+          subject: { type: 'string' },
+          body: { type: 'string' },
+          connectionId: { type: 'string' },
+          attachments: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                filename: { type: 'string' },
+                mimeType: { type: 'string' },
+                content: { type: 'string' },
+              },
+            },
+          },
+        },
+        required: ['to', 'subject', 'body'],
+      },
+    },
+  },
+];
+
 const CUSTOMER_TOOLS = [
   {
     type: 'function' as const,
@@ -1312,16 +1409,16 @@ function getToolsForMode(mode: OrchestratorMode, body?: OrchestratorRequest) {
     tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...NAVIGATION_TOOLS, ...PLANNING_TOOLS];
   } else if (mode === 'staff') {
     tools = hasProject
-      ? [...GENERIC_TOOLS, ...STAFF_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS]
-      : [...GENERIC_TOOLS, ...STAFF_TOOLS, ...CONTRACT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS];
+      ? [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS]
+      : [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS];
   } else if (mode === 'project' || mode === 'foreman') {
-    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS];
+    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS];
   } else if (mode === 'customer' || mode === 'cyrus') {
     tools = [...GENERIC_TOOLS, ...CUSTOMER_TOOLS];
   } else if (mode === 'phone') {
     tools = [...GENERIC_TOOLS, ...CUSTOMER_TOOLS, ...PHONE_TOOLS];
   } else {
-    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS];
+    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS];
   }
 
   if (planning && mode !== 'planning') {
@@ -1368,6 +1465,11 @@ const AUTO_ACTION_NAMES = new Set([
   'categorizeTransaction',
   'matchTransactionToProject',
   'draftClientReceipt',
+  'listRecentEmails',
+  'getEmailThread',
+  'draftEmailReply',
+  'sendEmailReply',
+  'sendEmailWithAttachment',
   ...PHONE_AUTO_ACTIONS,
   ...PLANNING_ACTION_NAMES,
 ]);
@@ -2604,7 +2706,8 @@ async function runPhoneOrchestrator(
 export async function handleOrchestrator(body: OrchestratorRequest): Promise<OrchestratorResult> {
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const lastMessage = messages[messages.length - 1]?.content ?? '';
-  const { mapOpenAIError, createOpenAIClientForOrg } = await import('./openai-connection');
+  const { mapOpenAIError } = await import('./openai-connection');
+  const { createLLMClientForOrg } = await import('./llm-connection');
   const { resolveOrgIdFromBody } = await import('./org-context');
   const orgId = resolveOrgIdFromBody(body as { orgId?: string });
   const mode = resolveMode(body);
@@ -2619,7 +2722,11 @@ export async function handleOrchestrator(body: OrchestratorRequest): Promise<Orc
   }
 
   try {
-    const openai = await createOpenAIClientForOrg(orgId, '/api/ai/orchestrate', body.apiKey);
+    const { client: openai } = await createLLMClientForOrg(orgId, '/api/ai/orchestrate', {
+      bodyOpenAIApiKey: body.apiKey,
+      bodyDeepSeekApiKey: (body as { deepseekApiKey?: string }).deepseekApiKey,
+      provider: (body as { provider?: string }).provider,
+    });
 
     if (mode === 'customer' || mode === 'cyrus') {
       return await runCustomerOrchestrator(openai as unknown as Parameters<typeof runCustomerOrchestrator>[0], body, messages);
@@ -2712,11 +2819,13 @@ async function runStaffOrchestrator(
         output = toolName === 'updateLeadStatus'
           ? executeUpdateLeadStatus(parsedInput)
           : parsedInput;
+        const { resolveOpenAIApiKeyAsync } = await import('./openai-connection');
+        const visionKey = await resolveOpenAIApiKeyAsync(body.apiKey, orgId) ?? '';
         const executedOutput = await executeVisionTool(
           toolName,
           parsedInput,
           body,
-          body.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+          visionKey
         );
         if (executedOutput) output = executedOutput;
         proposedActions.push({ action: toolName, input: parsedInput, output });

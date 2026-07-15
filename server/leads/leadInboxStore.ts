@@ -5,6 +5,8 @@ import { randomUUID } from 'crypto';
 import { getDataStore, getAgentSettings, normalizePhoneExport } from '../data-store';
 import { listTeamMembers } from '../conversation-store';
 import { sendWhatsAppText } from '../whatsapp-webhook';
+import { listDeviceTokens } from '../push/deviceTokenStore';
+import { sendPushToTokens } from '../push/pushSender';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const INBOX_FILE = join(DATA_DIR, 'lead-inbox.json');
@@ -178,6 +180,19 @@ export async function notifyStaff(
       await sendWhatsAppText(phoneNumberId, accessToken, phone, text);
     } catch (err) {
       console.error(`Lead alert WhatsApp failed for ${member.name}:`, err);
+    }
+  }
+
+  const pushTokens = listDeviceTokens({ orgId });
+  if (pushTokens.length > 0) {
+    try {
+      await sendPushToTokens(pushTokens, {
+        title: urgency === 'high' ? 'Urgent lead' : 'New lead',
+        body: summary,
+        route: '/crm',
+      });
+    } catch (err) {
+      console.error('Lead alert push failed:', err);
     }
   }
 }

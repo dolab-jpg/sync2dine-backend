@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
+import { ensureEnglishForCustomerSend } from './outbound-english-guard';
+import { getRequestOrgId } from './data-store';
 
 interface SmtpConfig {
   host?: string;
@@ -19,6 +21,8 @@ export interface SendPayload {
   body?: string;
   attachment?: { filename: string; mimeType: string; content: string };
   config?: SmtpConfig;
+  /** Sender's known language, if already resolved by the caller (e.g. a worker's profile). */
+  sourceLang?: string | null;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -52,6 +56,13 @@ export async function sendViaSmtp(payload: SendPayload, to: string): Promise<{ s
     return { success: false, error: 'SMTP not configured (host, username, password required).' };
   }
 
+  // The sender (e.g. a non-English-speaking worker) may have composed this in their own
+  // language — never let untranslated free text reach a customer's inbox.
+  const guard = await ensureEnglishForCustomerSend(payload.body ?? '', payload.sourceLang, getRequestOrgId());
+  if (!guard.ok) {
+    return { success: false, error: 'Could not translate the message to English before sending — email was not sent.' };
+  }
+
   let nodemailer: typeof import('nodemailer');
   try {
     nodemailer = await import('nodemailer');
@@ -78,7 +89,7 @@ export async function sendViaSmtp(payload: SendPayload, to: string): Promise<{ s
     from: `"${smtp.fromName}" <${smtp.fromEmail}>`,
     to,
     subject: payload.subject ?? '',
-    text: payload.body ?? '',
+    text: guard.english,
     attachments,
   });
 
@@ -92,6 +103,13 @@ async function sendViaResend(payload: SendPayload, to: string): Promise<{ succes
     return { success: false, error: 'Resend API key not configured.' };
   }
 
+  // The sender (e.g. a non-English-speaking worker) may have composed this in their own
+  // language — never let untranslated free text reach a customer's inbox.
+  const guard = await ensureEnglishForCustomerSend(payload.body ?? '', payload.sourceLang, getRequestOrgId());
+  if (!guard.ok) {
+    return { success: false, error: 'Could not translate the message to English before sending — email was not sent.' };
+  }
+
   const fromEmail = payload.config?.fromEmail?.trim()
     || process.env.RESEND_FROM_EMAIL?.trim()
     || process.env.SMTP_FROM_EMAIL?.trim()
@@ -102,7 +120,7 @@ async function sendViaResend(payload: SendPayload, to: string): Promise<{ succes
     from: `${fromName} <${fromEmail}>`,
     to: [to],
     subject: payload.subject ?? '',
-    text: payload.body ?? '',
+    text: guard.english,
   };
 
   if (payload.attachment) {

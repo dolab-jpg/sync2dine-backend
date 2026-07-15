@@ -101,7 +101,7 @@ export async function handleAuthRoutes(
   res: ServerResponse,
   pathname: string,
 ): Promise<boolean> {
-  const { handleAccountAuthRoutes } = await import('./account-auth.js');
+  const { handleAccountAuthRoutes } = await import('./account-auth');
   if (await handleAccountAuthRoutes(req, res, pathname)) return true;
 
   if (pathname === '/api/auth/login' && req.method === 'POST') {
@@ -150,5 +150,6 @@ export function resolveOrgIdForRequest(
   const header = req.headers['x-org-id'];
   if (typeof header === 'string' && header.trim()) return header.trim();
   if (body?.orgId?.trim()) return body.orgId.trim();
-  return null;
+  // Local/dev without Supabase session: keep AI + org keys resolvable.
+  return (process.env.DEFAULT_ORG_ID || 'default').trim() || 'default';
 }

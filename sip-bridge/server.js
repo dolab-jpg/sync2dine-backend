@@ -6,15 +6,20 @@
  *   SIP_BRIDGE_SIP_PORT=50670
  *   WEBHOOK_BASE_URL=http://127.0.0.1:3001
  *   SIP_BRIDGE_PUBLIC_IP=192.168.x.x
+ *   VOICE_MODE=realtime | pipeline   (default realtime)
+ *   REALTIME_MODEL=gpt-4o-realtime-preview
+ *   REALTIME_VOICE=coral
  */
 const http = require('http');
 const { URL } = require('url');
 const { SipStack } = require('./sip-ua');
 const { silenceMulaw, mulawToWav } = require('./audio');
 const { startUpnpRefresh } = require('./upnp');
+const { runRealtimeConversation } = require('./realtime');
 
 const PORT = Number(process.env.SIP_BRIDGE_PORT || 3100);
 const MAX_TURNS = Number(process.env.SIP_BRIDGE_MAX_TURNS || 20);
+const VOICE_MODE = String(process.env.VOICE_MODE || 'realtime').trim().toLowerCase();
 const stack = new SipStack();
 let stopUpnp = () => {};
 
@@ -297,24 +302,41 @@ async function handleOutboundCall(body) {
 
   // Conversation runs in background so /calls returns quickly after answer+webhook
   setImmediate(() => {
-    runConversation({
-      session,
-      callId,
-      to,
-      from,
-      webhookUrl,
-      gatherActionUrl,
-      webhookBase,
-      initialSpeak: speak,
-      initialPlayUrl: playUrl,
-    }).catch((err) => {
+    const onErr = (err) => {
       console.error('[bridge] conversation error', err);
       try {
         session.hangup();
       } catch {
         /* ignore */
       }
-    });
+    };
+
+    if (VOICE_MODE === 'pipeline') {
+      console.log('[bridge] VOICE_MODE=pipeline (STT/GPT/TTS)');
+      runConversation({
+        session,
+        callId,
+        to,
+        from,
+        webhookUrl,
+        gatherActionUrl,
+        webhookBase,
+        initialSpeak: speak,
+        initialPlayUrl: playUrl,
+      }).catch(onErr);
+      return;
+    }
+
+    console.log('[bridge] VOICE_MODE=realtime (OpenAI Realtime speech-to-speech)');
+    // Realtime owns greet + turns; skip canned opener play to avoid double greeting
+    runRealtimeConversation({
+      session,
+      callId,
+      to,
+      from,
+      direction: 'outbound',
+      webhookBase,
+    }).catch(onErr);
   });
 
   return { callId, sid: session.providerCallId, status: 'in_progress' };
@@ -337,6 +359,7 @@ const server = http.createServer(async (req, res) => {
         sipPort: stack.sipPort,
         lines: stack.listLines().length,
         twoWay: true,
+        voiceMode: VOICE_MODE,
       });
       return;
     }

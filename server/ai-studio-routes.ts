@@ -36,6 +36,10 @@ function readStudioConfig(): Record<string, unknown> | null {
   }
 }
 
+export function readStudioConfigExport(): Record<string, unknown> | null {
+  return readStudioConfig();
+}
+
 function writeStudioConfig(config: Record<string, unknown>): void {
   mkdirSync(dirname(STUDIO_PATH), { recursive: true });
   writeFileSync(STUDIO_PATH, JSON.stringify(config, null, 2));

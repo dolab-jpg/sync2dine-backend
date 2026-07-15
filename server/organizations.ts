@@ -18,6 +18,8 @@ export const PLAN_CONFIG: Record<
   enterprise: { label: 'Enterprise', monthlyPriceGbp: 499, monthlyTokenCap: 10_000_000 },
 };
 
+export type AIBrainProvider = 'openai' | 'deepseek';
+
 export interface Organization {
   id: string;
   name: string;
@@ -28,6 +30,9 @@ export interface Organization {
   status: OrgStatus;
   plan: OrgPlan;
   openaiApiKeyEncrypted: string;
+  /** Active text-brain provider. Vision/Whisper/Realtime always use OpenAI. */
+  aiProvider?: AIBrainProvider;
+  deepseekApiKeyEncrypted?: string;
   monthlyTokenCap: number;
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
@@ -107,6 +112,8 @@ export function maskOrganization(org: Organization, tokensUsedThisMonth = 0) {
 /** In-memory plaintext cache (also hydrates from Supabase for cloud org UUIDs). */
 const orgOpenAIKeyCache = new Map<string, string>();
 const orgOpenAIKeyLoadAttempts = new Set<string>();
+const orgDeepSeekKeyCache = new Map<string, string>();
+const orgAIProviderCache = new Map<string, AIBrainProvider>();
 
 export function getOrgOpenAIApiKey(orgId: string): string | undefined {
   const cached = orgOpenAIKeyCache.get(orgId);
@@ -119,6 +126,36 @@ export function getOrgOpenAIApiKey(orgId: string): string | undefined {
   return key || undefined;
 }
 
+export function getOrgDeepSeekApiKey(orgId: string): string | undefined {
+  const cached = orgDeepSeekKeyCache.get(orgId);
+  if (cached) return cached;
+  const org = getOrganizationById(orgId);
+  if (!org?.deepseekApiKeyEncrypted) return undefined;
+  const key = decryptSecret(org.deepseekApiKeyEncrypted).trim();
+  if (key) orgDeepSeekKeyCache.set(orgId, key);
+  return key || undefined;
+}
+
+export function getOrgAIBrain(orgId: string): {
+  provider: AIBrainProvider;
+  openaiConfigured: boolean;
+  deepseekConfigured: boolean;
+} {
+  const cachedProvider = orgAIProviderCache.get(orgId);
+  const org = getOrganizationById(orgId);
+  const provider = cachedProvider
+    || (org?.aiProvider === 'deepseek' ? 'deepseek' : 'openai');
+  return {
+    provider,
+    openaiConfigured: Boolean(getOrgOpenAIApiKey(orgId)),
+    deepseekConfigured: Boolean(getOrgDeepSeekApiKey(orgId)),
+  };
+}
+
+export async function ensureOrgAIBrainLoaded(orgId: string): Promise<void> {
+  await ensureOrgOpenAIKeyLoaded(orgId);
+}
+
 export function maskOpenAIApiKeyHint(apiKey: string): string {
   const trimmed = apiKey.trim();
   if (!trimmed) return '';
@@ -126,10 +163,23 @@ export function maskOpenAIApiKeyHint(apiKey: string): string {
   return `••••${trimmed.slice(-4)}`;
 }
 
-export function getOrgOpenAIKeyStatus(orgId: string): { configured: boolean; maskedHint?: string } {
+export function getOrgOpenAIKeyStatus(orgId: string): {
+  configured: boolean;
+  maskedHint?: string;
+  provider?: AIBrainProvider;
+  deepseekConfigured?: boolean;
+  deepseekMaskedHint?: string;
+} {
   const key = getOrgOpenAIApiKey(orgId);
-  if (!key) return { configured: false };
-  return { configured: true, maskedHint: maskOpenAIApiKeyHint(key) };
+  const deepseek = getOrgDeepSeekApiKey(orgId);
+  const brain = getOrgAIBrain(orgId);
+  return {
+    configured: Boolean(key),
+    maskedHint: key ? maskOpenAIApiKeyHint(key) : undefined,
+    provider: brain.provider,
+    deepseekConfigured: Boolean(deepseek),
+    deepseekMaskedHint: deepseek ? maskOpenAIApiKeyHint(deepseek) : undefined,
+  };
 }
 
 /** Ensure a local org row exists for cloud UUIDs before writing the key. */
@@ -164,6 +214,42 @@ export function setOrgOpenAIApiKey(orgId: string, apiKey: string): Organization 
   if (trimmed) orgOpenAIKeyCache.set(orgId, trimmed);
   else orgOpenAIKeyCache.delete(orgId);
   orgOpenAIKeyLoadAttempts.delete(orgId);
+  return updated;
+}
+
+/** Save company AI brain settings (OpenAI key + optional DeepSeek + active provider). */
+export function setOrgAIBrainConfig(
+  orgId: string,
+  config: {
+    openaiApiKey?: string;
+    deepseekApiKey?: string;
+    provider?: AIBrainProvider;
+  },
+): Organization {
+  ensureLocalOrgStub(orgId);
+  const patch: Partial<Omit<Organization, 'id' | 'createdAt'>> & {
+    openaiApiKey?: string;
+    deepseekApiKey?: string;
+  } = {};
+  if (config.openaiApiKey !== undefined) patch.openaiApiKey = config.openaiApiKey;
+  if (config.deepseekApiKey !== undefined) patch.deepseekApiKey = config.deepseekApiKey;
+  if (config.provider === 'openai' || config.provider === 'deepseek') {
+    patch.aiProvider = config.provider;
+    orgAIProviderCache.set(orgId, config.provider);
+  }
+  const updated = updateOrganization(orgId, patch);
+  if (!updated) throw new Error('Failed to update organization AI brain');
+  if (config.openaiApiKey !== undefined) {
+    const trimmed = config.openaiApiKey.trim();
+    if (trimmed) orgOpenAIKeyCache.set(orgId, trimmed);
+    else orgOpenAIKeyCache.delete(orgId);
+    orgOpenAIKeyLoadAttempts.delete(orgId);
+  }
+  if (config.deepseekApiKey !== undefined) {
+    const trimmed = config.deepseekApiKey.trim();
+    if (trimmed) orgDeepSeekKeyCache.set(orgId, trimmed);
+    else orgDeepSeekKeyCache.delete(orgId);
+  }
   return updated;
 }
 
@@ -347,13 +433,16 @@ export function createOrganization(input: CreateOrganizationInput): Organization
 
 export function updateOrganization(
   id: string,
-  patch: Partial<Omit<Organization, 'id' | 'createdAt'>> & { openaiApiKey?: string },
+  patch: Partial<Omit<Organization, 'id' | 'createdAt'>> & {
+    openaiApiKey?: string;
+    deepseekApiKey?: string;
+  },
 ): Organization | undefined {
   const orgs = listOrganizations();
   const idx = orgs.findIndex(o => o.id === id);
   if (idx < 0) return undefined;
 
-  const { openaiApiKey, ...rest } = patch;
+  const { openaiApiKey, deepseekApiKey, ...rest } = patch;
   const updated: Organization = {
     ...orgs[idx],
     ...rest,
@@ -363,6 +452,14 @@ export function updateOrganization(
     updated.openaiApiKeyEncrypted = openaiApiKey.trim()
       ? encryptSecret(openaiApiKey.trim())
       : '';
+  }
+  if (deepseekApiKey !== undefined) {
+    updated.deepseekApiKeyEncrypted = deepseekApiKey.trim()
+      ? encryptSecret(deepseekApiKey.trim())
+      : '';
+  }
+  if (updated.aiProvider === 'deepseek' || updated.aiProvider === 'openai') {
+    orgAIProviderCache.set(id, updated.aiProvider);
   }
 
   orgs[idx] = updated;

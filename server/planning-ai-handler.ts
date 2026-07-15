@@ -170,17 +170,14 @@ function buildMockResult(body: PlanningRequest): PlanningResult {
 
 export async function handlePlanningAI(body: PlanningRequest): Promise<PlanningResult> {
   const messages = Array.isArray(body.messages) ? body.messages : [];
-  const { resolveOpenAIApiKey, createOpenAIClientForOrg } = await import('./openai-connection');
+  const { createLLMClientForOrg, defaultChatModelForProvider } = await import('./llm-connection');
   const { resolveOrgIdFromBody } = await import('./org-context');
   const orgId = resolveOrgIdFromBody(body as { orgId?: string });
-  const apiKey = resolveOpenAIApiKey(body.apiKey, orgId);
 
-  if (!apiKey) {
-    return buildMockResult(body);
-  }
-
-  const openai = await createOpenAIClientForOrg(orgId, '/api/ai/planning', body.apiKey);
-  const model = body.model ?? 'gpt-4o-mini';
+  const { client: openai, provider } = await createLLMClientForOrg(orgId, '/api/ai/planning', {
+    bodyOpenAIApiKey: body.apiKey,
+  });
+  const model = defaultChatModelForProvider(provider, body.model ?? 'gpt-4o-mini');
   const systemPrompt = buildSystemPrompt(body);
 
   const chatMessages: Array<Record<string, unknown>> = [

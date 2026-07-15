@@ -1,10 +1,17 @@
-import { handleOrchestrator, type OrchestratorRequest } from './orchestrator-handler';
+import { handleOrchestrator } from './orchestrator-handler';
 import { resolveInboundChannel, type ChannelRoute } from './channel-router';
 import {
   appendConversationMessage,
   conversationToOrchestratorMessages,
+  getHandoffMode,
 } from './conversation-store';
-import { normalizeInboundText, localizeOutboundText } from './translation-service';
+import {
+  normalizeInboundText,
+  localizeOutboundText,
+  getSystemInstruction,
+  getPhrase,
+  normalizeLang,
+} from './translation-service';
 import {
   executeChannelActions,
   filterActionsForChannelMode,
@@ -18,17 +25,29 @@ import { getOfficeTeamRoster } from './team-snapshot';
 import { buildBritishVoicePrompt, formatKnowledgeChunks } from './british-voice';
 import type { ServerAgentRole } from './role-permissions';
 import type { OrchestratorRequest } from './orchestrator-types';
+import { OpenAIConnectionError, requireOpenAIApiKeyAsync } from './openai-connection';
+
+export type ChannelInboundChannel = 'whatsapp' | 'phone' | 'app' | 'web' | 'portal' | 'email';
 
 export interface ChannelInboundRequest {
   orgId: string;
   phone: string;
   text: string;
-  channel: 'whatsapp' | 'phone' | 'app';
+  channel: ChannelInboundChannel;
   contactName?: string;
   projectId?: string | null;
   voiceReply?: boolean;
   apiKey?: string;
   model?: string;
+  /** When true, skip AI even if handoff is ai_active (used for staff composer logs). */
+  skipAi?: boolean;
+  /**
+   * Extra facts for the AI brain (customer/company/account). Not stored as a user message.
+   * The model should answer from this + conversation memory — not ask the caller to repeat known facts.
+   */
+  brainContext?: string;
+  /** When false, do not persist `text` as a user turn (e.g. synthetic call-connected prompts). */
+  persistUser?: boolean;
 }
 
 export interface ChannelInboundResult {
@@ -96,7 +115,9 @@ function buildChannelPrompt(channel: string, route: ChannelRoute): string {
     ? (route.mode === 'staff' ? 'whatsapp_staff' : route.mode === 'customer' ? 'whatsapp_customer' : 'whatsapp')
     : channel === 'phone'
       ? (route.mode === 'staff' ? 'phone_staff' : 'phone')
-      : 'overlay_chat';
+      : channel === 'web' || channel === 'portal'
+        ? 'customer_portal'
+        : 'overlay_chat';
   return base;
 }
 
@@ -104,53 +125,99 @@ export async function handleChannelInbound(req: ChannelInboundRequest): Promise<
   const { orgId, phone, text, channel, projectId } = req;
   setRequestOrgId(orgId);
 
-  const confirm = await handleConfirmationReply(orgId, phone, text, {
-    role: resolveRole(resolveInboundChannel(phone, orgId)),
-    orgId,
-    phone,
-    approvedBy: resolveInboundChannel(phone, orgId).name,
-  });
-  if (confirm.handled) {
-    const route = resolveInboundChannel(phone, orgId);
-    const replyEnglish = confirm.reply ?? 'Done.';
-    const replyLocalized = await localizeOutboundText(replyEnglish, route.preferredLanguage);
+  const route = resolveInboundChannel(phone, orgId);
+  const handoffMode = getHandoffMode(orgId, phone);
+
+  // Staff takeover: store inbound only, no auto-Cyrus reply
+  if (req.skipAi || handoffMode === 'human_takeover') {
+    const lang = normalizeLang(route.preferredLanguage);
     appendConversationMessage(orgId, phone, {
       role: 'user',
       content: text,
       bodyEnglish: text,
-      detectedLanguage: 'en',
+      detectedLanguage: lang,
       channel,
-    });
+    }, { channel, contactName: req.contactName });
+    const notice = handoffMode === 'human_takeover'
+      ? 'Thanks — a team member will reply shortly.'
+      : '';
+    if (notice) {
+      appendConversationMessage(orgId, phone, {
+        role: 'assistant',
+        content: notice,
+        bodyEnglish: notice,
+        channel,
+        fromRole: 'system',
+      }, { channel });
+    }
+    return {
+      replyEnglish: notice,
+      replyLocalized: notice,
+      detectedLanguage: lang,
+      route,
+      toolsUsed: [],
+      executedSummaries: ['human_takeover'],
+    };
+  }
+
+  const confirm = await handleConfirmationReply(orgId, phone, text, {
+    role: resolveRole(route),
+    orgId,
+    phone,
+    approvedBy: route.name,
+  });
+  if (confirm.handled) {
+    const lang = normalizeLang(route.preferredLanguage);
+    const replyEnglish = confirm.reply ?? getPhrase(lang, 'done');
+    const replyLocalized = await localizeOutboundText(replyEnglish, lang, orgId);
+    appendConversationMessage(orgId, phone, {
+      role: 'user',
+      content: text,
+      bodyEnglish: text,
+      detectedLanguage: lang,
+      channel,
+    }, { channel, contactName: req.contactName });
     appendConversationMessage(orgId, phone, {
       role: 'assistant',
       content: replyLocalized,
       bodyEnglish: replyEnglish,
       channel,
-    });
+    }, { channel });
     return {
       replyEnglish,
       replyLocalized,
-      detectedLanguage: route.preferredLanguage ?? 'en',
+      detectedLanguage: lang,
       route,
       toolsUsed: confirm.results?.map((r) => r.action) ?? [],
       executedSummaries: confirm.results?.map((r) => r.summary) ?? [],
     };
   }
 
-  const route = resolveInboundChannel(phone, orgId);
-  const normalized = await normalizeInboundText(text, route.preferredLanguage);
+  // Resolve org OpenAI key up front — no silent mock for live Cyrus channels
+  let resolvedApiKey = req.apiKey;
+  try {
+    resolvedApiKey = await requireOpenAIApiKeyAsync(req.apiKey, orgId);
+  } catch (err) {
+    if (err instanceof OpenAIConnectionError) throw err;
+    throw err;
+  }
+
+  const targetLang = normalizeLang(route.preferredLanguage);
+  const normalized = await normalizeInboundText(text, targetLang, orgId);
   const history = conversationToOrchestratorMessages(orgId, phone, 20);
   const studio = readStudioConfigExport();
   const humourLevel = String(studio?.humourLevel ?? 'balanced');
   const companyInstructions = String(studio?.companyInstructions ?? '');
 
-  appendConversationMessage(orgId, phone, {
-    role: 'user',
-    content: text,
-    bodyEnglish: normalized.english,
-    detectedLanguage: normalized.detectedLanguage,
-    channel,
-  });
+  if (req.persistUser !== false) {
+    appendConversationMessage(orgId, phone, {
+      role: 'user',
+      content: text,
+      bodyEnglish: normalized.english,
+      detectedLanguage: targetLang,
+      channel,
+    }, { channel, contactName: req.contactName });
+  }
 
   const channelKey = buildChannelPrompt(channel, route);
   const orchestratorChannel: OrchestratorRequest['channel'] =
@@ -162,11 +229,20 @@ export async function handleChannelInbound(req: ChannelInboundRequest): Promise<
   const resolvedRole = resolveRole(route);
   const knowledgeChunks = Array.isArray(studio?.knowledgeChunks) ? studio.knowledgeChunks as unknown[] : [];
   const knowledgeBlock = formatKnowledgeChunks(knowledgeChunks);
+  const rawLanguageInstruction = getSystemInstruction(targetLang);
+  // Staff/foreman may chat in their own language, but that must never bleed into tool calls,
+  // CRM writes, or customer-facing text (see FORMAL_TOOL_OUTPUT_RULE) — scope the instruction
+  // explicitly so the per-language pack line can't be read as covering the whole reply.
+  const languageInstruction =
+    (route.mode === 'staff' || route.mode === 'foreman') && targetLang !== 'en'
+      ? `LANGUAGE FOR YOUR SPOKEN/TYPED REPLY TO THIS COLLEAGUE ONLY (never for tool calls, CRM writes, documents, or any customer-facing text — those always stay in formal UK English): ${rawLanguageInstruction}`
+      : rawLanguageInstruction;
+  const brainBlock = String(req.brainContext || '').trim();
   const voicePrompt = [
     buildBritishVoicePrompt(
       String(studio?.humourLevel ?? 'balanced'),
       resolvedRole,
-      [companyInstructions, knowledgeBlock].filter(Boolean).join('\n\n') || undefined,
+      [companyInstructions, knowledgeBlock, brainBlock].filter(Boolean).join('\n\n') || undefined,
       orchestratorChannel === 'whatsapp_staff' || orchestratorChannel === 'phone_staff'
         ? orchestratorChannel
         : channel === 'whatsapp'
@@ -175,7 +251,11 @@ export async function handleChannelInbound(req: ChannelInboundRequest): Promise<
             ? 'phone'
             : 'customer_portal',
     ),
-  ].join('\n\n');
+    languageInstruction,
+    channel === 'phone'
+      ? 'Live phone call: reply in 1-3 short spoken sentences only. No lists, markdown, or mentions of tools. Use the account and company memory you already have.'
+      : '',
+  ].filter(Boolean).join('\n\n');
 
   const staffContext = route.mode === 'staff' || route.mode === 'foreman'
     ? buildStaffContext(orgId, route)
@@ -235,23 +315,29 @@ export async function handleChannelInbound(req: ChannelInboundRequest): Promise<
 
   const executedSummaries = executed.filter((e) => e.executed).map((e) => e.summary);
   const pendingConfirm = executed.find((e) => e.needsConfirm);
-  let replyEnglish = result.content ?? '';
+  let replyText = result.content ?? '';
   if (pendingConfirm?.confirmPrompt) {
-    replyEnglish = `${replyEnglish}\n\n${pendingConfirm.confirmPrompt}`.trim();
+    const confirmLine = targetLang === 'en'
+      ? pendingConfirm.confirmPrompt
+      : getPhrase(targetLang, 'confirm_yes_no');
+    replyText = `${replyText}\n\n${confirmLine}`.trim();
   }
   if (executedSummaries.length) {
     const actionBlock = executedSummaries.join('\n');
-    replyEnglish = replyEnglish ? `${replyEnglish}\n\n${actionBlock}` : actionBlock;
+    replyText = replyText ? `${replyText}\n\n${actionBlock}` : actionBlock;
+  }
+  if (!replyText.trim()) {
+    replyText = getPhrase(targetLang, 'greeting');
   }
 
-  const replyLocalized = await localizeOutboundText(replyEnglish, route.preferredLanguage);
+  const replyLocalized = await localizeOutboundText(replyText, targetLang, orgId);
 
   appendConversationMessage(orgId, phone, {
     role: 'assistant',
     content: replyLocalized,
-    bodyEnglish: replyEnglish,
+    bodyEnglish: replyText,
     channel,
-  });
+  }, { channel });
 
   const pid = projectId ?? route.projectId;
   if (pid && executed.some((e) => e.executed)) {
@@ -266,9 +352,9 @@ export async function handleChannelInbound(req: ChannelInboundRequest): Promise<
   }
 
   return {
-    replyEnglish,
+    replyEnglish: replyText,
     replyLocalized,
-    detectedLanguage: route.preferredLanguage ?? normalized.detectedLanguage,
+    detectedLanguage: targetLang,
     route,
     toolsUsed: executed.map((e) => e.action),
     executedSummaries,

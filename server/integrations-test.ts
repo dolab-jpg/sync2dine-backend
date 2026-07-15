@@ -1,4 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
+import { saveIntegrationSecrets, getEmailOAuthSecrets } from './integration-secrets';
+import { getProvider } from './mailbox/providers';
+import { getRedirectUri } from './mailbox/oauth-config';
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
@@ -16,14 +19,13 @@ export async function handleIntegrationTest(
   try {
     if (integrationId === 'openai') {
       const apiKey = values.apiKey || process.env.OPENAI_API_KEY;
-      if (!apiKey) {
-        sendJson(res, 400, { success: false, message: 'API key required', status: 'error' });
+      if (!apiKey || String(apiKey).startsWith('••••')) {
+        sendJson(res, 400, { success: false, message: 'OpenAI API key required', status: 'error' });
         return;
       }
-      const { default: OpenAI } = await import('openai');
-      const openai = new OpenAI({ apiKey });
-      await openai.models.list();
-      sendJson(res, 200, { success: true, message: 'OpenAI connection successful', status: 'connected' });
+      const { probeLLMConnection } = await import('./llm-connection');
+      await probeLLMConnection('openai', apiKey);
+      sendJson(res, 200, { success: true, message: 'Company AI Brain (OpenAI) connected', status: 'connected' });
       return;
     }
 
@@ -165,6 +167,59 @@ export async function handleIntegrationTest(
         return;
       }
       sendJson(res, 200, { success: true, message: 'Chatterbox TTS connection successful', status: 'connected' });
+      return;
+    }
+
+    if (integrationId === 'email_oauth') {
+      saveIntegrationSecrets('email_oauth', values);
+      const secrets = getEmailOAuthSecrets();
+      const hasGoogle = Boolean(
+        (process.env.GOOGLE_OAUTH_CLIENT_ID || secrets.googleClientId)
+        && (process.env.GOOGLE_OAUTH_CLIENT_SECRET || secrets.googleClientSecret)
+      );
+      const hasMicrosoft = Boolean(
+        (process.env.MICROSOFT_OAUTH_CLIENT_ID || secrets.microsoftClientId)
+        && (process.env.MICROSOFT_OAUTH_CLIENT_SECRET || secrets.microsoftClientSecret)
+      );
+      const hasYahoo = Boolean(
+        (process.env.YAHOO_OAUTH_CLIENT_ID || secrets.yahooClientId)
+        && (process.env.YAHOO_OAUTH_CLIENT_SECRET || secrets.yahooClientSecret)
+      );
+      const mock = process.env.INTEGRATIONS_MOCK_MODE !== 'false' && !hasGoogle;
+      if (mock && !hasGoogle && !hasMicrosoft && !hasYahoo) {
+        sendJson(res, 200, { success: true, message: 'Mailbox OAuth ready (mock mode — add Google Client ID/Secret)', status: 'mock' });
+        return;
+      }
+      if (hasGoogle) {
+        try {
+          const authUrl = getProvider('google').buildAuthUrl('integration-test');
+          const redirectUri = getRedirectUri();
+          const clientIdPresent = authUrl.includes('client_id=') && !authUrl.includes('client_id=&');
+          if (!clientIdPresent) {
+            sendJson(res, 400, { success: false, message: 'Google OAuth client ID invalid', status: 'error' });
+            return;
+          }
+          sendJson(res, 200, {
+            success: true,
+            message: `Google OAuth SDK ready (redirect: ${redirectUri})`,
+            status: 'connected',
+            authUrlPreview: authUrl.split('&')[0] + '&...',
+          });
+          return;
+        } catch (err) {
+          sendJson(res, 400, {
+            success: false,
+            message: err instanceof Error ? err.message : 'Google OAuth SDK test failed',
+            status: 'error',
+          });
+          return;
+        }
+      }
+      sendJson(res, 200, {
+        success: true,
+        message: `Mailbox OAuth configured (${[hasMicrosoft && 'Microsoft', hasYahoo && 'Yahoo'].filter(Boolean).join(', ') || 'saved'})`,
+        status: 'connected',
+      });
       return;
     }
 

@@ -25,6 +25,7 @@ import {
   unregisterLine,
 } from './telephony/lineRegistry';
 import { authenticateRequest, resolveOrgIdForRequest } from './auth';
+import { handleRealtimeRoutes } from './realtime-routes';
 
 function resolveUserIdFromRequest(req: IncomingMessage): string | null {
   const auth = authenticateRequest(req);
@@ -113,6 +114,25 @@ async function handlePatchSettings(req: IncomingMessage, res: ServerResponse) {
   if (typeof body.activeVoiceId === 'string') patch.activeVoiceId = body.activeVoiceId;
   const updated = updateAgentSettings(patch);
   sendJson(res, 200, updated);
+}
+
+async function handleGetTransferNumbers(_req: IncomingMessage, res: ServerResponse) {
+  sendJson(res, 200, { transferNumbers: getAgentSettings().transferNumbers ?? {} });
+}
+
+async function handlePatchTransferNumbers(req: IncomingMessage, res: ServerResponse) {
+  const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+  const keys = ['general', 'sales', 'projects', 'recruitment', 'accounts'] as const;
+  const current = getAgentSettings().transferNumbers ?? {};
+  const next: Record<string, string | undefined> = { ...current };
+  for (const key of keys) {
+    if (typeof body[key] === 'string') {
+      const trimmed = body[key].trim();
+      next[key] = trimmed || undefined;
+    }
+  }
+  const updated = updateAgentSettings({ transferNumbers: next });
+  sendJson(res, 200, { transferNumbers: updated.transferNumbers ?? {} });
 }
 
 async function handleGetStatus(_req: IncomingMessage, res: ServerResponse) {
@@ -426,12 +446,23 @@ export async function handleAgentRoutes(
   pathname: string,
   url: URL,
 ): Promise<boolean> {
+  if (await handleRealtimeRoutes(req, res, pathname)) {
+    return true;
+  }
   if (pathname === '/api/agent/settings' && req.method === 'GET') {
     await handleGetSettings(req, res);
     return true;
   }
   if (pathname === '/api/agent/settings' && req.method === 'PATCH') {
     await handlePatchSettings(req, res);
+    return true;
+  }
+  if (pathname === '/api/agent/transfer-numbers' && req.method === 'GET') {
+    await handleGetTransferNumbers(req, res);
+    return true;
+  }
+  if (pathname === '/api/agent/transfer-numbers' && req.method === 'PATCH') {
+    await handlePatchTransferNumbers(req, res);
     return true;
   }
   if (pathname === '/api/agent/status' && req.method === 'GET') {

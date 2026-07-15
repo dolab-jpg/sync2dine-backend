@@ -65,19 +65,6 @@ async function serperSearch(query: string, apiKey: string): Promise<SearchHit[]>
   }));
 }
 
-function mockRange(task: string): PriceRange {
-  // Deterministic-ish indicative range from task length, so mock output is stable.
-  const base = 80 + (task.length % 12) * 25;
-  return {
-    task,
-    low: base,
-    typical: Math.round(base * 1.4),
-    high: Math.round(base * 1.9),
-    unit: 'job',
-    sources: [],
-  };
-}
-
 export async function handlePriceResearchRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -118,7 +105,8 @@ export async function handlePriceResearchRoutes(
   const provider = body.provider || 'openai_web';
 
   const { resolveOrgIdForRequest } = await import('./auth');
-  const { resolveOpenAIApiKeyAsync } = await import('./openai-connection');
+  const { resolveOpenAIApiKeyAsync, mapOpenAIError, OpenAIConnectionError } = await import('./openai-connection');
+  const { createLLMClientForOrg, defaultChatModelForProvider } = await import('./llm-connection');
   const orgId = resolveOrgIdForRequest(req, body);
   let openaiKey: string | undefined;
   try {
@@ -127,12 +115,12 @@ export async function handlePriceResearchRoutes(
     openaiKey = undefined;
   }
 
-  // No AI available -> deterministic mock ranges.
+  // No silent mock — callers must connect Company AI Brain / OpenAI.
   if (!openaiKey) {
-    sendJson(res, 200, {
-      provider: 'mock',
-      items: tasks.map(mockRange),
-      note: 'Mock price research — set OPENAI_API_KEY and a search provider for live local pricing.',
+    sendJson(res, 503, {
+      error: 'OpenAI not connected — add your API key in Settings → Integrations → Company AI Brain and Save.',
+      code: 'missing',
+      provider: 'none',
     });
     return true;
   }
@@ -166,8 +154,10 @@ export async function handlePriceResearchRoutes(
   }
 
   try {
-    const { default: OpenAI } = await import('openai');
-    const openai = new OpenAI({ apiKey: openaiKey });
+    const { client, provider: brainProvider } = await createLLMClientForOrg(orgId, pathname, {
+      bodyOpenAIApiKey: body.apiKey,
+    });
+    const model = defaultChatModelForProvider(brainProvider, 'gpt-4o-mini');
 
     const systemPrompt = [
       `You are a UK construction & trades pricing researcher for region "${location}".`,
@@ -180,8 +170,8 @@ export async function handlePriceResearchRoutes(
       `low <= typical <= high. Numbers are GBP, no currency symbols. Include sources only if you have real URLs from the snippets.`,
     ].join('\n\n');
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const completion = await client.chat.completions.create({
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         {
@@ -205,14 +195,15 @@ export async function handlePriceResearchRoutes(
         : collectedSources.slice(0, 3),
     }));
 
-    sendJson(res, 200, { provider, items, sources: collectedSources });
+    sendJson(res, 200, { provider: provider === 'openai_web' ? 'openai' : provider, items, sources: collectedSources });
     return true;
   } catch (err) {
-    sendJson(res, 200, {
-      provider: 'mock',
-      items: tasks.map(mockRange),
-      note: `Price research failed (${err instanceof Error ? err.message : 'error'}) — returning indicative ranges.`,
-    });
+    if (err instanceof OpenAIConnectionError) {
+      sendJson(res, 503, { error: err.message, code: err.code });
+      return true;
+    }
+    const mapped = mapOpenAIError(err);
+    sendJson(res, 503, { error: mapped.message, code: mapped.code });
     return true;
   }
 }

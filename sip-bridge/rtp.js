@@ -1,5 +1,6 @@
 /**
- * Bidirectional RTP session: send μ-law TTS + receive for VAD listen.
+ * Bidirectional RTP session: send μ-law + receive.
+ * Supports half-duplex listen/play (pipeline) and continuous duplex (Realtime).
  */
 const dgram = require('dgram');
 const { EventEmitter } = require('events');
@@ -20,9 +21,11 @@ class RtpSession extends EventEmitter {
     this.localPort = localPort;
     this._timer = null;
     this._idleTimer = null;
+    this._duplexTimer = null;
     this._queue = Buffer.alloc(0);
     this._playing = false;
     this._idle = false;
+    this._duplex = false;
     this._bound = false;
     this._inboundLogged = false;
     this._listenBuf = [];
@@ -83,11 +86,14 @@ class RtpSession extends EventEmitter {
         this.remotePort = rinfo.port;
       }
     }
-    // Never drop receive path — ignoreInbound only skips listen buffering during echo-prone play
-    // when we are NOT in listen mode. Always count + optionally buffer.
+
+    // Always emit frames in duplex mode (and whenever listening)
+    if (this._duplex || this._listening || !this._ignoreInbound) {
+      this.emit('inbound-frame', payload);
+    }
+
     if (this._listening) {
       this._listenBuf.push(Buffer.from(payload));
-      this.emit('inbound-frame', payload);
       return;
     }
     if (!this._inboundLogged) {
@@ -106,15 +112,56 @@ class RtpSession extends EventEmitter {
   }
 
   enqueue(mulawBuf) {
-    this._queue = Buffer.concat([this._queue, mulawBuf]);
+    if (!mulawBuf || !mulawBuf.length) return;
+    this._queue = Buffer.concat([this._queue, Buffer.from(mulawBuf)]);
   }
 
   clearQueue() {
     this._queue = Buffer.alloc(0);
+    this._markerNext = true;
+  }
+
+  /**
+   * Continuous full-duplex: always pace outbound (audio or silence) so NAT stays open,
+   * and always emit inbound frames. Used by OpenAI Realtime.
+   */
+  startDuplex() {
+    if (this._duplex) return;
+    this.stop();
+    this.stopIdle();
+    this._duplex = true;
+    this._ignoreInbound = false;
+    this._markerNext = true;
+    const tick = () => {
+      if (!this._duplex) return;
+      let frame;
+      if (this._queue.length >= FRAME_SAMPLES) {
+        frame = this._queue.subarray(0, FRAME_SAMPLES);
+        this._queue = this._queue.subarray(FRAME_SAMPLES);
+      } else if (this._queue.length > 0) {
+        frame = Buffer.concat([this._queue, Buffer.alloc(FRAME_SAMPLES - this._queue.length, 0xff)]);
+        this._queue = Buffer.alloc(0);
+      } else {
+        frame = silenceMulaw(FRAME_MS);
+      }
+      this._sendFrame(frame);
+      this._duplexTimer = setTimeout(tick, FRAME_MS);
+    };
+    tick();
+    console.log('[rtp] duplex started remote=', `${this.remoteIp}:${this.remotePort}`);
+  }
+
+  stopDuplex() {
+    this._duplex = false;
+    if (this._duplexTimer) {
+      clearTimeout(this._duplexTimer);
+      this._duplexTimer = null;
+    }
   }
 
   /** Keep RTP alive with silence while thinking (STT/LLM/TTS). */
   startIdle() {
+    if (this._duplex) return;
     if (this._idle || this._playing) return;
     this._idle = true;
     const tick = () => {
@@ -134,6 +181,10 @@ class RtpSession extends EventEmitter {
   }
 
   start() {
+    if (this._duplex) {
+      // In duplex mode, audio is already being paced — just enqueue.
+      return;
+    }
     if (this._playing) return;
     this.stopIdle();
     this._playing = true;
@@ -202,6 +253,7 @@ class RtpSession extends EventEmitter {
   } = {}) {
     return new Promise((resolve) => {
       this.stop();
+      this.stopDuplex();
       this._listenBuf = [];
       this._listening = true;
       this._ignoreInbound = false;
@@ -279,6 +331,7 @@ class RtpSession extends EventEmitter {
   close() {
     this.stop();
     this.stopIdle();
+    this.stopDuplex();
     this._listening = false;
     try {
       this.socket.close();

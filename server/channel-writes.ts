@@ -21,6 +21,7 @@ import {
   createProjectFromQuoteServer,
   markPaymentReceivedServer,
 } from './project-writes';
+import { autoSendReceiptAfterMarkPaidServer, sendReceiptForStageServer } from './payment-receipt-service';
 import { executePlanningWrite, isPlanningWriteAction } from './planning-writes';
 import { executePhoneTool } from './phone-tools';
 import {
@@ -150,7 +151,7 @@ export async function executeChannelWrite(
   if (action === 'startQuote' || action === 'proposeQuoteFields') {
     const tradeId = firstString(input.tradeId) ?? 'bathroom';
     const customerId = firstString(input.customerId) ?? '';
-    const route = `/quotes/${tradeId}${customerId ? `/${customerId}` : ''}?prefill=ai`;
+    const route = `/quote/${tradeId}${customerId ? `/${customerId}` : ''}?prefill=ai`;
     const base = appBaseUrl();
     return {
       action,
@@ -252,7 +253,7 @@ export async function executeChannelWrite(
     syncData(store);
     const signToken = firstString(contract.signToken);
     const base = appBaseUrl();
-    const signLink = signToken && base ? `${base}/sign/${signToken}` : signToken ? `/sign/${signToken}` : null;
+    const signLink = signToken && base ? `${base}/contract/${signToken}` : signToken ? `/contract/${signToken}` : null;
     return {
       action,
       executed: true,
@@ -279,7 +280,14 @@ export async function executeChannelWrite(
     const projectId = firstString(input.projectId, body.projectContext?.projectId);
     if (!projectId) return { action, executed: false, summary: 'Need projectId.', output: input };
     const result = markPaymentReceivedServer(projectId, input);
-    return { action, executed: result.ok, summary: result.summary, output: { ...input, projectId } };
+    let summary = result.summary;
+    if (result.ok && result.stageId) {
+      const receipt = await autoSendReceiptAfterMarkPaidServer(projectId, result.stageId);
+      if (receipt && !receipt.skipped) {
+        summary += receipt.ok ? ` ${receipt.summary}` : ` Receipt not sent: ${receipt.summary}`;
+      }
+    }
+    return { action, executed: result.ok, summary, output: { ...input, projectId, stageId: result.stageId } };
   }
 
   const projectActions = new Set([
@@ -415,20 +423,18 @@ export async function executeChannelWrite(
     return { action, executed: true, summary: `Transaction matched to project ${projectId}.`, output: { ...input, transactionId: txId, projectId } };
   }
 
-  if (action === 'draftClientReceipt') {
-    const store = getDataStore();
-    const receipt = {
-      id: `RC${Date.now()}`,
-      clientName: firstString(input.clientName, input.customerName) ?? 'Client',
-      amount: readOptionalNumber(input.amount) ?? 0,
-      projectId: firstString(input.projectId),
-      description: firstString(input.description) ?? 'Receipt',
-      status: 'draft',
-      createdAt: new Date().toISOString(),
+  if (action === 'draftClientReceipt' || action === 'sendClientReceipt') {
+    const projectId = firstString(input.projectId, body.projectContext?.projectId);
+    if (!projectId) return { action, executed: false, summary: 'Need projectId.', output: input };
+    const result = await sendReceiptForStageServer(projectId, input, {
+      force: action === 'sendClientReceipt' || input.force === true,
+    });
+    return {
+      action,
+      executed: result.ok && !result.skipped,
+      summary: result.summary,
+      output: { ...input, projectId },
     };
-    store.clientReceipts.unshift(receipt);
-    syncData(store);
-    return { action, executed: true, summary: `Draft receipt ${receipt.id} saved.`, output: { ...input, receiptId: receipt.id } };
   }
 
   if (action === 'writeData') {
@@ -552,7 +558,7 @@ export const CHANNEL_WRITE_TOOLS = [
   'sendBuilderBrief', 'sendContractorBrief', 'requestSitePhotos', 'relayCustomerUpdate', 'logBuilderReply',
   'assessExtraFromPhotos', 'assessProgress', 'recordCostEntry', 'fixCostEntry', 'logHours', 'correctTimesheet',
   'approveChangeOrder', 'rejectChangeOrder', 'sendPaymentLink', 'bookSurvey', 'confirmHandover', 'confirmContract',
-  'categorizeTransaction', 'matchTransactionToProject', 'draftClientReceipt', 'writeData', 'navigateTo', 'navigate',
+  'categorizeTransaction', 'matchTransactionToProject', 'draftClientReceipt', 'sendClientReceipt', 'writeData', 'navigateTo', 'navigate',
   'updateApplication', 'setStage', 'setPricing', 'sendPricingEmail', 'logDrawing', 'sendReviewEmail',
   'recordCouncil', 'raiseChangeRequest', 'resolveChangeRequest', 'setDeadline', 'addComment', 'portalStatusCheck',
   'sendCouncilReply', 'sendCourtesyEmail', 'markDecision', 'generatePostApprovalTasks', 'convertToProject',

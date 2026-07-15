@@ -616,23 +616,25 @@ export function assignContractorServer(
 export function markPaymentReceivedServer(
   projectId: string,
   input: Record<string, unknown>,
-): { ok: boolean; summary: string } {
+): { ok: boolean; summary: string; stageId?: string } {
   const project = getProjectById(projectId);
   if (!project) return { ok: false, summary: 'Project not found.' };
   const stageId = firstString(input.stageId);
   const stageName = firstString(input.stageName)?.toLowerCase();
   const paidDate = firstString(input.paidDate) ?? new Date().toISOString().slice(0, 10);
+  let matchedStageId: string | undefined;
   const stages = (Array.isArray(project.paymentStages) ? project.paymentStages as Array<Record<string, unknown>> : []).map((stage) => {
     const matchesId = stageId && String(stage.id) === stageId;
     const matchesName = stageName && String(stage.name ?? '').toLowerCase().includes(stageName);
     if (!matchesId && !matchesName) return stage;
+    matchedStageId = String(stage.id);
     return { ...stage, status: 'paid', paidDate };
   });
   const matched = stages.some((s, i) => {
     const orig = (project.paymentStages as Array<Record<string, unknown>>)[i];
     return s !== orig;
   });
-  if (!matched) return { ok: false, summary: 'Payment stage not found.' };
+  if (!matched || !matchedStageId) return { ok: false, summary: 'Payment stage not found.' };
   updateProjectRecord(projectId, { paymentStages: stages });
-  return { ok: true, summary: 'Payment marked received.' };
+  return { ok: true, summary: 'Payment marked received.', stageId: matchedStageId };
 }

@@ -17,15 +17,48 @@ export interface ChannelRoute {
 }
 
 export function resolveInboundChannel(phone: string, orgId?: string): ChannelRoute {
+  // Website / portal session keys are always customer-facing Cyrus routes
+  if (/^(web_|portal_)/i.test(phone.trim())) {
+    const store = getDataStore(orgId);
+    if (/^portal_/i.test(phone.trim())) {
+      const token = phone.trim().replace(/^portal_/i, '');
+      const project = store.projects.find((p) => String(p.portalToken) === token);
+      if (project) {
+        return {
+          mode: 'customer',
+          role: 'customer',
+          customerId: project.customerId ? String(project.customerId) : null,
+          customerName: String(project.customerName ?? 'Customer'),
+          contactName: String(project.customerName ?? 'Customer'),
+          projectId: String(project.id),
+        };
+      }
+    }
+    return { mode: 'customer', role: 'customer', name: 'Website visitor', contactName: 'Website visitor' };
+  }
+
   const normalized = normalizePhoneExport(phone);
   const members = listTeamMembers(orgId);
   const staffMatch = members.find((m) => normalizePhoneExport(m.phone) === normalized);
   if (staffMatch) {
+    const preferredLanguage = staffMatch.preferredLanguage
+      ? String(staffMatch.preferredLanguage)
+      : null;
+    if (staffMatch.role === 'builder') {
+      return {
+        mode: 'foreman',
+        role: 'builder',
+        userId: staffMatch.userId,
+        name: staffMatch.name,
+        preferredLanguage,
+      };
+    }
     return {
       mode: 'staff',
       role: staffMatch.role,
       userId: staffMatch.userId,
       name: staffMatch.name,
+      preferredLanguage,
     };
   }
 
@@ -45,6 +78,9 @@ export function resolveInboundChannel(phone: string, orgId?: string): ChannelRou
       builderId: String(builderMatch.id ?? ''),
       name: String(builderMatch.name ?? builderMatch.companyName ?? 'Builder'),
       projectId: activeProject ? String(activeProject.id) : null,
+      preferredLanguage: builderMatch.preferredLanguage
+        ? String(builderMatch.preferredLanguage)
+        : null,
     };
   }
 
@@ -64,6 +100,9 @@ export function resolveInboundChannel(phone: string, orgId?: string): ChannelRou
         builderId: String(match.id ?? ''),
         name: assignedBuilder,
         projectId: String(project.id),
+        preferredLanguage: match.preferredLanguage
+          ? String(match.preferredLanguage)
+          : null,
       };
     }
   }

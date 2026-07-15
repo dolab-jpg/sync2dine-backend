@@ -39,31 +39,21 @@ function formatTranscript(
 export async function handleSummarizeChat(
   body: SummarizeRequestBody,
 ): Promise<{ summary: string }> {
-  const { resolveOpenAIApiKey, createOpenAIClientForOrg } = await import('./openai-connection');
+  const { createLLMClientForOrg, defaultChatModelForProvider } = await import('./llm-connection');
   const { resolveOrgIdFromBody } = await import('./org-context');
   const orgId = resolveOrgIdFromBody(body);
-  const apiKey = resolveOpenAIApiKey(body.apiKey, orgId);
 
   if (!body.messages?.length) {
     throw new Error('No messages provided');
   }
 
-  if (!apiKey) {
-    const customer = body.customerName ?? 'the customer';
-    const messageCount = body.messages.length;
-    return {
-      summary: `Mock summary (${messageCount} messages with ${customer}):\n`
-        + '- Customer: Details from transcript (mock mode)\n'
-        + '- Intent: Review conversation in Cyrus threads\n'
-        + '- Status: Configure OpenAI in Integrations Hub for AI-generated summaries\n'
-        + '- Next steps: Set OPENAI_API_KEY and refresh this summary',
-    };
-  }
-
-  const openai = await createOpenAIClientForOrg(orgId, '/api/ai/summarize', body.apiKey);
+  const { client: openai, provider } = await createLLMClientForOrg(orgId, '/api/ai/summarize', {
+    bodyOpenAIApiKey: body.apiKey,
+  });
+  const model = defaultChatModelForProvider(provider, body.model ?? 'gpt-4o-mini');
 
   const completion = await openai.chat.completions.create({
-    model: body.model ?? 'gpt-4o-mini',
+    model,
     messages: [
       { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
       {

@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { createHmac } from 'crypto';
-import { handleCyrusViaOrchestrator } from './cyrus-orchestrator';
+import { handleChannelInbound } from './channel-inbound-handler';
+import { getRequestOrgId } from './data-store';
 import {
   resolveContactByPhone,
   updateWhatsAppSession,
@@ -60,6 +61,33 @@ export async function sendWhatsAppText(
     to: to.replace(/\D/g, ''),
     type: 'text',
     text: { body: text },
+  });
+}
+
+export async function sendWhatsAppAudio(
+  phoneNumberId: string,
+  accessToken: string,
+  to: string,
+  audioBuffer: Buffer,
+  mimeType = 'audio/mpeg'
+): Promise<void> {
+  const uploadRes = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/media`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': mimeType,
+    },
+    body: audioBuffer,
+  });
+  const upload = await uploadRes.json() as { id?: string };
+  if (!upload.id) {
+    await sendWhatsAppText(phoneNumberId, accessToken, to, '[Voice reply unavailable — see text above]');
+    return;
+  }
+  await sendWhatsAppPayload(phoneNumberId, accessToken, {
+    to: to.replace(/\D/g, ''),
+    type: 'audio',
+    audio: { id: upload.id },
   });
 }
 
@@ -294,32 +322,44 @@ export async function handleWhatsAppWebhookPost(
     const isGroup = Boolean(groupId);
     updateWhatsAppSession(from, isGroup ? 'group' : 'individual', groupId);
 
-    const builderInbound = findBuilderInboundProject(from);
-    if (builderInbound) {
-      const inboundText = message.type === 'text'
-        ? String(message.text?.body ?? '')
-        : `Sent a ${String(message.type ?? 'message')}`;
-      await handleBuilderInbound(
-        builderInbound.projectId,
-        builderInbound.builderName,
-        from,
-        inboundText
-      );
-      return;
-    }
-
     const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
     if (!accessToken || !phoneNumberId) return;
 
+    const builderInbound = findBuilderInboundProject(from);
+
     const resolved = resolveContactByPhone(from);
-    let projectId = resolved.projectId;
+    let projectId = builderInbound?.projectId ?? resolved.projectId;
 
     if (isGroup && groupId) {
       const groupProject = getProjectByGroupId(groupId);
       if (groupProject) projectId = String(groupProject.id);
     }
 
-    if (message.type === 'image' || message.type === 'document') {
+    let text = '';
+    if (message.type === 'text') {
+      text = String(message.text?.body ?? '');
+    } else if (message.type === 'audio') {
+      const mediaId = message.audio?.id;
+      if (mediaId && accessToken) {
+        const media = await downloadWhatsAppMedia(mediaId, accessToken);
+        if (media) {
+          try {
+            const { resolveOpenAIApiKeyAsync } = await import('./openai-connection');
+            const { default: OpenAI } = await import('openai');
+            const waOrgId = getRequestOrgId();
+            const openai = new OpenAI({ apiKey: await resolveOpenAIApiKeyAsync(undefined, waOrgId) });
+            const file = new File([media.buffer], 'voice.ogg', { type: media.mimeType });
+            const transcript = await openai.audio.transcriptions.create({
+              model: 'whisper-1',
+              file,
+            });
+            text = transcript.text ?? '';
+          } catch {
+            text = '[Voice note received — could not transcribe]';
+          }
+        }
+      }
+    } else if (message.type === 'image' || message.type === 'document') {
       const mediaId = message.image?.id ?? message.document?.id;
       if (mediaId && projectId) {
         const media = await downloadWhatsAppMedia(mediaId, accessToken);
@@ -358,27 +398,42 @@ export async function handleWhatsAppWebhookPost(
           }
         }
       }
-      if (message.type === 'image') return;
+      if (message.type === 'image') {
+        if (!text) text = 'Customer sent a photo — please summarise progress or extras.';
+      } else if (message.type === 'document') {
+        if (!text) text = 'Customer sent a document.';
+      }
     }
 
-    if (message.type !== 'text') return;
+    if (!text) return;
 
-    const text = message.text?.body as string;
-    const upset = /upset|angry|unhappy|complaint|terrible|awful|disappointed/i.test(text);
-
-    if (projectId && upset) {
-      const store = getDataStore();
-      const project = store.projects.find(p => String(p.id) === projectId);
-      if (project) {
-        project.escalated = true;
-        syncData(store);
-      }
+    if (builderInbound) {
+      const timestamp = new Date().toISOString();
+      appendProjectMessage(builderInbound.projectId, {
+        id: `WM${Date.now()}`,
+        from: builderInbound.builderName,
+        fromRole: 'builder',
+        body: text,
+        timestamp,
+        channel: 'whatsapp',
+        senderPhone: from,
+      });
+      appendContractorComm(builderInbound.projectId, {
+        id: `CC${Date.now()}`,
+        builderId: 'builder',
+        builderName: builderInbound.builderName,
+        subject: 'Builder inbound',
+        body: text,
+        status: 'replied',
+        channel: 'whatsapp',
+        createdAt: timestamp,
+      });
     }
 
     appendProjectMessage(projectId ?? 'unknown', {
       id: `WM${Date.now()}`,
       from: resolved.contactName,
-      fromRole: 'customer',
+      fromRole: resolved.contactRole ?? 'customer',
       body: text,
       timestamp: new Date().toISOString(),
       channel: 'whatsapp',
@@ -387,92 +442,75 @@ export async function handleWhatsAppWebhookPost(
       senderContactRole: resolved.contactRole,
     });
 
-    const store = getDataStore();
-    const project = projectId ? store.projects.find(p => String(p.id) === projectId) : null;
-    const todayTasks = project
-      ? (project.tasks as Array<Record<string, unknown>> ?? [])
-          .filter(t => t.status !== 'completed')
-          .slice(0, 3)
-          .map(t => String(t.title))
-      : [];
-
-    const cyrusResult = await handleCyrusViaOrchestrator({
-      messages: [{ role: 'user', content: text }],
-      customerContext: {
-        customerId: resolved.customerId,
-        customerName: resolved.customerName,
-        phone: from,
-        contactName: resolved.contactName,
-        contactRole: resolved.contactRole,
-        projectId,
-        quoteId: project?.quoteId ? String(project.quoteId) : null,
-      },
-      projectContext: project
-        ? {
-            projectId: String(project.id),
-            projectName: String(project.projectName ?? 'Project'),
-            customerId: String(project.customerId ?? ''),
-            quoteId: String(project.quoteId ?? ''),
-            status: String(project.status ?? 'unknown'),
-            todayTasks,
-            nextPaymentDue: (() => {
-              const stages = (project.paymentStages as Array<Record<string, unknown>> ?? []);
-              const due = stages.find(s => s.status === 'due' || s.status === 'pending');
-              return due
-                ? {
-                    name: String(due.name ?? 'Payment stage'),
-                    amount: Number(due.amount ?? 0),
-                    status: String(due.status ?? 'pending'),
-                    dueDate: String(due.dueDate ?? ''),
-                  }
-                : null;
-            })(),
-            portalToken: String(project.portalToken ?? ''),
-          }
-        : undefined,
+    const orgId = getRequestOrgId();
+    const inbound = await handleChannelInbound({
+      orgId,
+      phone: from,
+      text,
+      channel: 'whatsapp',
+      contactName: resolved.contactName,
+      projectId: projectId ?? resolved.projectId,
     });
-    const content = cyrusResult.content;
+
+    const replyText = inbound.replyLocalized || inbound.replyEnglish;
+    const voicePreset = process.env.WHATSAPP_VOICE_REPLY === '1';
 
     if (isGroup && groupId) {
-      await sendWhatsAppText(phoneNumberId, accessToken, groupId, content, 'group');
+      await sendWhatsAppText(phoneNumberId, accessToken, groupId, replyText, 'group');
     } else {
-      await sendWhatsAppText(phoneNumberId, accessToken, from, content);
+      await sendWhatsAppText(phoneNumberId, accessToken, from, replyText);
+      if (voicePreset && inbound.route.mode === 'staff') {
+        try {
+          const { synthesizeSpeech } = await import('./tts');
+          const tts = await synthesizeSpeech(inbound.replyEnglish.slice(0, 500));
+          await sendWhatsAppAudio(phoneNumberId, accessToken, from, tts.buffer, tts.contentType);
+        } catch {
+          // text-only fallback
+        }
+      }
     }
 
     if (projectId) {
       appendProjectMessage(projectId, {
         id: `WM${Date.now()}a`,
-        from: 'Cyrus',
+        from: inbound.route.mode === 'staff' ? 'TradePro AI' : 'Cyrus',
         fromRole: 'office',
-        body: content,
+        body: inbound.replyEnglish,
+        bodyEnglish: inbound.replyEnglish,
         timestamp: new Date().toISOString(),
         channel: 'whatsapp',
       });
       appendProjectAiAction(projectId, {
         id: `AI${Date.now()}`,
-        action: 'cyrusReply',
-        input: {
-          channel: 'whatsapp',
-          senderPhone: from,
-          senderContactName: resolved.contactName,
-        },
-        output: {
-          content,
-          toolsUsed: cyrusResult.toolsUsed,
-        },
+        action: 'channelInbound',
+        input: { channel: 'whatsapp', route: inbound.route.mode, phone: from },
+        output: { executed: inbound.executedSummaries, toolsUsed: inbound.toolsUsed },
         status: 'approved',
         createdAt: new Date().toISOString(),
-        approvedBy: 'Cyrus',
+        approvedBy: 'Channel AI',
       });
     }
   } catch (err) {
     console.error('WhatsApp webhook error:', err);
+    try {
+      const { OpenAIConnectionError } = await import('./openai-connection');
+      if (err instanceof OpenAIConnectionError && from && phoneNumberId && accessToken) {
+        await sendWhatsAppText(
+          phoneNumberId,
+          accessToken,
+          from,
+          'Sorry — our AI assistant is temporarily unavailable. A team member will follow up shortly.',
+        );
+      }
+    } catch {
+      // ignore secondary failures
+    }
   }
 }
 
 export async function handleMessageSend(req: IncomingMessage, res: ServerResponse) {
   const body = JSON.parse(await readBody(req));
-  const { channel, to, body: text, config, templateId, templateVars, attachment, groupId } = body;
+  const { channel, to, body: text, config, templateId, templateVars, attachment, groupId, sourceLang } = body;
 
   if (channel === 'whatsapp') {
     const token = config?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
@@ -482,11 +520,22 @@ export async function handleMessageSend(req: IncomingMessage, res: ServerRespons
       return;
     }
 
+    // This is a manually composed message (e.g. from a CRM/staff UI) that may have been typed
+    // by a non-English-speaking worker — it must be canonical English before it reaches a
+    // customer's WhatsApp.
+    const { ensureEnglishForCustomerSend } = await import('./outbound-english-guard');
+    const guard = await ensureEnglishForCustomerSend(String(text ?? ''), sourceLang, getRequestOrgId());
+    if (!guard.ok) {
+      sendJson(res, 502, { success: false, error: 'Could not translate message to English before sending — message was not sent.' });
+      return;
+    }
+    const englishText = guard.english;
+
     const inWindow = isWithin24hWindow(to);
     const portalLink = templateVars?.portalLink ?? '';
 
     if (groupId) {
-      await sendWhatsAppText(phoneId, token, groupId, text, 'group');
+      await sendWhatsAppText(phoneId, token, groupId, englishText, 'group');
       sendJson(res, 200, { success: true, mode: 'group' });
       return;
     }
@@ -494,13 +543,13 @@ export async function handleMessageSend(req: IncomingMessage, res: ServerRespons
     if (!inWindow && templateId) {
       const vars = templateVars
         ? [templateVars.name ?? '', templateVars.summary ?? portalLink, portalLink].filter(Boolean)
-        : [text.slice(0, 100), portalLink];
+        : [englishText.slice(0, 100), portalLink];
       await sendWhatsAppTemplate(phoneId, token, to, templateId, vars);
       sendJson(res, 200, { success: true, mode: 'template', templateId });
       return;
     }
 
-    await sendWhatsAppText(phoneId, token, to, text);
+    await sendWhatsAppText(phoneId, token, to, englishText);
     if (attachment?.content && inWindow) {
       await sendWhatsAppPayload(phoneId, token, {
         to: to.replace(/\D/g, ''),
@@ -508,7 +557,7 @@ export async function handleMessageSend(req: IncomingMessage, res: ServerRespons
         document: {
           link: attachment.url ?? undefined,
           filename: attachment.filename,
-          caption: text.slice(0, 100),
+          caption: englishText.slice(0, 100),
         },
       });
     }
@@ -517,7 +566,25 @@ export async function handleMessageSend(req: IncomingMessage, res: ServerRespons
   }
 
   if (channel === 'email') {
-    sendJson(res, 200, { success: true, mock: true, message: 'Email queued (configure SMTP/Resend at go-live)' });
+    const { sendViaSmtp } = await import('./messages-routes');
+    const toAddr = to;
+    if (!toAddr) {
+      sendJson(res, 400, { error: 'No recipient for email' });
+      return;
+    }
+    try {
+      const result = await sendViaSmtp({
+        to: toAddr,
+        subject: body.subject || '(no subject)',
+        body: text || '',
+        attachment: attachment,
+        config: config,
+        sourceLang,
+      }, toAddr);
+      sendJson(res, result.success ? 200 : 500, result);
+    } catch (err) {
+      sendJson(res, 500, { success: false, error: err instanceof Error ? err.message : 'Email send failed' });
+    }
     return;
   }
 
