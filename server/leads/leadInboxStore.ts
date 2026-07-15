@@ -164,10 +164,15 @@ export async function notifyStaff(
   const prefix = urgency === 'high' ? 'URGENT: ' : 'Lead: ';
   const text = `${prefix}${summary}${customerId ? ` (CRM: ${customerId})` : ''}`;
 
+  if (!isWithinBusinessHours()) return;
+
+  const { getWWebStatus, sendWWebMessage } = await import('../whatsapp-web-client');
+  const { isMetaWhatsAppEnabled } = await import('../whatsapp-webhook');
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-
-  if (!phoneNumberId || !accessToken || !isWithinBusinessHours()) return;
+  const wwebReady = getWWebStatus() === 'ready';
+  const metaOk = isMetaWhatsAppEnabled() && Boolean(phoneNumberId && accessToken);
+  if (!wwebReady && !metaOk) return;
 
   const staff = listTeamMembers(orgId).filter(
     m => m.role === 'staff' || m.role === 'manager' || m.role === 'super_admin'
@@ -177,7 +182,11 @@ export async function notifyStaff(
     const phone = normalizePhoneExport(member.phone);
     if (!phone) continue;
     try {
-      await sendWhatsAppText(phoneNumberId, accessToken, phone, text);
+      if (wwebReady) {
+        await sendWWebMessage(phone, text);
+      } else if (phoneNumberId && accessToken) {
+        await sendWhatsAppText(phoneNumberId, accessToken, phone, text);
+      }
     } catch (err) {
       console.error(`Lead alert WhatsApp failed for ${member.name}:`, err);
     }

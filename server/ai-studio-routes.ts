@@ -61,28 +61,6 @@ function writeStudioMeta(meta: StudioMeta): void {
   writeFileSync(RETENTION_PATH, JSON.stringify(meta, null, 2));
 }
 
-async function syncStudioToMongo(
-  connectionString: string,
-  config: Record<string, unknown>,
-  databaseName?: string
-): Promise<void> {
-  const { MongoClient } = await import('mongodb');
-  const { resolveDatabaseName } = await import('./mongodb');
-  const client = new MongoClient(connectionString.trim(), { serverSelectionTimeoutMS: 10000 });
-  try {
-    await client.connect();
-    const dbName = databaseName?.trim() || resolveDatabaseName(connectionString);
-    const db = client.db(dbName);
-    await db.collection('ai_studio_config').updateOne(
-      { _id: 'default' },
-      { $set: { ...config, updatedAt: new Date().toISOString() } },
-      { upsert: true }
-    );
-  } finally {
-    await client.close().catch(() => undefined);
-  }
-}
-
 export async function handleAIStudioRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -110,15 +88,7 @@ export async function handleAIStudioRoutes(
         auditRoles: Array.isArray(config.auditRoles) ? config.auditRoles : readStudioMeta().auditRoles,
       });
     }
-    const mongoUri = body.mongodb?.connectionString || process.env.MONGODB_CONNECTION_STRING;
-    if (mongoUri?.trim()) {
-      try {
-        await syncStudioToMongo(mongoUri, config, body.mongodb?.databaseName);
-      } catch {
-        // Mongo optional
-      }
-    }
-    sendJson(res, 200, { ok: true, mongodb: Boolean(mongoUri?.trim()) });
+    sendJson(res, 200, { ok: true });
     return true;
   }
 

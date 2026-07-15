@@ -22,6 +22,8 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
 }
 
 function getWhatsAppCreds(): { phoneId: string; token: string } | null {
+  const enabled = process.env.WHATSAPP_META_ENABLED?.trim().toLowerCase();
+  if (enabled !== '1' && enabled !== 'true') return null;
   const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() || '';
   const token = process.env.WHATSAPP_ACCESS_TOKEN?.trim() || '';
   if (!phoneId || !token) return null;
@@ -330,12 +332,10 @@ export async function handleGapApiRoutes(
       }
       const creds = getWhatsAppCreds();
       if (!creds) {
-        sendJson(res, 200, {
-          ok: true,
-          stub: true,
+        sendJson(res, 503, {
+          error: 'Meta WhatsApp Cloud API is disabled — use WhatsApp Web (QR) in Integrations',
           to: body.to,
           templateName: body.templateName,
-          message: 'WhatsApp template stubbed — set WHATSAPP_* env',
         });
         return true;
       }
@@ -371,12 +371,10 @@ export async function handleGapApiRoutes(
       const creds = getWhatsAppCreds();
       const mediaType = body.mediaType === 'image' || body.mediaType === 'video' ? body.mediaType : 'document';
       if (!creds) {
-        sendJson(res, 200, {
-          ok: true,
-          stub: true,
+        sendJson(res, 503, {
+          error: 'Meta WhatsApp Cloud API is disabled — use WhatsApp Web (QR) in Integrations',
           to: body.to,
           mediaType,
-          message: 'WhatsApp media stubbed — set WHATSAPP_* env',
         });
         return true;
       }

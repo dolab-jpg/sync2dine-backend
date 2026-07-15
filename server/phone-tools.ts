@@ -624,10 +624,58 @@ export async function executePhoneTool(
         spokenHint: 'That is a staff number — give me the customer number to message.',
       };
     }
-    const waToken = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
-    const waPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
-    if (!waToken || !waPhoneId) {
-      // Fail closed — also push a Cynthia card so staff can still follow up
+    try {
+      const { getWWebStatus, sendWWebMessage } = await import('./whatsapp-web-client');
+      if (getWWebStatus() === 'ready') {
+        const msgId = await sendWWebMessage(to, message);
+        if (!msgId) {
+          return {
+            sent: false,
+            error: 'wweb_send_failed',
+            spokenHint: 'I could not send that WhatsApp message.',
+          };
+        }
+        const customerId = firstString(input.customerId);
+        if (customerId && callId) {
+          appendCustomerCallActivity({
+            customerId,
+            callId,
+            summary: `WhatsApp sent: ${message.slice(0, 180)}`,
+            outcome: 'message_sent',
+          });
+        }
+        return {
+          sent: true,
+          channel: 'whatsapp',
+          mode: 'wweb',
+          to,
+          spokenHint: 'Message sent on WhatsApp.',
+        };
+      }
+
+      const { isMetaWhatsAppEnabled, sendWhatsAppText } = await import('./whatsapp-webhook');
+      const waToken = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
+      const waPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+      if (isMetaWhatsAppEnabled() && waToken && waPhoneId) {
+        await sendWhatsAppText(waPhoneId, waToken, to.startsWith('+') ? to : `+${to}`, message);
+        const customerId = firstString(input.customerId);
+        if (customerId && callId) {
+          appendCustomerCallActivity({
+            customerId,
+            callId,
+            summary: `WhatsApp sent: ${message.slice(0, 180)}`,
+            outcome: 'message_sent',
+          });
+        }
+        return {
+          sent: true,
+          channel: 'whatsapp',
+          to,
+          spokenHint: 'Message sent on WhatsApp.',
+        };
+      }
+
+      // Fail closed — push a Cynthia card so staff can still follow up
       const staffPush = sendToStaffCynthiaInternal({
         orgId: body.orgId || getRequestOrgId(),
         userId: firstString(body.staffContext?.userId),
@@ -647,25 +695,6 @@ export async function executePhoneTool(
         spokenHint: staffPush.ok
           ? 'WhatsApp is not connected yet — I logged that message on your Cynthia chat instead.'
           : 'WhatsApp is not configured, so I cannot send that message to the customer.',
-      };
-    }
-    try {
-      const { sendWhatsAppText } = await import('./whatsapp-webhook');
-      await sendWhatsAppText(waPhoneId, waToken, to.startsWith('+') ? to : `+${to}`, message);
-      const customerId = firstString(input.customerId);
-      if (customerId && callId) {
-        appendCustomerCallActivity({
-          customerId,
-          callId,
-          summary: `WhatsApp sent: ${message.slice(0, 180)}`,
-          outcome: 'message_sent',
-        });
-      }
-      return {
-        sent: true,
-        channel: 'whatsapp',
-        to,
-        spokenHint: 'Message sent on WhatsApp.',
       };
     } catch (err) {
       return {

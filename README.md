@@ -2,6 +2,8 @@
 
 Supabase backend for the TradePro / Bathroom Sales Estimation Platform.
 
+**Full stack inventory / audit (frontend · backend · Flutter mobile · GitHub · VPS · Supabase):** sibling frontend [`docs/APPLICATION_MASTER.md`](../Bathroom%20Sales%20Estimation%20Platform/docs/APPLICATION_MASTER.md) — single living SoT (includes §27 Mobile).
+
 ## Structure
 
 - `supabase/` — Postgres migrations, seed data, Edge Functions

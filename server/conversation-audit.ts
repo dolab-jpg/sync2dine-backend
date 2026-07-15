@@ -122,7 +122,6 @@ export async function handleConversationAudit(
     };
     logs.push(entry);
     writeLogs(logs);
-    void syncLogToMongo(body, entry);
     sendJson(res, 200, { ok: true, id: entry.id });
     return true;
   }
@@ -137,27 +136,4 @@ export async function handleConversationAudit(
 
   sendJson(res, 404, { error: 'Not found' });
   return true;
-}
-
-async function syncLogToMongo(body: Record<string, unknown>, entry: LogEntry): Promise<void> {
-  const mongoUri = body.mongodb?.connectionString || process.env.MONGODB_CONNECTION_STRING;
-  if (!mongoUri || typeof mongoUri !== 'string' || !mongoUri.trim()) return;
-  try {
-    const { MongoClient } = await import('mongodb');
-    const { resolveDatabaseName } = await import('./mongodb');
-    const databaseName = typeof body.mongodb === 'object' && body.mongodb && 'databaseName' in body.mongodb
-      ? String((body.mongodb as { databaseName?: string }).databaseName ?? '')
-      : undefined;
-    const client = new MongoClient(mongoUri.trim(), { serverSelectionTimeoutMS: 10000 });
-    try {
-      await client.connect();
-      const dbName = databaseName?.trim() || resolveDatabaseName(mongoUri);
-      const db = client.db(dbName);
-      await db.collection('ai_conversations').insertOne(entry);
-    } finally {
-      await client.close().catch(() => undefined);
-    }
-  } catch {
-    // Mongo optional
-  }
 }

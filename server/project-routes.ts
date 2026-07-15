@@ -230,54 +230,56 @@ export async function handleProjectRoutes(
       return true;
     }
     const body = JSON.parse(await readBody(req));
+    const subject = body.subject ?? `${project.projectName ?? 'Project'} Group`;
+    const metaEnabled = (() => {
+      const v = process.env.WHATSAPP_META_ENABLED?.trim().toLowerCase();
+      return v === '1' || v === 'true';
+    })();
     const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
     const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-    const subject = body.subject ?? `${project.projectName ?? 'Project'} Group`;
 
-    if (accessToken && phoneNumberId) {
-      try {
-        const createRes = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/groups`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            subject,
-            description: body.description ?? `Project group for ${project.customerName}`,
-          }),
-        });
-        const data = await createRes.json() as { id?: string; invite_link?: string };
-        if (data.id) {
-          const group = {
-            metaGroupId: data.id,
-            inviteLink: data.invite_link ?? '',
-            subject,
-            status: 'created',
-            participantCount: 1,
-            createdAt: new Date().toISOString(),
-          };
-          saveWhatsAppGroup(projectId, group);
-          sendJson(res, 200, { success: true, group });
-          return true;
-        }
-      } catch {
-        // fall through to mock
-      }
+    // Path B Meta cold forever — do not call Graph unless explicitly enabled
+    if (!metaEnabled || !accessToken || !phoneNumberId) {
+      sendJson(res, 503, {
+        error: 'WhatsApp groups require Meta Cloud API which is disabled — use 1:1 WhatsApp Web + portal',
+        subject,
+      });
+      return true;
     }
 
-    const mockGroup = {
-      metaGroupId: `mock_grp_${Date.now()}`,
-      inviteLink: `https://wa.me/g/mock_${projectId}`,
-      subject,
-      status: 'created',
-      participantCount: 1,
-      createdAt: new Date().toISOString(),
-    };
-    saveWhatsAppGroup(projectId, mockGroup);
-    sendJson(res, 200, { success: true, group: mockGroup, mock: true });
-    return true;
+    try {
+      const createRes = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/groups`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          subject,
+          description: body.description ?? `Project group for ${project.customerName}`,
+        }),
+      });
+      const data = await createRes.json() as { id?: string; invite_link?: string };
+      if (data.id) {
+        const group = {
+          metaGroupId: data.id,
+          inviteLink: data.invite_link ?? '',
+          subject,
+          status: 'created',
+          participantCount: 1,
+          createdAt: new Date().toISOString(),
+        };
+        saveWhatsAppGroup(projectId, group);
+        sendJson(res, 200, { success: true, group });
+        return true;
+      }
+      sendJson(res, 502, { error: 'Meta Groups API did not return a group id' });
+      return true;
+    } catch (err) {
+      sendJson(res, 500, { error: err instanceof Error ? err.message : 'WhatsApp group create failed' });
+      return true;
+    }
   }
 
   if (groupCreateMatch && req.method === 'GET') {

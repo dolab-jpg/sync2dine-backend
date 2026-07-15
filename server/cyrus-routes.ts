@@ -80,12 +80,18 @@ async function maybeSendWhatsApp(sessionId: string, text: string): Promise<boole
   if (!/^\d{10,15}$/.test(normalizeSessionKey(sessionId)) && !/^\+?\d{10,15}$/.test(sessionId)) {
     return false;
   }
-  const token = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
-  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
-  if (!token || !phoneId) return false;
+  const to = sessionId.startsWith('+') ? sessionId : `+${normalizeSessionKey(sessionId)}`;
   try {
-    const { sendWhatsAppText } = await import('./whatsapp-webhook');
-    await sendWhatsAppText(phoneId, token, sessionId.startsWith('+') ? sessionId : `+${normalizeSessionKey(sessionId)}`, text);
+    const { getWWebStatus, sendWWebMessage } = await import('./whatsapp-web-client');
+    if (getWWebStatus() === 'ready') {
+      const msgId = await sendWWebMessage(to, text);
+      return Boolean(msgId);
+    }
+    const { isMetaWhatsAppEnabled, sendWhatsAppText } = await import('./whatsapp-webhook');
+    const token = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
+    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+    if (!isMetaWhatsAppEnabled() || !token || !phoneId) return false;
+    await sendWhatsAppText(phoneId, token, to, text);
     return true;
   } catch {
     return false;

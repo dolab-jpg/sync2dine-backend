@@ -35,11 +35,20 @@ function verifySignature(payload: string, signature: string | undefined, appSecr
   return signature === expected;
 }
 
+/** Path B (Meta Cloud API) — cold forever unless explicitly enabled. Do not enable in production. */
+export function isMetaWhatsAppEnabled(): boolean {
+  const v = process.env.WHATSAPP_META_ENABLED?.trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
+
 async function sendWhatsAppPayload(
   phoneNumberId: string,
   accessToken: string,
   payload: Record<string, unknown>
 ): Promise<void> {
+  if (!isMetaWhatsAppEnabled()) {
+    throw new Error('Meta WhatsApp Cloud API is disabled — use WhatsApp Web (QR) in Integrations');
+  }
   await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
     method: 'POST',
     headers: {
@@ -72,6 +81,9 @@ export async function sendWhatsAppAudio(
   audioBuffer: Buffer,
   mimeType = 'audio/mpeg'
 ): Promise<void> {
+  if (!isMetaWhatsAppEnabled()) {
+    throw new Error('Meta WhatsApp Cloud API is disabled — use WhatsApp Web (QR) in Integrations');
+  }
   const uploadRes = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/media`, {
     method: 'POST',
     headers: {
@@ -116,6 +128,7 @@ async function downloadWhatsAppMedia(
   mediaId: string,
   accessToken: string
 ): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  if (!isMetaWhatsAppEnabled()) return null;
   try {
     const metaRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -268,6 +281,11 @@ export async function handleWhatsAppWebhookGet(
   res: ServerResponse,
   url: URL
 ) {
+  // Path B cold forever — do not complete Meta hub verification in production
+  if (!isMetaWhatsAppEnabled()) {
+    sendJson(res, 403, { error: 'Meta WhatsApp webhook disabled — use WhatsApp Web (QR)' });
+    return;
+  }
   const mode = url.searchParams.get('hub.mode');
   const token = url.searchParams.get('hub.verify_token');
   const challenge = url.searchParams.get('hub.challenge');
@@ -285,6 +303,14 @@ export async function handleWhatsAppWebhookPost(
   req: IncomingMessage,
   res: ServerResponse
 ) {
+  // Path B cold forever — ack empty so accidental Meta posts do nothing
+  if (!isMetaWhatsAppEnabled()) {
+    await readBody(req);
+    res.statusCode = 200;
+    res.end('OK');
+    return;
+  }
+
   const rawBody = await readBody(req);
   const signature = req.headers['x-hub-signature-256'] as string | undefined;
   const appSecret = process.env.META_APP_SECRET ?? '';
@@ -555,7 +581,7 @@ export async function handleMessageSend(req: IncomingMessage, res: ServerRespons
     }
     const englishText = guard.english;
 
-    // Prefer WhatsApp Web.js when connected
+    // WhatsApp Web.js is the sole live transport (Path B Meta cold forever)
     if (getWWebStatus() === 'ready') {
       const target = groupId || to;
       const msgId = await sendWWebMessage(target, englishText);
@@ -571,45 +597,47 @@ export async function handleMessageSend(req: IncomingMessage, res: ServerRespons
       return;
     }
 
-    // Fallback: Meta Cloud API (legacy)
-    const token = config?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
-    const phoneId = config?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-    if (!token || !phoneId) {
-      sendJson(res, 400, { error: 'WhatsApp not configured — connect via QR code in Integrations' });
-      return;
+    // Retained Meta fallback — only when WHATSAPP_META_ENABLED is explicitly on (never in production)
+    if (isMetaWhatsAppEnabled()) {
+      const token = config?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+      const phoneId = config?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+      if (token && phoneId) {
+        const inWindow = isWithin24hWindow(to);
+        const portalLink = templateVars?.portalLink ?? '';
+
+        if (groupId) {
+          await sendWhatsAppText(phoneId, token, groupId, englishText, 'group');
+          sendJson(res, 200, { success: true, mode: 'group' });
+          return;
+        }
+
+        if (!inWindow && templateId) {
+          const vars = templateVars
+            ? [templateVars.name ?? '', templateVars.summary ?? portalLink, portalLink].filter(Boolean)
+            : [englishText.slice(0, 100), portalLink];
+          await sendWhatsAppTemplate(phoneId, token, to, templateId, vars);
+          sendJson(res, 200, { success: true, mode: 'template', templateId });
+          return;
+        }
+
+        await sendWhatsAppText(phoneId, token, to, englishText);
+        if (attachment?.content && inWindow) {
+          await sendWhatsAppPayload(phoneId, token, {
+            to: to.replace(/\D/g, ''),
+            type: 'document',
+            document: {
+              link: attachment.url ?? undefined,
+              filename: attachment.filename,
+              caption: englishText.slice(0, 100),
+            },
+          });
+        }
+        sendJson(res, 200, { success: true, mode: inWindow ? 'session' : 'text' });
+        return;
+      }
     }
 
-    const inWindow = isWithin24hWindow(to);
-    const portalLink = templateVars?.portalLink ?? '';
-
-    if (groupId) {
-      await sendWhatsAppText(phoneId, token, groupId, englishText, 'group');
-      sendJson(res, 200, { success: true, mode: 'group' });
-      return;
-    }
-
-    if (!inWindow && templateId) {
-      const vars = templateVars
-        ? [templateVars.name ?? '', templateVars.summary ?? portalLink, portalLink].filter(Boolean)
-        : [englishText.slice(0, 100), portalLink];
-      await sendWhatsAppTemplate(phoneId, token, to, templateId, vars);
-      sendJson(res, 200, { success: true, mode: 'template', templateId });
-      return;
-    }
-
-    await sendWhatsAppText(phoneId, token, to, englishText);
-    if (attachment?.content && inWindow) {
-      await sendWhatsAppPayload(phoneId, token, {
-        to: to.replace(/\D/g, ''),
-        type: 'document',
-        document: {
-          link: attachment.url ?? undefined,
-          filename: attachment.filename,
-          caption: englishText.slice(0, 100),
-        },
-      });
-    }
-    sendJson(res, 200, { success: true, mode: inWindow ? 'session' : 'text' });
+    sendJson(res, 400, { error: 'WhatsApp not configured — connect via QR code in Integrations' });
     return;
   }
 

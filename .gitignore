@@ -6,3 +6,6 @@ dist/
 supabase/.branches
 supabase/.temp
 *.log
+server/data/*.json
+server/data/synced-data-*.json
+server/data/.wwebjs_auth/
