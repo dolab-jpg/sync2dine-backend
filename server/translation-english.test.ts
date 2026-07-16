@@ -17,7 +17,7 @@ import {
   clearTranslationCacheForTests,
   __setTranslationClientFactoryForTests,
 } from './translation-service';
-import { ensureEnglishForCustomerSend } from './outbound-english-guard';
+import { ensureEnglishForCustomerSend, ensureEnglishFields } from './outbound-english-guard';
 import { resolveInboundChannel } from './channel-router';
 import { upsertTeamMember, listTeamMembers } from './conversation-store';
 import { setRequestOrgId } from './data-store';
@@ -156,6 +156,21 @@ describe('ensureEnglishForCustomerSend', () => {
     assert.equal(result.ok, false);
     assert.equal(result.english, 'Cześć klient');
   });
+
+  it('ensureEnglishFields translates body for sendQuote-style payloads', async () => {
+    __setTranslationClientFactoryForTests(async () =>
+      fakeClient({ '*': 'Please find your quote attached.' }),
+    );
+    const result = await ensureEnglishFields(
+      { quoteId: 'Q1', body: 'Proszę znaleźć wycenę w załączniku.' },
+      ['body', 'subject'],
+      'pl',
+      'org-test',
+    );
+    assert.equal(result.ok, true);
+    assert.equal(result.input.body, 'Please find your quote attached.');
+    assert.equal(result.input.quoteId, 'Q1');
+  });
 });
 
 describe('channel-router preferredLanguage for staff', () => {
@@ -184,8 +199,8 @@ describe('language-packs SUPPORTED_LANGS / deepgram', () => {
       [...SUPPORTED_LANGS].sort(),
       ['en', 'es', 'fa', 'pl', 'ru', 'sq', 'uk', 'zh'].sort(),
     );
-    assert.equal(deepgramLanguageForPack('ru'), 'ru');
-    assert.equal(deepgramLanguageForPack('uk'), 'uk');
-    assert.equal(deepgramLanguageForPack('en'), 'en-GB');
+    assert.equal(deepgramLanguageForPack('ru'), 'multi');
+    assert.equal(deepgramLanguageForPack('uk'), 'multi');
+    assert.equal(deepgramLanguageForPack('en'), 'multi');
   });
 });

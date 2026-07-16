@@ -105,21 +105,13 @@ export function getSystemInstruction(lang?: string | null): string {
   return getPack(lang).systemInstruction;
 }
 
-/** Deepgram nova-2 language code per pack; 'multi' triggers Deepgram's multilingual mode. */
-const DEEPGRAM_LANG_BY_PACK: Record<SupportedLang, string> = {
-  en: 'en-GB',
-  es: 'es',
-  pl: 'pl',
-  zh: 'zh',
-  uk: 'uk',
-  ru: 'ru',
-  fa: 'multi',
-  sq: 'multi',
-};
-
-export function deepgramLanguageForPack(lang?: string | null): string {
-  const code = normalizeLang(lang);
-  return DEEPGRAM_LANG_BY_PACK[code] ?? 'multi';
+/**
+ * Deepgram STT for Vapi phone: always multilingual so callers can flip mid-call.
+ * Per-pack single codes are unused for phone — spoken reply language is driven by
+ * prompt + setCallLanguage metadata / preferredLanguage.
+ */
+export function deepgramLanguageForPack(_lang?: string | null): string {
+  return 'multi';
 }
 
 /**

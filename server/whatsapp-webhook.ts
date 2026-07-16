@@ -622,15 +622,21 @@ export async function handleMessageSend(req: IncomingMessage, res: ServerRespons
 
         await sendWhatsAppText(phoneId, token, to, englishText);
         if (attachment?.content && inWindow) {
-          await sendWhatsAppPayload(phoneId, token, {
-            to: to.replace(/\D/g, ''),
-            type: 'document',
-            document: {
-              link: attachment.url ?? undefined,
-              filename: attachment.filename,
-              caption: englishText.slice(0, 100),
-            },
-          });
+          // Prefer hosted URL; otherwise skip Meta document (WWeb path handles base64)
+          const link = typeof attachment.url === 'string' && /^https?:\/\//i.test(attachment.url)
+            ? attachment.url
+            : undefined;
+          if (link) {
+            await sendWhatsAppPayload(phoneId, token, {
+              to: to.replace(/\D/g, ''),
+              type: 'document',
+              document: {
+                link,
+                filename: attachment.filename,
+                caption: englishText.slice(0, 100),
+              },
+            });
+          }
         }
         sendJson(res, 200, { success: true, mode: inWindow ? 'session' : 'text' });
         return;

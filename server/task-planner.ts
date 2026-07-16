@@ -64,7 +64,10 @@ export function classifyTaskIntent(
 
   const hasCustomer = /\b[A-Z][a-z]+ [A-Z][a-z]+\b/.test(message)
     || Boolean(body.staffContext?.customerId)
-    || (body.staffContext?.customers?.some((c) => lower.includes(c.name.toLowerCase())));
+    || (body.staffContext?.customers?.some((c) => {
+      const name = String(c?.name ?? '').toLowerCase();
+      return name.length > 0 && lower.includes(name);
+    }));
 
   const hasTrade = /\b(bathroom|kitchen|electrical|plumbing|roofing|loft|extension|painting|flooring)\b/i.test(lower)
     || Boolean(body.staffContext?.tradeId);

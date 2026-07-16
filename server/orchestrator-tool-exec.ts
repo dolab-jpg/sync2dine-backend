@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { getDataStore, resolveContactByPhone, appendCustomerCallActivity } from './data-store';
 import { getOfficeTeamCounts, getOfficeTeamRoster, getTopPerformer } from './team-snapshot';
 import { listTeamMembers } from './conversation-store';
@@ -24,8 +25,8 @@ function firstString(...values: unknown[]): string | undefined {
   return undefined;
 }
 
-function includesQuery(value: string, query: string): boolean {
-  return value.toLowerCase().includes(query.toLowerCase());
+function includesQuery(value: string | undefined | null, query: string): boolean {
+  return String(value ?? '').toLowerCase().includes(String(query ?? '').toLowerCase());
 }
 
 function scrubOutput(output: Record<string, unknown>, role: string): Record<string, unknown> {
@@ -285,7 +286,14 @@ function searchCustomersServer(
     email: String(c.email ?? ''),
     phone: String(c.phone ?? ''),
   }));
-  const list = (customers?.length ? customers : storeCustomers) ?? [];
+  const list = (customers?.length
+    ? customers.map((c) => ({
+      id: String(c.id ?? ''),
+      name: String(c.name ?? ''),
+      email: String(c.email ?? ''),
+      phone: String(c.phone ?? ''),
+    }))
+    : storeCustomers) ?? [];
   if (!list.length) return { results: [] as Array<Record<string, unknown>>, hasMore: false, total: 0 };
 
   const matched = browse
@@ -331,10 +339,10 @@ function searchQuotesServer(
   const matched = browse
     ? list
     : list.filter((quote) =>
-      quote.id.toLowerCase().includes(q)
-      || quote.customerName.toLowerCase().includes(q)
-      || (quote.tradeName ?? '').toLowerCase().includes(q)
-      || quote.status.toLowerCase().includes(q)
+      String(quote.id ?? '').toLowerCase().includes(q)
+      || String(quote.customerName ?? '').toLowerCase().includes(q)
+      || String(quote.tradeName ?? '').toLowerCase().includes(q)
+      || String(quote.status ?? '').toLowerCase().includes(q)
     );
   const slice = matched.slice(0, limit).map((quote) => {
     const spokenTotal = formatSpokenGbp(quote.total);

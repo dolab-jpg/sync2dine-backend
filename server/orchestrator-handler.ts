@@ -2040,7 +2040,10 @@ function extractCustomerNameFromMessage(
 ): string | undefined {
   const list = customers ?? [];
   const lower = message.toLowerCase();
-  const match = list.find((c) => lower.includes(c.name.toLowerCase().split(' ')[0] ?? ''));
+  const match = list.find((c) => {
+    const first = String(c.name ?? '').toLowerCase().split(' ')[0] ?? '';
+    return first.length > 0 && lower.includes(first);
+  });
   if (match) return match.name;
   const nameMatch = message.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/);
   return nameMatch?.[1];
@@ -2191,7 +2194,9 @@ function buildMockResult(userMessage: string, body: OrchestratorRequest): Orches
     if (detectQuoteWonIntent(lower)) {
       const customerName = extractCustomerNameFromMessage(userMessage, body.staffContext?.customers);
       const quote = body.staffContext?.quotes?.find((q) =>
-        customerName ? q.customerName.toLowerCase().includes(customerName.toLowerCase().split(' ')[0] ?? '') : false
+        customerName
+          ? String(q.customerName ?? '').toLowerCase().includes(customerName.toLowerCase().split(' ')[0] ?? '')
+          : false
       ) ?? body.staffContext?.quotes?.[0];
       const withPaymentPlan = /payment plan|instalment|installment/i.test(lower);
       if (quote) {
@@ -2240,7 +2245,7 @@ function buildMockResult(userMessage: string, body: OrchestratorRequest): Orches
     const customers = ctx?.customers ?? [];
     const extracted = extractCustomerFromMessage(userMessage);
     const existing = extracted.name
-      ? customers.find(c => c.name.toLowerCase().includes(extracted.name!.toLowerCase()))
+      ? customers.find(c => String(c.name ?? '').toLowerCase().includes(extracted.name!.toLowerCase()))
       : undefined;
 
     if (extracted.name || existing || lower.includes('customer') || lower.includes('client') || lower.includes('make me')) {

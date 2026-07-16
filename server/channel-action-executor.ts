@@ -14,15 +14,10 @@ import { researchTaskPrices, pickHigherEnd } from './price-research-service';
 import { savePendingConfirmation, consumePendingConfirmation } from './conversation-store';
 import type { OrchestratorRequest } from './orchestrator-types';
 import { randomBytes } from 'crypto';
-import { emitAgentActivity } from './agent-activity';
-import { resolveStaffUserId } from './cynthia-staff-store';
-
-/** Staff user targeted by the live activity feed (explicit context first, then registered phone). */
-function activityTargetUser(ctx: { orgId: string; phone?: string; orchestratorBody?: OrchestratorRequest }): string | null {
-  const explicit = ctx.orchestratorBody?.staffContext?.userId?.trim();
-  if (explicit && explicit !== 'default-staff') return explicit;
-  return resolveStaffUserId({ staffPhone: ctx.phone, orgId: ctx.orgId });
-}
+import {
+  CUSTOMER_ENGLISH_TEXT_FIELDS,
+  ensureEnglishFields,
+} from './outbound-english-guard';
 
 export const CONFIRM_ACTIONS = new Set([
   'sendContract',
@@ -507,6 +502,21 @@ export async function executeChannelAction(
   const { role, phone, approvedBy, orchestratorBody, skipConfirm } = ctx;
   const body = orchestratorBody ?? { messages: [] };
 
+  const englishFields = CUSTOMER_ENGLISH_TEXT_FIELDS[action];
+  let safeInput = input;
+  if (englishFields?.length) {
+    const guarded = await ensureEnglishFields(input, englishFields, null, ctx.orgId);
+    if (!guarded.ok) {
+      return {
+        action,
+        executed: false,
+        summary: guarded.error || 'Could not prepare English customer text.',
+        output: input,
+      };
+    }
+    safeInput = guarded.input;
+  }
+
   if (!skipConfirm && CONFIRM_ACTIONS.has(action) && phone) {
     return {
       action,
@@ -514,57 +524,57 @@ export async function executeChannelAction(
       needsConfirm: true,
       confirmPrompt: `Reply YES to confirm ${action}, or NO to cancel.`,
       summary: `Pending confirmation for ${action}.`,
-      output: input,
+      output: safeInput,
     };
   }
 
-  if (action === 'lookupQuote') return execLookupQuote(input, body);
+  if (action === 'lookupQuote') return execLookupQuote(safeInput, body);
   if (action === 'lookupProjectStatus' || action === 'getPortalLink') {
-    const output = executeCustomerTool(action, input, body);
+    const output = executeCustomerTool(action, safeInput, body);
     return { action, executed: true, summary: action, output };
   }
-  if (action === 'escalateToStaff') return execEscalate(input);
+  if (action === 'escalateToStaff') return execEscalate(safeInput);
 
   const readTools = new Set([
     'searchCustomers', 'searchProjects', 'searchQuotes', 'searchLeads',
     'getBusinessSnapshot', 'getTeamPerformance', 'getProjectProfit', 'getCostBreakdown', 'readData',
   ]);
   if (readTools.has(action)) {
-    const output = await executeServerReadTool(action, input, body);
+    const output = await executeServerReadTool(action, safeInput, body);
     return { action, executed: true, summary: action, output };
   }
 
   switch (action) {
     case 'priceSmallJob':
-      return execPriceSmallJob(input, role, approvedBy);
+      return execPriceSmallJob(safeInput, role, approvedBy);
     case 'submitForApproval':
-      return execSubmitForApproval(input, role);
+      return execSubmitForApproval(safeInput, role);
     case 'approveQuote':
-      return execApproveQuote(input, role, true, approvedBy);
+      return execApproveQuote(safeInput, role, true, approvedBy);
     case 'rejectQuote':
-      return execApproveQuote(input, role, false, approvedBy);
+      return execApproveQuote(safeInput, role, false, approvedBy);
     case 'saveCustomer':
     case 'linkCustomer':
-      return execSaveCustomer(input, role);
+      return execSaveCustomer(safeInput, role);
     case 'updateLeadStatus':
-      return execUpdateLeadStatus(input, role);
+      return execUpdateLeadStatus(safeInput, role);
     case 'logFollowUp':
-      return execLogFollowUp(input, role);
+      return execLogFollowUp(safeInput, role);
     case 'saveQuote':
-      return execSaveQuote(input, role);
+      return execSaveQuote(safeInput, role);
     case 'updateQuote':
-      return execUpdateQuote(input, role);
+      return execUpdateQuote(safeInput, role);
     case 'generatePaymentSchedule':
-      return execGeneratePaymentSchedule(input, role);
+      return execGeneratePaymentSchedule(safeInput, role);
     case 'saveContract':
-      return execSaveContract(input, role);
+      return execSaveContract(safeInput, role);
     case 'navigateTo':
-      return execNavigateTo(input);
+      return execNavigateTo(safeInput);
     case 'updateTaskStatus':
     case 'updateProject':
-      return execUpdateProject(input, role);
+      return execUpdateProject(safeInput, role);
     default: {
-      const write = await executeChannelWrite(action, input, {
+      const write = await executeChannelWrite(action, safeInput, {
         role,
         approvedBy,
         orchestratorBody: body,
@@ -580,7 +590,6 @@ export async function executeChannelActions(
   ctx: Parameters<typeof executeChannelAction>[2]
 ): Promise<ChannelActionResult[]> {
   const results: ChannelActionResult[] = [];
-  const activityUser = activityTargetUser(ctx);
   for (const item of actions) {
     const merged = { ...item.input, ...item.output };
     if (CONFIRM_ACTIONS.has(item.action) && ctx.phone && !ctx.skipConfirm) {
@@ -612,10 +621,7 @@ export async function executeChannelActions(
       });
       continue;
     }
-    if (activityUser) emitAgentActivity({ orgId: ctx.orgId, targetUserId: activityUser, channel: 'channel', action: item.action, phase: 'started', summary: `Running ${item.action}…` });
-    const result = await executeChannelAction(item.action, merged, ctx);
-    if (activityUser) emitAgentActivity({ orgId: ctx.orgId, targetUserId: activityUser, channel: 'channel', action: item.action, phase: result.executed ? 'completed' : result.needsConfirm ? 'working' : 'error', summary: result.summary, route: typeof result.output?.route === 'string' ? String(result.output.route) : undefined });
-    results.push(result);
+    results.push(await executeChannelAction(item.action, merged, ctx));
   }
   return results;
 }

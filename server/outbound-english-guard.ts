@@ -41,3 +41,45 @@ export async function ensureEnglishForCustomerSend(
     return { english: trimmed, ok: false };
   }
 }
+
+/** Translate listed string fields in-place for customer-facing tool payloads. */
+export async function ensureEnglishFields(
+  input: Record<string, unknown>,
+  fields: string[],
+  sourceLang?: string | null,
+  orgId?: string | null,
+): Promise<{ ok: boolean; input: Record<string, unknown>; error?: string }> {
+  const next = { ...input };
+  for (const field of fields) {
+    const raw = next[field];
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const guard = await ensureEnglishForCustomerSend(raw, sourceLang, orgId);
+    if (!guard.ok) {
+      return {
+        ok: false,
+        input: next,
+        error: `Could not translate ${field} to English before customer send.`,
+      };
+    }
+    next[field] = guard.english;
+  }
+  return { ok: true, input: next };
+}
+
+/** Actions whose free-text fields must be English before they leave the system. */
+export const CUSTOMER_ENGLISH_TEXT_FIELDS: Record<string, string[]> = {
+  sendEmailReply: ['body', 'subject'],
+  sendEmailWithAttachment: ['body', 'subject'],
+  sendQuote: ['body', 'subject', 'message'],
+  sendInvoice: ['body', 'subject', 'message'],
+  sendContract: ['body', 'message', 'notes'],
+  draftCustomerMessage: ['body', 'message', 'subject'],
+  relayCustomerUpdate: ['body', 'message'],
+  notifyCustomerChangeOrder: ['body', 'message', 'notes'],
+  sendCustomerMessage: ['message', 'body'],
+  generateContractPdf: ['terms', 'body', 'notes'],
+  generateInvoicePdf: ['notes', 'body', 'description'],
+  draftContract: ['body', 'terms', 'notes'],
+  draftInvoice: ['body', 'notes', 'description'],
+  saveContract: ['body', 'terms', 'bodyRendered', 'notes'],
+};

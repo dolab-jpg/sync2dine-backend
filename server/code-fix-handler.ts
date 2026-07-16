@@ -1,15 +1,37 @@
 /**
  * Self-heal code-fix queue: CRM chat → Cursor Cloud Agents → GitHub PR.
- * Jobs persist to server/data/code-fix-jobs.json (and Supabase when configured).
+ * Primary store: Supabase `code_fix_jobs` when service role is configured.
+ * Local JSON is a worker cache / offline fallback only.
  */
 import type { IncomingMessage, ServerResponse } from 'http';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveOrgIdForRequest, isAuthEnforced, requireAuth } from './auth';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STORE_PATH = join(__dirname, 'data', 'code-fix-jobs.json');
+const DEBUG_LOG =
+  'c:/Users/dolab/Downloads/Bathroom Sales Estimation Platform/.cursor/debug-53a33f.log';
+
+function debugLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
+  // #region agent log
+  try {
+    appendFileSync(
+      DEBUG_LOG,
+      `${JSON.stringify({
+        sessionId: '53a33f',
+        runId: 'self-heal',
+        hypothesisId,
+        location,
+        message,
+        data,
+        timestamp: Date.now(),
+      })}\n`,
+    );
+  } catch { /* ignore */ }
+  // #endregion
+}
 
 const FRONTEND_REPO = 'https://github.com/dolab-jpg/tradepro-frontend';
 const BACKEND_REPO = 'https://github.com/dolab-jpg/tradepro-backend';
@@ -18,6 +40,8 @@ const MAX_CONCURRENCY = 2;
 const MAX_ATTEMPTS = 3;
 const STUCK_MS = 30 * 60 * 1000;
 const DEDUPE_MS = 15 * 60 * 1000;
+/** Same error with an open/merged PR must not spawn another Cursor agent for a day. */
+const PR_DEDUPE_MS = 24 * 60 * 60 * 1000;
 const HEALTH_CACHE_MS = 10 * 60 * 1000;
 const HTTP_CLASS_ERROR_CODES = new Set(['HTTP_401', 'HTTP_400', 'HTTP_503']);
 const OFFER_DEDUPE_STATUSES: CodeFixStatus[] = [
@@ -88,6 +112,9 @@ export interface CodeFixJob {
 
 let workerStarted = false;
 let activeRuns = 0;
+/** In-memory cache (hydrated from Supabase when configured). */
+let jobsCache: CodeFixJob[] | null = null;
+let hydratePromise: Promise<void> | null = null;
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
@@ -104,7 +131,11 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-function readJobs(): CodeFixJob[] {
+function supabaseConfigured(): boolean {
+  return Boolean(process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+}
+
+function readJobsLocal(): CodeFixJob[] {
   try {
     if (!existsSync(STORE_PATH)) return [];
     return JSON.parse(readFileSync(STORE_PATH, 'utf-8')) as CodeFixJob[];
@@ -113,9 +144,132 @@ function readJobs(): CodeFixJob[] {
   }
 }
 
-function writeJobs(jobs: CodeFixJob[]): void {
+function writeJobsLocal(jobs: CodeFixJob[]): void {
   mkdirSync(dirname(STORE_PATH), { recursive: true });
   writeFileSync(STORE_PATH, JSON.stringify(jobs.slice(-2000), null, 2), 'utf-8');
+}
+
+function rowToJob(row: Record<string, unknown>): CodeFixJob {
+  return {
+    id: String(row.id),
+    orgId: row.org_id ? String(row.org_id) : undefined,
+    requesterUserId: row.requester_user_id ? String(row.requester_user_id) : undefined,
+    requesterName: String(row.requester_name ?? ''),
+    requesterRole: String(row.requester_role ?? ''),
+    chatSessionId: row.chat_session_id ? String(row.chat_session_id) : undefined,
+    errorCode: String(row.error_code ?? ''),
+    description: String(row.description ?? ''),
+    route: String(row.route ?? ''),
+    screenshotDataUrl: row.screenshot_data_url ? String(row.screenshot_data_url) : undefined,
+    scope: (row.scope === 'needs_cursor_approval' ? 'needs_cursor_approval' : 'surgical'),
+    status: String(row.status ?? 'queued') as CodeFixStatus,
+    attemptCount: Number(row.attempt_count ?? 0),
+    maxAttempts: Number(row.max_attempts ?? MAX_ATTEMPTS),
+    lastError: row.last_error ? String(row.last_error) : undefined,
+    alertedAt: row.alerted_at ? String(row.alerted_at) : undefined,
+    cursorAgentId: row.cursor_agent_id ? String(row.cursor_agent_id) : undefined,
+    cursorAgentUrl: row.cursor_agent_url ? String(row.cursor_agent_url) : undefined,
+    prUrl: row.pr_url ? String(row.pr_url) : undefined,
+    repoUrl: row.repo_url ? String(row.repo_url) : undefined,
+    metadata: (row.metadata && typeof row.metadata === 'object'
+      ? row.metadata as Record<string, unknown>
+      : {}),
+    createdAt: String(row.created_at ?? nowIso()),
+    updatedAt: String(row.updated_at ?? nowIso()),
+  };
+}
+
+async function jobToRow(job: CodeFixJob): Promise<Record<string, unknown>> {
+  const { resolveOrgUuid } = await import('./supabase-admin.js');
+  const orgUuid = job.orgId ? await resolveOrgUuid(job.orgId) : null;
+  return {
+    id: job.id,
+    org_id: orgUuid,
+    requester_user_id: job.requesterUserId ?? null,
+    requester_name: job.requesterName,
+    requester_role: job.requesterRole,
+    chat_session_id: job.chatSessionId ?? null,
+    error_code: job.errorCode,
+    description: job.description,
+    route: job.route,
+    screenshot_data_url: job.screenshotDataUrl ?? null,
+    scope: job.scope,
+    status: job.status,
+    attempt_count: job.attemptCount,
+    max_attempts: job.maxAttempts,
+    last_error: job.lastError ?? null,
+    alerted_at: job.alertedAt ?? null,
+    cursor_agent_id: job.cursorAgentId ?? null,
+    cursor_agent_url: job.cursorAgentUrl ?? null,
+    pr_url: job.prUrl ?? null,
+    repo_url: job.repoUrl ?? null,
+    metadata: job.metadata ?? {},
+    created_at: job.createdAt,
+    updated_at: job.updatedAt,
+  };
+}
+
+async function loadJobsFromSupabase(): Promise<CodeFixJob[]> {
+  const { getSupabaseAdmin } = await import('./supabase-admin.js');
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('code_fix_jobs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(2000);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Array<Record<string, unknown>>).map(rowToJob);
+}
+
+async function upsertJobToSupabase(job: CodeFixJob): Promise<void> {
+  const { getSupabaseAdmin } = await import('./supabase-admin.js');
+  const supabase = getSupabaseAdmin();
+  const row = await jobToRow(job);
+  const { error } = await supabase.from('code_fix_jobs').upsert(row as never, { onConflict: 'id' });
+  if (error) throw new Error(error.message);
+}
+
+async function hydrateJobsCache(): Promise<void> {
+  if (!supabaseConfigured()) {
+    jobsCache = readJobsLocal();
+    debugLog('H1', 'code-fix-handler.ts:hydrate', 'using local JSON only', {
+      count: jobsCache.length,
+      supabase: false,
+    });
+    return;
+  }
+  try {
+    const remote = await loadJobsFromSupabase();
+    jobsCache = remote;
+    writeJobsLocal(remote);
+    debugLog('H1', 'code-fix-handler.ts:hydrate', 'hydrated from Supabase', {
+      count: remote.length,
+      supabase: true,
+    });
+  } catch (err) {
+    jobsCache = readJobsLocal();
+    debugLog('H1', 'code-fix-handler.ts:hydrate', 'Supabase hydrate failed — local fallback', {
+      count: jobsCache.length,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function ensureHydrated(): Promise<void> {
+  if (!hydratePromise) hydratePromise = hydrateJobsCache();
+  return hydratePromise;
+}
+
+function readJobs(): CodeFixJob[] {
+  if (jobsCache) return jobsCache;
+  jobsCache = readJobsLocal();
+  void ensureHydrated();
+  return jobsCache;
+}
+
+function writeJobs(jobs: CodeFixJob[]): void {
+  jobsCache = jobs.slice(-2000);
+  writeJobsLocal(jobsCache);
 }
 
 function nowIso() {
@@ -453,6 +607,28 @@ function upsertJob(job: CodeFixJob): CodeFixJob {
   if (idx >= 0) jobs[idx] = job;
   else jobs.push(job);
   writeJobs(jobs);
+  if (supabaseConfigured()) {
+    void upsertJobToSupabase(job)
+      .then(() => {
+        debugLog('H1', 'code-fix-handler.ts:upsertJob', 'Supabase upsert OK', {
+          id: job.id,
+          status: job.status,
+          errorCode: job.errorCode,
+        });
+      })
+      .catch((err) => {
+        console.warn('[code-fix] Supabase upsert failed:', err instanceof Error ? err.message : err);
+        debugLog('H1', 'code-fix-handler.ts:upsertJob', 'Supabase upsert FAILED', {
+          id: job.id,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      });
+  } else {
+    debugLog('H1', 'code-fix-handler.ts:upsertJob', 'Supabase not configured — local only', {
+      id: job.id,
+      status: job.status,
+    });
+  }
   return job;
 }
 
@@ -461,9 +637,18 @@ function findJob(id: string): CodeFixJob | undefined {
 }
 
 function findDedupe(errorCode: string, route: string): CodeFixJob | undefined {
-  const cutoff = Date.now() - DEDUPE_MS;
+  const now = Date.now();
+  const cutoff = now - DEDUPE_MS;
+  const prCutoff = now - PR_DEDUPE_MS;
   return readJobs().find((j) => {
     if (j.errorCode !== errorCode) return false;
+    // Block re-heal when a PR already exists for this error (24h)
+    if (
+      (j.status === 'pr_open' || j.status === 'merged')
+      && new Date(j.updatedAt || j.createdAt).getTime() >= prCutoff
+    ) {
+      return true;
+    }
     if (new Date(j.createdAt).getTime() < cutoff) return false;
     if (!OFFER_DEDUPE_STATUSES.includes(j.status)) return false;
     // HTTP class errors: dedupe globally by errorCode (ignore route)
@@ -707,10 +892,12 @@ async function tickWorker(): Promise<void> {
 export function startCodeFixWorker(): void {
   if (workerStarted) return;
   workerStarted = true;
+  void ensureHydrated().then(() => {
+    void tickWorker();
+  });
   setInterval(() => {
     void tickWorker();
   }, 5000);
-  void tickWorker();
 }
 
 function queuePosition(jobId: string): number {
@@ -735,6 +922,7 @@ export async function handleCodeFixRoutes(
   pathname: string,
 ): Promise<boolean> {
   if (!pathname.startsWith('/api/ai/code-fix')) return false;
+  await ensureHydrated();
 
   startCodeFixWorker();
 
