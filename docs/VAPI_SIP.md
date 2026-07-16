@@ -46,19 +46,24 @@ POST /api/calls/outbound
 { "to": "+447576442345", "template": "lead_callback" }
 ```
 
-## British voice (proven live path)
+## British voice (proven live path) + per-language map
 
-Live phone TTS is **ElevenLabs through Vapi** (`provider: '11labs'`). Successful production calls used the female Cockney **Lizzie** voice — not local STT/TTS or Chatterbox.
+Live phone TTS is **ElevenLabs through Vapi** (`provider: '11labs'`). **English stays Lizzie** — not local STT/TTS or Chatterbox.
 
 ```env
 ELEVENLABS_API_KEY=••••
 VAPI_ELEVENLABS_VOICE_ID=EQx6HGDYjkDpcli6vorJ
 ELEVENLABS_VOICE_ID=EQx6HGDYjkDpcli6vorJ
+ELEVENLABS_MODEL_ID=eleven_turbo_v2_5
+# Optional non-English overrides only — never override en / Lizzie
+# VAPI_ELEVENLABS_VOICE_ID_ES=…  or  VAPI_ELEVENLABS_VOICE_MAP={"es":"…"}
 ```
+
+Per-language defaults live in `server/phone-voices.ts` (es Aerisita, pl Aleksandra, ru Klava, uk Kira, zh Zicai, fa Laura, sq Veronica). Call start uses `getVapiVoiceConfigForLang`. Mid-call: `setCallLanguage` persists preference + best-effort voice PATCH. Identity is always **Cynthia**. See frontend `docs/VOICE_SETUP.md` + `APPLICATION_MASTER.md` §16.5.
 
 Also paste the ElevenLabs key into Vapi dashboard → Integrations if required by your org.
 
-Retest baseline: outbound to staff mobile + PIN, then inbound from a second phone; first spoken reply must match that Cockney voice.
+Retest baseline: outbound to staff mobile + PIN, then inbound from a second phone; English first reply must be Cockney Lizzie. Mid-call: ask for Spanish/Polish → must keep speaking (not list-and-stop); back to English → Lizzie.
 
 ## Soho66 REGISTER caveat
 
