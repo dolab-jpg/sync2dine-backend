@@ -11,6 +11,7 @@ import {
   saveQuoteRecord,
   saveRecruitmentCandidate,
   saveRecruitmentInterview,
+  syncData,
 } from './data-store';
 import type { CallIntent, OutboundCampaignTemplate } from './telephony/types';
 import type { OrchestratorRequest } from './orchestrator-types';
@@ -538,9 +539,30 @@ export async function executePhoneTool(
         urgency: input.urgency ?? 'medium',
         callId,
         customerId: firstString(input.customerId, body.customerContext?.customerId),
+        aim: firstString(input.aim) || 'callback',
       },
       scheduledAt: firstString(input.preferredTime, input.scheduledAt),
     });
+    const customerId = firstString(input.customerId, body.customerContext?.customerId);
+    if (customerId) {
+      appendCustomerCallActivity({
+        customerId,
+        callId: callId ?? undefined,
+        summary: `Callback booked to ${dialTo}${input.preferredTime ? ` (${String(input.preferredTime)})` : ''}`,
+        detail: String(input.reason ?? 'Callback requested'),
+        aim: 'callback',
+        type: 'callback',
+      });
+      const preferred = firstString(input.preferredTime, input.scheduledAt);
+      if (preferred) {
+        const store = getDataStore();
+        const idx = store.customers.findIndex((c) => String(c.id) === customerId);
+        if (idx >= 0) {
+          store.customers[idx] = { ...store.customers[idx], nextFollowUp: preferred };
+          syncData(store);
+        }
+      }
+    }
     return {
       callbackQueued: true,
       jobId: job.id,

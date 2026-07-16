@@ -388,7 +388,7 @@ export async function handlePhoneOutboundWebhook(req: IncomingMessage, res: Serv
 
 export async function handleOutboundCallApi(req: IncomingMessage, res: ServerResponse) {
   const body = JSON.parse(await readBody(req));
-  const { to, template, context, scheduledAt } = body;
+  const { to, template, context, scheduledAt, fromWorker } = body;
 
   if (!to || !template) {
     sendJson(res, 400, { error: 'to and template are required' });
@@ -398,13 +398,50 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
   const config = resolveTelephonyConfig();
   const provider = getTelephonyProvider(config);
   const callId = `out-${Date.now()}`;
+  const meta = {
+    ...(context && typeof context === 'object' ? context : {}),
+    customerId: context?.customerId,
+    aim: context?.aim ?? context?.reason,
+  };
+
+  // Worker already owns the queue row — dial only, do not enqueue another job.
+  if (fromWorker === true || fromWorker === '1') {
+    try {
+      const result = await provider.placeCall(String(to), {
+        callId,
+        direction: 'outbound',
+        from: config.fromNumber ?? '',
+        to: String(to),
+        campaignTemplate: template as OutboundCampaignTemplate,
+        metadata: meta,
+      }, config);
+      saveCall({
+        id: result.callId,
+        providerCallId: result.providerCallId,
+        direction: 'outbound',
+        from: config.fromNumber ?? '',
+        to: String(to),
+        status: 'ringing',
+        campaignTemplate: template,
+        customerId: meta.customerId ? String(meta.customerId) : undefined,
+        transcript: [],
+        startedAt: new Date().toISOString(),
+        metadata: meta,
+      });
+      sendJson(res, 200, { success: true, callId: result.callId, fromWorker: true });
+      return;
+    } catch (err) {
+      sendJson(res, 500, { success: false, error: err instanceof Error ? err.message : 'Dial failed' });
+      return;
+    }
+  }
 
   const { enqueueOutboundCall } = await import('./data-store');
   const job = enqueueOutboundCall({
     to: String(to),
     template: String(template),
     status: 'queued',
-    context: context ?? {},
+    context: meta,
     scheduledAt,
     callId,
   });
@@ -417,7 +454,7 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
         from: config.fromNumber ?? '',
         to: String(to),
         campaignTemplate: template as OutboundCampaignTemplate,
-        metadata: context,
+        metadata: meta,
       }, config);
       updateOutboundJob(String(job.id), { status: 'dialing', callId: result.callId });
       saveCall({
@@ -428,8 +465,10 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
         to: String(to),
         status: 'ringing',
         campaignTemplate: template,
+        customerId: meta.customerId ? String(meta.customerId) : undefined,
         transcript: [],
         startedAt: new Date().toISOString(),
+        metadata: meta,
       });
       sendJson(res, 200, { success: true, jobId: job.id, callId: result.callId });
       return;

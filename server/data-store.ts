@@ -768,24 +768,35 @@ export function appendCustomerCallActivity(input: {
   callId?: string;
   summary: string;
   outcome?: string;
+  aim?: string;
+  detail?: string;
+  createdBy?: string;
+  type?: string;
 }): Record<string, unknown> {
   const store = getDataStore();
   const idx = store.customers.findIndex(c => String(c.id) === input.customerId);
   const stamp = new Date().toISOString();
+  const detail = (input.detail ?? input.summary).trim();
+  const aimBit = input.aim ? ` Aim: ${input.aim}.` : '';
   const line = [
     `[Cynthia call ${stamp.slice(0, 16).replace('T', ' ')}]`,
-    input.summary.trim(),
+    detail,
+    aimBit,
     input.outcome ? `Outcome: ${input.outcome.trim()}` : '',
     input.callId ? `(callId ${input.callId})` : '',
   ].filter(Boolean).join(' ');
 
   const activity = {
     id: `CA${Date.now()}`,
-    type: 'aria_call',
-    callId: input.callId ?? null,
+    type: input.type ?? 'call',
+    aim: input.aim ?? null,
+    detail,
     summary: input.summary,
     outcome: input.outcome ?? null,
+    callSessionId: input.callId ?? null,
+    callId: input.callId ?? null,
     createdAt: stamp,
+    createdBy: input.createdBy ?? 'cynthia',
   };
 
   if (idx < 0) {
@@ -802,10 +813,75 @@ export function appendCustomerCallActivity(input: {
     ...customer,
     notes: prevNotes ? `${line}\n${prevNotes}` : line,
     activities: activities.slice(0, 50),
+    lastContact: stamp,
     updatedAt: stamp,
   };
   syncData(store);
   return { ...activity, logged: true };
+}
+
+/** Build a spoken/CRM brief from customer notes + activities for Cynthia. */
+export function buildLeadBriefFromCustomer(customer: Record<string, unknown> | undefined): {
+  found: boolean;
+  customerId: string | null;
+  name: string | null;
+  status: string | null;
+  phone: string | null;
+  nextFollowUp: string | null;
+  notesPreview: string | null;
+  activities: Array<Record<string, unknown>>;
+  spokenHint: string;
+} {
+  if (!customer) {
+    return {
+      found: false,
+      customerId: null,
+      name: null,
+      status: null,
+      phone: null,
+      nextFollowUp: null,
+      notesPreview: null,
+      activities: [],
+      spokenHint: 'No lead on file for that lookup.',
+    };
+  }
+  const activitiesRaw = Array.isArray(customer.activities) ? customer.activities as Array<Record<string, unknown>> : [];
+  const activities = activitiesRaw.slice(0, 8).map((a) => ({
+    type: a.type ?? 'note',
+    aim: a.aim ?? null,
+    detail: String(a.detail ?? a.summary ?? '').slice(0, 280),
+    outcome: a.outcome ?? null,
+    createdAt: a.createdAt ?? null,
+    createdBy: a.createdBy ?? null,
+  }));
+  const name = String(customer.name ?? 'Lead');
+  const notes = String(customer.notes ?? '').slice(0, 400);
+  const activityLines = activities
+    .filter((a) => a.detail)
+    .map((a) => {
+      const aim = a.aim ? ` [${a.aim}]` : '';
+      return `${String(a.createdAt ?? '').slice(0, 10)}${aim}: ${a.detail}`;
+    });
+  const spokenHint = [
+    `${name} is on file as ${String(customer.status ?? 'lead')}.`,
+    activityLines.length
+      ? `Recent conversation: ${activityLines.slice(0, 3).join(' | ')}`
+      : notes
+        ? `Notes: ${notes.slice(0, 200)}`
+        : 'No prior conversation notes yet.',
+  ].join(' ');
+
+  return {
+    found: true,
+    customerId: String(customer.id),
+    name,
+    status: customer.status != null ? String(customer.status) : null,
+    phone: customer.phone != null ? String(customer.phone) : null,
+    nextFollowUp: customer.nextFollowUp != null ? String(customer.nextFollowUp) : null,
+    notesPreview: notes || null,
+    activities,
+    spokenHint,
+  };
 }
 
 export function getAgentSettings(): AgentSettings {

@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { getDataStore, resolveContactByPhone, appendCustomerCallActivity } from './data-store';
+import { getDataStore, resolveContactByPhone, appendCustomerCallActivity, buildLeadBriefFromCustomer } from './data-store';
 import { getOfficeTeamCounts, getOfficeTeamRoster, getTopPerformer } from './team-snapshot';
 import { listTeamMembers } from './conversation-store';
 import type { OrchestratorRequest } from './orchestrator-types';
@@ -104,6 +104,69 @@ export function executeCustomerTool(
       contactRole: resolved.contactRole,
       projectId: resolved.projectId,
     };
+  }
+
+  if (name === 'getLeadBrief') {
+    const store = getDataStore();
+    let customerId = firstString(input.customerId, body.customerContext?.customerId);
+    const phone = firstString(input.phone, body.customerContext?.phone, body.callContext?.from, body.callContext?.to);
+    const query = firstString(input.query, input.name, input.customerName);
+    if (!customerId && phone) {
+      const resolved = resolveContactByPhone(phone);
+      customerId = resolved.customerId ?? undefined;
+    }
+    let customer = customerId
+      ? (store.customers as Array<Record<string, unknown>>).find((c) => String(c.id) === customerId)
+      : undefined;
+    if (!customer && query) {
+      const q = query.toLowerCase();
+      customer = (store.customers as Array<Record<string, unknown>>).find((c) =>
+        String(c.name ?? '').toLowerCase().includes(q)
+        || String(c.email ?? '').toLowerCase().includes(q)
+        || String(c.phone ?? '').includes(q),
+      );
+    }
+    return buildLeadBriefFromCustomer(customer);
+  }
+
+  if (name === 'addLeadNote') {
+    const customerId = firstString(input.customerId, body.customerContext?.customerId);
+    const detail = firstString(input.detail, input.summary, input.notes);
+    if (!customerId) return { saved: false, error: 'customerId required' };
+    if (!detail) return { saved: false, error: 'detail required' };
+    const note = appendCustomerCallActivity({
+      customerId,
+      callId: firstString(input.callId, body.callContext?.callId) ?? undefined,
+      summary: detail,
+      detail,
+      aim: firstString(input.aim) ?? undefined,
+      outcome: firstString(input.outcome) ?? undefined,
+      type: firstString(input.type) || 'note',
+      createdBy: 'cynthia',
+    });
+    return { saved: Boolean(note.logged), customerId, note, spokenHint: 'Note saved on the lead.' };
+  }
+
+  if (name === 'listPendingCallbacks') {
+    const store = getDataStore();
+    const now = Date.now();
+    const week = now + 7 * 86400000;
+    const items = (store.customers as Array<Record<string, unknown>>)
+      .filter((c) => {
+        const next = c.nextFollowUp ? Date.parse(String(c.nextFollowUp)) : NaN;
+        const acts = Array.isArray(c.activities) ? c.activities as Array<Record<string, unknown>> : [];
+        const openCb = acts.some((a) => String(a.type) === 'callback' && !a.outcome);
+        return openCb || (Number.isFinite(next) && next <= week);
+      })
+      .slice(0, 15)
+      .map((c) => ({
+        customerId: String(c.id),
+        name: String(c.name ?? ''),
+        phone: String(c.phone ?? ''),
+        nextFollowUp: c.nextFollowUp != null ? String(c.nextFollowUp) : null,
+        status: String(c.status ?? 'lead'),
+      }));
+    return { count: items.length, callbacks: items, spokenHint: items.length ? `${items.length} pending callbacks.` : 'No pending callbacks.' };
   }
 
   if (name === 'getAccountBriefing') {

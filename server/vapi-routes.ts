@@ -54,6 +54,9 @@ import { getVapiVoiceConfigForLang, voiceIdForLang } from './phone-voices';
 const CUSTOMER_TOOL_NAMES = new Set([
   'lookupCustomerByPhone',
   'getAccountBriefing',
+  'getLeadBrief',
+  'addLeadNote',
+  'listPendingCallbacks',
   'lookupQuote',
   'lookupProjectStatus',
   'getPortalLink',
@@ -66,6 +69,8 @@ const STAFF_READ_TOOL_NAMES = new Set([
   'searchProjects',
   'searchQuotes',
   'searchLeads',
+  'getLeadBrief',
+  'listPendingCallbacks',
   'getBusinessSnapshot',
   'getTeamPerformance',
 ]);
@@ -302,13 +307,20 @@ function finalizeVapiCall(
     },
   });
 
+  const afterMeta = (after?.metadata as Record<string, unknown> | undefined) || {};
   const resolved = resolveContactByPhone(partyPhone);
-  if (resolved.customerId && summary) {
+  const customerId = resolved.customerId
+    || (afterMeta.customerId != null ? String(afterMeta.customerId) : null)
+    || (after?.customerId != null ? String(after.customerId) : null);
+  if (customerId && summary) {
     appendCustomerCallActivity({
-      customerId: resolved.customerId,
+      customerId,
       callId,
       summary: summary.slice(0, 400),
       outcome: endedReason || undefined,
+      aim: afterMeta.aim != null ? String(afterMeta.aim) : undefined,
+      detail: summary.slice(0, 800),
+      type: 'call',
     });
   }
 }

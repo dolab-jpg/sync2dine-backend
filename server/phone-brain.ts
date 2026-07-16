@@ -76,6 +76,38 @@ const PHONE_CUSTOMER_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'getLeadBrief',
+      description: 'Load CRM lead notes and conversation history with aims for the current or named lead',
+      parameters: {
+        type: 'object',
+        properties: {
+          phone: { type: 'string' },
+          customerId: { type: 'string' },
+          query: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'addLeadNote',
+      description: 'Save a conversation note with optional aim onto the CRM lead',
+      parameters: {
+        type: 'object',
+        properties: {
+          customerId: { type: 'string' },
+          detail: { type: 'string' },
+          aim: { type: 'string' },
+          outcome: { type: 'string' },
+        },
+        required: ['customerId', 'detail'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'lookupQuote',
       description: 'Find quote summaries by quote ID, customer ID, or customer name. Prefer spokenTotal when answering amounts aloud.',
       parameters: {
@@ -254,7 +286,23 @@ export function buildAccountBrainContext(
   const customer = resolved.customerId
     ? (store.customers as Array<Record<string, unknown>>).find((c) => String(c.id) === resolved.customerId)
     : undefined;
-  if (customer?.notes) lines.push(`Notes: ${String(customer.notes).slice(0, 280)}`);
+  if (customer?.notes) lines.push(`Notes: ${String(customer.notes).slice(0, 400)}`);
+  const activities = Array.isArray(customer?.activities)
+    ? (customer!.activities as Array<Record<string, unknown>>).slice(0, 8)
+    : [];
+  if (activities.length) {
+    lines.push('Conversation history (use this — do not invent prior talks):');
+    for (const a of activities) {
+      const detail = String(a.detail ?? a.summary ?? '').slice(0, 200);
+      if (!detail) continue;
+      const aim = a.aim ? ` aim=${a.aim}` : '';
+      const when = String(a.createdAt ?? '').slice(0, 16);
+      lines.push(`- ${when}${aim}: ${detail}${a.outcome ? ` → ${a.outcome}` : ''}`);
+    }
+  }
+  if (customer?.nextFollowUp) {
+    lines.push(`Next follow-up: ${String(customer.nextFollowUp)}`);
+  }
   const quotes = (store.quotes as Array<Record<string, unknown>> ?? [])
     .filter((q) => String(q.customerId ?? '') === String(resolved.customerId ?? ''))
     .slice(0, 3);
@@ -492,7 +540,7 @@ export function getPhoneSessionChatTools(identity: PhoneCallerIdentity, verified
       ? [
           VERIFY_PIN_TOOL,
           ...PHONE_CUSTOMER_TOOLS.filter((t) =>
-            ['lookupCustomerByPhone', 'getAccountBriefing', 'lookupProjectStatus', 'logCallActivity'].includes(t.function.name),
+            ['lookupCustomerByPhone', 'getAccountBriefing', 'getLeadBrief', 'addLeadNote', 'lookupProjectStatus', 'logCallActivity'].includes(t.function.name),
           ),
           ...PHONE_STAFF_CRM_TOOLS.filter((t) =>
             ['searchProjects'].includes(t.function.name),

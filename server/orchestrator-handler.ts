@@ -1347,6 +1347,51 @@ const LEAD_CYCLE_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'getLeadBrief',
+      description:
+        'Load a lead/customer brief: status, notes, and recent conversation activities with aims. Use before calling or when discussing a lead so you do not invent history.',
+      parameters: {
+        type: 'object',
+        properties: {
+          customerId: { type: 'string' },
+          phone: { type: 'string' },
+          query: { type: 'string' },
+          name: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'addLeadNote',
+      description: 'Append a conversation note (with optional aim) onto a CRM lead for staff and future Cynthia calls',
+      parameters: {
+        type: 'object',
+        properties: {
+          customerId: { type: 'string' },
+          detail: { type: 'string' },
+          aim: {
+            type: 'string',
+            enum: ['discovery', 'demo_book', 'trial_followup', 'upgrade', 'past_due', 'win_back', 'callback', 'quote_chase', 'other'],
+          },
+          outcome: { type: 'string' },
+        },
+        required: ['customerId', 'detail'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'listPendingCallbacks',
+      description: 'List leads with pending callbacks or follow-ups due soon',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'addQuoteLines',
       description: 'Add line items to an existing quote or stage lines for the quote wizard prefill',
       parameters: {
@@ -1592,6 +1637,9 @@ export const AUTO_ACTION_NAMES = new Set([
   'searchLeads',
   'updateLeadStatus',
   'logFollowUp',
+  'getLeadBrief',
+  'addLeadNote',
+  'listPendingCallbacks',
   'addQuoteLines',
   'updateQuoteLines',
   'completeHandover',

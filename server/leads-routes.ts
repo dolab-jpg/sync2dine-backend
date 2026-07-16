@@ -82,10 +82,21 @@ async function handleCreateLeadFromCall(req: IncomingMessage, res: ServerRespons
     return;
   }
 
-  const { customer, isNewLead } = captureOrUpdateLead(
+  const { customer, isNewLead, error, spokenHint } = captureOrUpdateLead(
     { name, phone, email: body.email, address: body.address, notes: body.notes },
     { callId: body.callId, fallbackPhone: phone },
   );
+
+  if (error) {
+    sendJson(res, 400, {
+      success: false,
+      error,
+      message: spokenHint || error,
+      customer: null,
+      isNewLead: false,
+    });
+    return;
+  }
 
   sendJson(res, 200, { success: true, customer, isNewLead });
 }
