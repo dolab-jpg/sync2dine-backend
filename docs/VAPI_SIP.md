@@ -74,21 +74,33 @@ Some Soho66 accounts expect SIP REGISTER from a softphone/UA. Vapi BYO trunks of
 3. Forward/port the Soho66 number, or migrate CLI
 4. Re-run setup against that trunk — **do not** use custom RTP / sip-bridge for AI
 
-**Inbound (same Soho66 credentials, no new SIP account):**  
-Soho66 Routing Wizard → forward DID to Vapi SIP URI (region must match `VAPI_REGION`):
+**Inbound (production — no Force/Forward SIP URL required):**  
+Soho66 Routing Wizard → **Ring my IP phone**. A VPS Asterisk REGISTER bridge (`docker/soho66-vapi-bridge`) owns SIP user `1005090093` and bridges to Vapi. Keep VOIS/softphones logged out of that user (one REGISTER only). See frontend `docs/VOICE_SETUP.md` + `APPLICATION_MASTER.md` §16.9.
+
+Optional alternate (if you ever use SIP-URL forward instead of the bridge):
 
 - US: `sip:+442037453233@<VAPI_SIP_CREDENTIAL_ID>.sip.vapi.ai`
 - EU: `sip:+442037453233@<VAPI_SIP_CREDENTIAL_ID>.sip.eu.vapi.ai`
 
-Production example (`VAPI_REGION=us`):  
-`sip:+442037453233@563da08a-0170-40ab-9738-7531b1c7501e.sip.vapi.ai`
+## Warm consult transfer (staff handoff)
 
-If Soho66 still rings an IP phone / voicemail first, Cynthia never sees the call — change that route to the URI above. Softphone registration is optional and separate.
+**Not blind.** When Cynthia puts a caller through to staff:
+
+1. Caller hears hold (`VOICE_TRANSFER_HOLD_AUDIO_URL` or Vapi waiting ringtone)
+2. Staff mobile is dialled; a short `transferAssistant` briefs them
+3. `transferSuccessful` bridges the caller, or `transferCancel` / `fallbackPlan` returns to Cynthia
+
+Built in `server/transfer-numbers.ts` (`buildWarmTransferPlan`, `resolveTransferDestination`). Wired into:
+
+- Native `transferCall` destinations on the assistant (`vapi-assistant.ts`)
+- Tool `transferToHuman` (`vapi-routes.ts`, `phone-tools.ts`)
+
+Call Centre: `GET` / `PATCH` `/api/agent/transfer-numbers`. Env fallback: `VOICE_TRANSFER_NUMBER` (+ per-dept `VOICE_TRANSFER_*`). Mode: `warm-transfer-experimental`.
 
 ## Webhooks
 
 `POST /webhooks/vapi` handles:
 
 - `assistant-request` → `buildPhoneBrainPrompt()` (Cynthia identity)
-- `tool-calls` → existing customer/phone tools (idempotent)
+- `tool-calls` → existing customer/phone tools (idempotent), including warm `transferToHuman` destinations
 - `transcript` / `end-of-call-report` → Call Centre + Cynthia customer threads
