@@ -2,6 +2,7 @@
  * Optional IVR phone trees — enabled with IVR_ENABLED=1.
  */
 import { getAgentSettings, saveCall, getCallById } from './data-store';
+import { resolveTransferNumber } from './transfer-numbers';
 
 export interface IvrMenuOption {
   digit: string;
@@ -94,7 +95,7 @@ export function handleIvrTurn(
   });
 
   if (option.route === 'transfer') {
-    const transferNumber = process.env.VOICE_TRANSFER_NUMBER ?? '';
+    const transferNumber = resolveTransferNumber('general') ?? '';
     return {
       speak: transferNumber
         ? 'Connecting you to the office now.'

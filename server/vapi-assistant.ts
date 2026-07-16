@@ -1,7 +1,7 @@
 /**
  * Shared builders for Vapi assistant payloads (outbound + assistant-request).
  */
-import { DEFAULT_ORG_ID, getAgentSettings, getCallById } from './data-store';
+import { DEFAULT_ORG_ID, getCallById } from './data-store';
 import {
   buildPhoneBrainPrompt,
   getPhoneSessionChatTools,
@@ -13,55 +13,9 @@ import {
   type PhoneCallerIdentity,
 } from './phone-auth';
 import { deepgramLanguageForPack } from './language-packs';
-import { getVapiVoiceConfig, getVapiWebhookBaseUrl, toE164Uk } from './vapi-client';
-
-function transferNumberFor(dept: 'general' | 'sales' | 'projects' | 'recruitment' | 'accounts'): string | undefined {
-  const settings = getAgentSettings().transferNumbers ?? {};
-  const envByDept: Record<string, string | undefined> = {
-    general: process.env.VOICE_TRANSFER_NUMBER,
-    sales: process.env.VOICE_TRANSFER_SALES,
-    projects: process.env.VOICE_TRANSFER_PROJECTS,
-    recruitment: process.env.VOICE_TRANSFER_RECRUITMENT,
-    accounts: process.env.VOICE_TRANSFER_ACCOUNTS,
-  };
-  return settings[dept]?.trim() || envByDept[dept]?.trim() || undefined;
-}
-
-export function transferDestinationsFromEnv(): Array<Record<string, unknown>> {
-  const destinations: Array<Record<string, unknown>> = [];
-  const def = transferNumberFor('general');
-  if (def) {
-    destinations.push({
-      type: 'number',
-      number: toE164Uk(def),
-      message: 'Putting you through to the team now.',
-      description: 'Default office transfer',
-    });
-  }
-  const depts: Array<'sales' | 'projects' | 'recruitment' | 'accounts'> = [
-    'sales', 'projects', 'recruitment', 'accounts',
-  ];
-  for (const dept of depts) {
-    const n = transferNumberFor(dept);
-    if (n) {
-      destinations.push({
-        type: 'number',
-        number: toE164Uk(n),
-        message: `Connecting you to ${dept}.`,
-        description: dept,
-      });
-    }
-  }
-  return destinations;
-}
-
-export function resolveTransferNumber(department?: string): string | null {
-  const dept = String(department || 'general').toLowerCase();
-  const valid = ['general', 'sales', 'projects', 'recruitment', 'accounts'] as const;
-  const key = (valid as readonly string[]).includes(dept) ? (dept as typeof valid[number]) : 'general';
-  const pick = transferNumberFor(key) || transferNumberFor('general');
-  return pick ? toE164Uk(pick) : null;
-}
+import { getVapiVoiceConfig, getVapiWebhookBaseUrl } from './vapi-client';
+export { resolveTransferNumber, transferDestinationsFromEnv } from './transfer-numbers';
+import { transferDestinationsFromEnv } from './transfer-numbers';
 
 export function buildVapiAssistantForParty(opts: {
   partyPhone: string;
@@ -152,7 +106,8 @@ export function buildVapiAssistantForParty(opts: {
     voice: getVapiVoiceConfig(),
     transcriber: {
       provider: 'deepgram',
-      model: 'nova-2',
+      // Multilingual STT so callers can flip language mid-call (Vapi + Deepgram multi).
+      model: process.env.VAPI_DEEPGRAM_MODEL?.trim() || 'nova-2',
       language: deepgramLanguageForPack(language),
     },
     silenceTimeoutSeconds: 45,
