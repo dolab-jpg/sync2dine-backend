@@ -1,0 +1,111 @@
+; Soho66 REGISTER → Vapi (adapted from sipgate/sip-bridge)
+; Keeps AI media on Vapi/ElevenLabs Lizzie
+
+[global]
+type=global
+user_agent=tradepro-soho66-sip-bridge/1.0
+
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0:8060
+external_media_address=${EXTERNAL_IP}
+external_signaling_address=${EXTERNAL_IP}
+local_net=10.0.0.0/8
+local_net=172.16.0.0/12
+local_net=192.168.0.0/16
+
+[transport-tcp]
+type=transport
+protocol=tcp
+bind=0.0.0.0:8060
+external_media_address=${EXTERNAL_IP}
+external_signaling_address=${EXTERNAL_IP}
+local_net=10.0.0.0/8
+local_net=172.16.0.0/12
+local_net=192.168.0.0/16
+
+; ============================================
+; SOHO66 (inbound via REGISTER)
+; ============================================
+
+[soho66]
+type=registration
+transport=transport-udp
+outbound_auth=soho66-auth
+server_uri=sip:${SOHO66_SIP_DOMAIN}:${SOHO66_SIP_PORT}
+client_uri=sip:${SOHO66_SIP_USERNAME}@${SOHO66_SIP_DOMAIN}
+contact_user=${SOHO66_SIP_USERNAME}
+retry_interval=60
+expiration=300
+line=yes
+endpoint=soho66-endpoint
+
+[soho66-auth]
+type=auth
+auth_type=userpass
+username=${SOHO66_SIP_USERNAME}
+password=${SOHO66_SIP_PASSWORD}
+
+[soho66-aor]
+type=aor
+contact=sip:${SOHO66_SIP_DOMAIN}:${SOHO66_SIP_PORT}
+
+[soho66-endpoint]
+type=endpoint
+transport=transport-udp
+context=from-soho66
+disallow=all
+allow=alaw
+allow=ulaw
+allow=g722
+outbound_auth=soho66-auth
+aors=soho66-aor
+from_user=${SOHO66_SIP_USERNAME}
+from_domain=${SOHO66_SIP_DOMAIN}
+; Prefer direct RTP Soho66↔Vapi (same media path as working outbound)
+direct_media=yes
+direct_media_glare_mitigation=none
+rtp_symmetric=yes
+force_rport=yes
+rewrite_contact=yes
+media_use_received_transport=yes
+ice_support=no
+
+; IPs filled by entrypoint after DNS resolve of SOHO66_SIP_DOMAIN
+[soho66-identify]
+type=identify
+endpoint=soho66-endpoint
+
+; ============================================
+; VAPI (outbound bridge — Lizzie stays on Vapi)
+; ============================================
+
+[ai-platform]
+type=endpoint
+transport=transport-udp
+context=to-ai
+aors=ai-platform-aor
+disallow=all
+allow=ulaw
+allow=alaw
+allow=g722
+direct_media=yes
+direct_media_glare_mitigation=none
+rtp_symmetric=yes
+force_rport=yes
+rewrite_contact=yes
+media_use_received_transport=yes
+ice_support=no
+from_domain=${AI_SIP_HOST}
+
+[ai-platform-aor]
+type=aor
+contact=sip:${VAPI_INBOUND_USER}@${AI_SIP_HOST}:${AI_SIP_PORT}\;transport=${AI_SIP_TRANSPORT}
+
+[ai-platform-identify]
+type=identify
+endpoint=ai-platform
+match=44.229.228.186
+match=44.238.177.138
+match=63.182.83.170

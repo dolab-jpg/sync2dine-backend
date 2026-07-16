@@ -91,7 +91,9 @@ async function main() {
   console.log(`[vapi:setup] trunk ${sipUsername}@${domain}:8060 → ${numberE164}`);
   console.log(`[vapi:setup] webhook=${webhookBase || '(none)'}`);
 
-  // 1) Create BYO SIP trunk (outbound-only; Soho66 may still reject without REGISTER — that's the gate)
+  // 1) BYO SIP trunk — keep inboundEnabled:false when gateway `ip` is a hostname (Vapi requires
+  // IPv4 for inbound gateways). Inbound calls arrive by Soho66 forwarding the DID to
+  // sip:<E164>@<credentialId>.sip[.eu].vapi.ai — same Soho66 SIP auth, no extra account.
   const trunkBody = {
     provider: 'byo-sip-trunk',
     name: 'TradePro Soho66 Aria',

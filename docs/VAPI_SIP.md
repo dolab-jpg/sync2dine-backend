@@ -46,16 +46,19 @@ POST /api/calls/outbound
 { "to": "+447576442345", "template": "lead_callback" }
 ```
 
-## British voice
+## British voice (proven live path)
 
-Set a female British ElevenLabs voice:
+Live phone TTS is **ElevenLabs through Vapi** (`provider: '11labs'`). Successful production calls used the female Cockney **Lizzie** voice — not local STT/TTS or Chatterbox.
 
 ```env
 ELEVENLABS_API_KEY=••••
-VAPI_ELEVENLABS_VOICE_ID=••••
+VAPI_ELEVENLABS_VOICE_ID=EQx6HGDYjkDpcli6vorJ
+ELEVENLABS_VOICE_ID=EQx6HGDYjkDpcli6vorJ
 ```
 
 Also paste the ElevenLabs key into Vapi dashboard → Integrations if required by your org.
+
+Retest baseline: outbound to staff mobile + PIN, then inbound from a second phone; first spoken reply must match that Cockney voice.
 
 ## Soho66 REGISTER caveat
 
@@ -66,8 +69,16 @@ Some Soho66 accounts expect SIP REGISTER from a softphone/UA. Vapi BYO trunks of
 3. Forward/port the Soho66 number, or migrate CLI
 4. Re-run setup against that trunk — **do not** use custom RTP / sip-bridge for AI
 
-Inbound later: Soho66 Routing Wizard → external SIP URI  
-`sip:+442037453233@<credentialId>.sip.eu.vapi.ai`
+**Inbound (same Soho66 credentials, no new SIP account):**  
+Soho66 Routing Wizard → forward DID to Vapi SIP URI (region must match `VAPI_REGION`):
+
+- US: `sip:+442037453233@<VAPI_SIP_CREDENTIAL_ID>.sip.vapi.ai`
+- EU: `sip:+442037453233@<VAPI_SIP_CREDENTIAL_ID>.sip.eu.vapi.ai`
+
+Production example (`VAPI_REGION=us`):  
+`sip:+442037453233@563da08a-0170-40ab-9738-7531b1c7501e.sip.vapi.ai`
+
+If Soho66 still rings an IP phone / voicemail first, Cynthia never sees the call — change that route to the URI above. Softphone registration is optional and separate.
 
 ## Webhooks
 

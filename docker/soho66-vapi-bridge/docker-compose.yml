@@ -1,0 +1,8 @@
+services:
+  asterisk:
+    build: .
+    container_name: tradepro-sip-bridge
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    # host network: bind 8060/RTP on VPS public interface (better for Soho66 NAT)
