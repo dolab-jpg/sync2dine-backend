@@ -134,15 +134,18 @@ export function executeCustomerTool(
     const detail = firstString(input.detail, input.summary, input.notes);
     if (!customerId) return { saved: false, error: 'customerId required' };
     if (!detail) return { saved: false, error: 'detail required' };
+    const disposition = firstString(input.disposition);
     const note = appendCustomerCallActivity({
       customerId,
       callId: firstString(input.callId, body.callContext?.callId) ?? undefined,
       summary: detail,
       detail,
       aim: firstString(input.aim) ?? undefined,
-      outcome: firstString(input.outcome) ?? undefined,
+      outcome: firstString(input.outcome) ?? disposition ?? undefined,
+      disposition: disposition ?? undefined,
       type: firstString(input.type) || 'note',
       createdBy: 'cynthia',
+      updateCallQueue: Boolean(disposition),
     });
     return { saved: Boolean(note.logged), customerId, note, spokenHint: 'Note saved on the lead.' };
   }

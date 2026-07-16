@@ -855,7 +855,26 @@ export async function executePhoneTool(
       to: dialTo,
       template: (input.template as OutboundCampaignTemplate) || 'lead_callback',
       status: 'queued',
-      context: input.context ?? {},
+      context: {
+        ...((input.context && typeof input.context === 'object') ? input.context as Record<string, unknown> : {}),
+        customerId: firstString(
+          (input.context as Record<string, unknown> | undefined)?.customerId as string | undefined,
+          input.customerId,
+          body.customerContext?.customerId,
+        ),
+        brief: firstString(
+          (input.context as Record<string, unknown> | undefined)?.brief as string | undefined,
+          input.brief,
+          input.aim,
+          input.reason,
+        ),
+        aim: firstString(
+          (input.context as Record<string, unknown> | undefined)?.aim as string | undefined,
+          input.aim,
+          input.reason,
+        ) || 'callback',
+        source: name === 'placeOutboundCall' ? 'cynthia_place_outbound' : 'cynthia_enqueue_outbound',
+      },
       scheduledAt: input.scheduledAt,
     });
     return {
@@ -863,7 +882,11 @@ export async function executePhoneTool(
       to: dialTo,
       template: input.template || 'lead_callback',
       queued: true,
-      spokenHint: `Queued an outbound call to ${dialTo}.`,
+      status: 'queued',
+      dialled: false,
+      spokenHint: name === 'placeOutboundCall'
+        ? `Queued an outbound call to ${dialTo} — the dialler will place it shortly.`
+        : `Queued an outbound call to ${dialTo}.`,
     };
   }
 

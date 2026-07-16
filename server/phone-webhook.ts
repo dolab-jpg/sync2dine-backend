@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import {
   appendCallTurn,
+  appendCustomerCallActivity,
   computeCallDurationSec,
   computeCallSentiment,
   DEFAULT_ORG_ID,
@@ -10,6 +11,7 @@ import {
   getRequestOrgId,
   isAfterHours,
   isAgentActive,
+  markCustomerDialling,
   resolveCandidateByPhone,
   resolveContactByPhone,
   resolvePhoneLineByDid,
@@ -402,6 +404,7 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
     ...(context && typeof context === 'object' ? context : {}),
     customerId: context?.customerId,
     aim: context?.aim ?? context?.reason,
+    brief: context?.brief ?? context?.aim ?? context?.reason,
   };
 
   // Worker already owns the queue row — dial only, do not enqueue another job.
@@ -428,7 +431,19 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
         startedAt: new Date().toISOString(),
         metadata: meta,
       });
-      sendJson(res, 200, { success: true, callId: result.callId, fromWorker: true });
+      if (meta.customerId) {
+        markCustomerDialling(String(meta.customerId), result.callId);
+        appendCustomerCallActivity({
+          customerId: String(meta.customerId),
+          callId: result.callId,
+          summary: `Outbound dialling${meta.brief ? `: ${String(meta.brief).slice(0, 120)}` : ''}`,
+          detail: meta.brief ? String(meta.brief).slice(0, 800) : 'Outbound call started',
+          aim: meta.aim ? String(meta.aim) : 'callback',
+          type: 'callback',
+          createdBy: 'staff',
+        });
+      }
+      sendJson(res, 200, { success: true, callId: result.callId, fromWorker: true, status: 'dialling' });
       return;
     } catch (err) {
       sendJson(res, 500, { success: false, error: err instanceof Error ? err.message : 'Dial failed' });
@@ -456,7 +471,7 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
         campaignTemplate: template as OutboundCampaignTemplate,
         metadata: meta,
       }, config);
-      updateOutboundJob(String(job.id), { status: 'dialing', callId: result.callId });
+      updateOutboundJob(String(job.id), { status: 'dialling', callId: result.callId });
       saveCall({
         id: result.callId,
         providerCallId: result.providerCallId,
@@ -470,7 +485,19 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
         startedAt: new Date().toISOString(),
         metadata: meta,
       });
-      sendJson(res, 200, { success: true, jobId: job.id, callId: result.callId });
+      if (meta.customerId) {
+        markCustomerDialling(String(meta.customerId), result.callId);
+        appendCustomerCallActivity({
+          customerId: String(meta.customerId),
+          callId: result.callId,
+          summary: `Outbound dialling${meta.brief ? `: ${String(meta.brief).slice(0, 120)}` : ''}`,
+          detail: meta.brief ? String(meta.brief).slice(0, 800) : 'Outbound call started',
+          aim: meta.aim ? String(meta.aim) : 'callback',
+          type: 'callback',
+          createdBy: 'staff',
+        });
+      }
+      sendJson(res, 200, { success: true, jobId: job.id, callId: result.callId, status: 'dialling' });
       return;
     } catch (err) {
       updateOutboundJob(String(job.id), {
@@ -482,7 +509,7 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
     }
   }
 
-  sendJson(res, 200, { success: true, jobId: job.id, scheduled: true });
+  sendJson(res, 200, { success: true, jobId: job.id, scheduled: true, status: 'queued' });
 }
 
 export async function handleCallsListApi(req: IncomingMessage, res: ServerResponse, url?: URL) {

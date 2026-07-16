@@ -92,7 +92,7 @@ const PHONE_CUSTOMER_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'addLeadNote',
-      description: 'Save a conversation note with optional aim onto the CRM lead',
+      description: 'Save a conversation note with optional aim and structured disposition onto the CRM lead after or during a call',
       parameters: {
         type: 'object',
         properties: {
@@ -100,6 +100,24 @@ const PHONE_CUSTOMER_TOOLS = [
           detail: { type: 'string' },
           aim: { type: 'string' },
           outcome: { type: 'string' },
+          disposition: {
+            type: 'string',
+            enum: [
+              'no_answer',
+              'busy',
+              'voicemail',
+              'answered_interested',
+              'answered_not_interested',
+              'callback_requested',
+              'wrong_number',
+              'do_not_call',
+              'transferred',
+              'quote_requested',
+              'appointment_booked',
+              'failed',
+              'other',
+            ],
+          },
         },
         required: ['customerId', 'detail'],
       },
@@ -318,6 +336,8 @@ export interface PhoneBrainPromptInput {
   partyPhone: string;
   direction?: 'inbound' | 'outbound';
   campaignTemplate?: string;
+  /** Staff instruction from CRM "Call this person" text box */
+  outboundBrief?: string;
   contactName?: string;
   /** When set, skip re-resolve (call-site already resolved). */
   identity?: PhoneCallerIdentity;
@@ -463,7 +483,12 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
       '- If they ask for a person: say you will put them on a short hold, then call transferToHuman. Warm consult — staff answers you first; you brief them, then connect the caller. End the call when they say goodbye.',
       afterHours ? '- Outside normal hours: still help; offer a callback if needed.' : '',
       input.campaignTemplate ? `- Soft call purpose (do not recite): ${input.campaignTemplate}` : '',
-      input.direction === 'outbound' ? '- This is an outbound call you placed.' : '- This is an inbound call.',
+      input.outboundBrief
+        ? `- STAFF BRIEF FOR THIS CALL (follow this — do not ignore): ${String(input.outboundBrief).slice(0, 800)}`
+        : '',
+      input.direction === 'outbound'
+        ? '- This is an outbound call you placed. After the conversation, call addLeadNote with detail + disposition (interested / not interested / callback / no answer / transferred / etc.).'
+        : '- This is an inbound call.',
     ].filter(Boolean).join('\n');
   }
 

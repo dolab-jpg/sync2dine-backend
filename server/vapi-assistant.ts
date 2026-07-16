@@ -35,11 +35,18 @@ export function buildVapiAssistantForParty(opts: {
   const languageOverride = (existingCall?.metadata as Record<string, unknown> | undefined)?.callLanguage as
     | string
     | undefined;
+  const callMeta = (existingCall?.metadata as Record<string, unknown> | undefined) || {};
+  const outboundBrief = callMeta.brief != null
+    ? String(callMeta.brief)
+    : callMeta.aim != null
+      ? String(callMeta.aim)
+      : undefined;
   const { instructions, language } = buildPhoneBrainPrompt({
     orgId: DEFAULT_ORG_ID,
     partyPhone: opts.partyPhone,
     direction: opts.direction,
     campaignTemplate: opts.campaignTemplate,
+    outboundBrief,
     contactName: opts.contactName || identity.name,
     identity,
     callId: opts.callId,

@@ -2,6 +2,10 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { BDIDDIES_HOME_ORG_LEGACY_ID, getHomeOrgId, sanitizeOrgId } from './home-org';
+import {
+  queueStatusAfterDisposition,
+  type LeadCallDisposition,
+} from './lead-call-disposition';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
 export const DEFAULT_ORG_ID = 'default';
@@ -138,6 +142,18 @@ export interface AgentSettings {
   ivrTree?: Record<string, unknown>;
   /** Department → phone number for Cynthia live handoffs */
   transferNumbers?: TransferNumbers;
+  /** Default text for CRM "Call this person" brief box */
+  defaultOutboundBrief?: string;
+  /** What Cynthia must capture after every outbound lead call */
+  postCallNotePrompt?: string;
+  /** Max dial attempts before marking called (no more retry) */
+  callQueueMaxAttempts?: number;
+  /** Minutes between retries for needs_retry leads */
+  callQueueRetryMinutes?: number;
+  /** Quiet hours start (HH:mm local) — skip auto dial */
+  callQueueQuietStart?: string;
+  /** Quiet hours end (HH:mm local) */
+  callQueueQuietEnd?: string;
   updatedAt: string;
 }
 
@@ -145,6 +161,12 @@ const defaultAgentSettings: AgentSettings = {
   isActive: true,
   leadCallbackPolicy: 'alert_only',
   transferNumbers: {},
+  defaultOutboundBrief: 'Follow up on their enquiry, confirm interest, and book a survey or quote if they want one.',
+  postCallNotePrompt: 'After the call, note: interest level, any objection, next step, and best callback time if needed.',
+  callQueueMaxAttempts: 3,
+  callQueueRetryMinutes: 60,
+  callQueueQuietStart: '20:00',
+  callQueueQuietEnd: '08:00',
   updatedAt: new Date().toISOString(),
 };
 
@@ -672,6 +694,42 @@ export function updateOutboundJob(id: string, patch: Record<string, unknown>): v
   syncData(store);
 }
 
+/** Mark outbound queue rows tied to a call as completed (end-of-call, not dial-accept). */
+export function completeOutboundJobsForCall(callId: string, patch?: Record<string, unknown>): void {
+  if (!callId) return;
+  const store = getDataStore();
+  let changed = false;
+  for (const job of store.outboundQueue) {
+    if (String(job.callId ?? '') !== callId) continue;
+    const status = String(job.status ?? '');
+    if (status === 'completed' || status === 'cancelled') continue;
+    Object.assign(job, {
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      ...(patch || {}),
+    });
+    changed = true;
+  }
+  if (changed) syncData(store);
+}
+
+/** Set customer call-queue status when an outbound dial is accepted. */
+export function markCustomerDialling(customerId: string, callId?: string): void {
+  if (!customerId) return;
+  const store = getDataStore();
+  const idx = store.customers.findIndex((c) => String(c.id) === customerId);
+  if (idx < 0) return;
+  const customer = store.customers[idx] as Record<string, unknown>;
+  store.customers[idx] = {
+    ...customer,
+    callQueueStatus: 'dialling',
+    lastCallId: callId ?? customer.lastCallId,
+    lastContact: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  syncData(store);
+}
+
 export function resolveCandidateByPhone(phone: string): {
   candidateId: string | null;
   candidateName: string;
@@ -768,21 +826,28 @@ export function appendCustomerCallActivity(input: {
   callId?: string;
   summary: string;
   outcome?: string;
+  disposition?: string;
   aim?: string;
   detail?: string;
   createdBy?: string;
   type?: string;
+  /** When true, also update lastCall* / callQueueStatus denormalised fields */
+  updateCallQueue?: boolean;
+  transferredTo?: string;
 }): Record<string, unknown> {
   const store = getDataStore();
   const idx = store.customers.findIndex(c => String(c.id) === input.customerId);
   const stamp = new Date().toISOString();
   const detail = (input.detail ?? input.summary).trim();
   const aimBit = input.aim ? ` Aim: ${input.aim}.` : '';
+  const dispositionBit = input.disposition ? ` Disposition: ${input.disposition}.` : '';
   const line = [
     `[Cynthia call ${stamp.slice(0, 16).replace('T', ' ')}]`,
     detail,
     aimBit,
+    dispositionBit,
     input.outcome ? `Outcome: ${input.outcome.trim()}` : '',
+    input.transferredTo ? `Transferred to: ${input.transferredTo}` : '',
     input.callId ? `(callId ${input.callId})` : '',
   ].filter(Boolean).join(' ');
 
@@ -793,6 +858,7 @@ export function appendCustomerCallActivity(input: {
     detail,
     summary: input.summary,
     outcome: input.outcome ?? null,
+    disposition: input.disposition ?? null,
     callSessionId: input.callId ?? null,
     callId: input.callId ?? null,
     createdAt: stamp,
@@ -809,13 +875,39 @@ export function appendCustomerCallActivity(input: {
     ? [...(customer.activities as unknown[])]
     : [];
   activities.unshift(activity);
-  store.customers[idx] = {
+
+  const patch: Record<string, unknown> = {
     ...customer,
     notes: prevNotes ? `${line}\n${prevNotes}` : line,
     activities: activities.slice(0, 50),
     lastContact: stamp,
     updatedAt: stamp,
   };
+
+  if (input.updateCallQueue) {
+    const prevAttempts = Number(customer.callAttemptCount ?? 0);
+    const sameCall = input.callId && customer.lastCallId === input.callId;
+    const attemptCount = input.callId && !sameCall ? prevAttempts + 1 : Math.max(prevAttempts, 1);
+    const maxAttempts = getAgentSettings().callQueueMaxAttempts ?? 3;
+    let callQueueStatus = customer.callQueueStatus;
+    if (input.disposition) {
+      callQueueStatus = queueStatusAfterDisposition(
+        input.disposition as LeadCallDisposition,
+        attemptCount,
+        maxAttempts,
+      );
+    }
+    Object.assign(patch, {
+      lastCallAt: stamp,
+      lastCallId: input.callId ?? customer.lastCallId,
+      lastCallDisposition: input.disposition ?? customer.lastCallDisposition,
+      lastCallSummary: (input.summary || detail).slice(0, 400),
+      callAttemptCount: attemptCount,
+      callQueueStatus: callQueueStatus ?? 'called',
+    });
+  }
+
+  store.customers[idx] = patch;
   syncData(store);
   return { ...activity, logged: true };
 }

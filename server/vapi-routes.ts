@@ -6,9 +6,11 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import {
   appendCallTurn,
   appendCustomerCallActivity,
+  completeOutboundJobsForCall,
   computeCallDurationSec,
   computeCallSentiment,
   DEFAULT_ORG_ID,
+  getAgentSettings,
   getCallById,
   getCallByProviderId,
   getDataStore,
@@ -17,6 +19,7 @@ import {
   saveCall,
   setRequestOrgId,
 } from './data-store';
+import { mapEndedReasonToDisposition } from './lead-call-disposition';
 import { appendConversationMessage } from './conversation-store';
 import {
   executeCustomerTool,
@@ -292,35 +295,79 @@ function finalizeVapiCall(
   const endedReason = String(message.endedReason || message.ended_reason || message.reason || '');
 
   const after = getCallById(callId);
+  const afterMeta = (after?.metadata as Record<string, unknown> | undefined) || {};
+  const transferredTo = String(
+    after?.transferredTo
+    || afterMeta.transferredTo
+    || afterMeta.transferNumber
+    || '',
+  ).trim() || undefined;
+  const toolOutcome = String(after?.outcome || afterMeta.toolOutcome || '');
+  const disposition = mapEndedReasonToDisposition(endedReason, {
+    transferred: Boolean(transferredTo) || toolOutcome.toLowerCase().includes('transfer'),
+    toolOutcome,
+  });
+
+  const fallbackSummary = (() => {
+    if (summary) return summary;
+    const turns = Array.isArray(after?.transcript) ? after!.transcript as Array<{ role?: string; content?: string }> : [];
+    const snippet = turns
+      .slice(-4)
+      .map((t) => String(t.content ?? '').trim())
+      .filter(Boolean)
+      .join(' | ')
+      .slice(0, 300);
+    if (snippet) return snippet;
+    if (endedReason) return `Call ended: ${endedReason}`;
+    return 'Outbound call completed (no summary from provider).';
+  })();
+
   saveCall({
     id: callId,
     status: 'completed',
     endedAt: new Date().toISOString(),
     recordingUrl: recordingUrl || (after?.recordingUrl as string | undefined),
-    outcome: endedReason || (after?.outcome as string | undefined),
+    outcome: disposition || endedReason || (after?.outcome as string | undefined),
+    transferredTo,
     sentiment: after ? computeCallSentiment(after) : undefined,
     durationSec: after ? computeCallDurationSec(after) : undefined,
     metadata: {
-      ...((after?.metadata as Record<string, unknown> | undefined) || {}),
+      ...afterMeta,
       vapiEndedReason: endedReason || undefined,
       vapiSummary: summary || undefined,
+      disposition,
+      brief: afterMeta.brief ?? afterMeta.aim,
     },
   });
 
-  const afterMeta = (after?.metadata as Record<string, unknown> | undefined) || {};
+  completeOutboundJobsForCall(callId, { disposition, endedReason: endedReason || undefined });
+
   const resolved = resolveContactByPhone(partyPhone);
   const customerId = resolved.customerId
     || (afterMeta.customerId != null ? String(afterMeta.customerId) : null)
     || (after?.customerId != null ? String(after.customerId) : null);
-  if (customerId && summary) {
+
+  if (customerId) {
+    const settings = getAgentSettings();
+    const noteHint = settings.postCallNotePrompt
+      ? ` ${settings.postCallNotePrompt}`
+      : '';
+    const detailParts = [
+      fallbackSummary,
+      transferredTo ? `Transferred to: ${transferredTo}` : '',
+      afterMeta.brief ? `Staff brief was: ${String(afterMeta.brief).slice(0, 200)}` : '',
+    ].filter(Boolean);
     appendCustomerCallActivity({
       customerId,
       callId,
-      summary: summary.slice(0, 400),
-      outcome: endedReason || undefined,
-      aim: afterMeta.aim != null ? String(afterMeta.aim) : undefined,
-      detail: summary.slice(0, 800),
+      summary: fallbackSummary.slice(0, 400),
+      outcome: endedReason || disposition,
+      disposition,
+      aim: afterMeta.aim != null ? String(afterMeta.aim) : (afterMeta.brief != null ? 'callback' : undefined),
+      detail: `${detailParts.join(' ').slice(0, 800)}${noteHint ? '' : ''}`,
       type: 'call',
+      updateCallQueue: true,
+      transferredTo,
     });
   }
 }

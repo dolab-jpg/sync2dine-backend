@@ -112,6 +112,23 @@ async function handlePatchSettings(req: IncomingMessage, res: ServerResponse) {
   const patch: Record<string, unknown> = {};
   if (typeof body.isActive === 'boolean') patch.isActive = body.isActive;
   if (typeof body.activeVoiceId === 'string') patch.activeVoiceId = body.activeVoiceId;
+  if (
+    body.leadCallbackPolicy === 'alert_only'
+    || body.leadCallbackPolicy === 'outbound_first'
+    || body.leadCallbackPolicy === 'inbound_only'
+  ) {
+    patch.leadCallbackPolicy = body.leadCallbackPolicy;
+  }
+  if (typeof body.defaultOutboundBrief === 'string') patch.defaultOutboundBrief = body.defaultOutboundBrief;
+  if (typeof body.postCallNotePrompt === 'string') patch.postCallNotePrompt = body.postCallNotePrompt;
+  if (typeof body.callQueueMaxAttempts === 'number' && Number.isFinite(body.callQueueMaxAttempts)) {
+    patch.callQueueMaxAttempts = Math.max(1, Math.min(10, Math.round(body.callQueueMaxAttempts)));
+  }
+  if (typeof body.callQueueRetryMinutes === 'number' && Number.isFinite(body.callQueueRetryMinutes)) {
+    patch.callQueueRetryMinutes = Math.max(5, Math.round(body.callQueueRetryMinutes));
+  }
+  if (typeof body.callQueueQuietStart === 'string') patch.callQueueQuietStart = body.callQueueQuietStart;
+  if (typeof body.callQueueQuietEnd === 'string') patch.callQueueQuietEnd = body.callQueueQuietEnd;
   const updated = updateAgentSettings(patch);
   sendJson(res, 200, updated);
 }

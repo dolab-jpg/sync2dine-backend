@@ -42,12 +42,19 @@ async function processOutboundQueue(): Promise<void> {
             ...ctx,
             customerId: ctx.customerId ?? job.customerId,
             aim: ctx.aim ?? ctx.reason,
+            brief: ctx.brief ?? ctx.aim ?? ctx.reason,
             source: ctx.source ?? 'outbound_queue',
           },
         }),
       });
       if (res.ok) {
-        updateOutboundJob(id, { status: 'completed', completedAt: new Date().toISOString() });
+        const data = await res.json().catch(() => ({})) as { callId?: string };
+        // Stay dialling until end-of-call webhook marks completed
+        updateOutboundJob(id, {
+          status: 'dialling',
+          callId: data.callId ?? job.callId,
+          dialAcceptedAt: new Date().toISOString(),
+        });
       } else {
         const errText = await res.text().catch(() => 'dial failed');
         updateOutboundJob(id, { status: 'failed', error: errText.slice(0, 200) });

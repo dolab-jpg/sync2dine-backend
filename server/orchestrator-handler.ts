@@ -1365,7 +1365,7 @@ const LEAD_CYCLE_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'addLeadNote',
-      description: 'Append a conversation note (with optional aim) onto a CRM lead for staff and future Cynthia calls',
+      description: 'Append a conversation note (with optional aim and disposition) onto a CRM lead for staff and future Cynthia calls',
       parameters: {
         type: 'object',
         properties: {
@@ -1376,6 +1376,24 @@ const LEAD_CYCLE_TOOLS = [
             enum: ['discovery', 'demo_book', 'trial_followup', 'upgrade', 'past_due', 'win_back', 'callback', 'quote_chase', 'other'],
           },
           outcome: { type: 'string' },
+          disposition: {
+            type: 'string',
+            enum: [
+              'no_answer',
+              'busy',
+              'voicemail',
+              'answered_interested',
+              'answered_not_interested',
+              'callback_requested',
+              'wrong_number',
+              'do_not_call',
+              'transferred',
+              'quote_requested',
+              'appointment_booked',
+              'failed',
+              'other',
+            ],
+          },
         },
         required: ['customerId', 'detail'],
       },
