@@ -13,7 +13,8 @@ import {
   type PhoneCallerIdentity,
 } from './phone-auth';
 import { deepgramLanguageForPack } from './language-packs';
-import { getVapiVoiceConfig, getVapiWebhookBaseUrl } from './vapi-client';
+import { getVapiVoiceConfigForLang } from './phone-voices';
+import { getVapiWebhookBaseUrl } from './vapi-client';
 export { resolveTransferNumber, transferDestinationsFromEnv } from './transfer-numbers';
 import { transferDestinationsFromEnv } from './transfer-numbers';
 
@@ -103,7 +104,7 @@ export function buildVapiAssistantForParty(opts: {
       messages: [{ role: 'system', content: instructions }],
       tools: [...nativeTools, ...functionTools],
     },
-    voice: getVapiVoiceConfig(),
+    voice: getVapiVoiceConfigForLang(language),
     transcriber: {
       provider: 'deepgram',
       // Multilingual STT so callers can flip language mid-call (Vapi + Deepgram multi).

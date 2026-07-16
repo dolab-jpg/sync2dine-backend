@@ -30,6 +30,7 @@ import {
   getVapiPublicKey,
   getVapiRegion,
   toE164Uk,
+  vapiFetch,
 } from './vapi-client';
 import { buildStaffOrchBody } from './phone-session';
 import { buildVapiAssistantForParty, resolveTransferNumber } from './vapi-assistant';
@@ -45,6 +46,9 @@ import {
   isIdentityBound,
 } from './phone-auth';
 import { listTeamMembers } from './conversation-store';
+import { persistCallLanguagePreference, spokenLanguageNudge } from './phone-language';
+import { normalizeLang } from './language-packs';
+import { getVapiVoiceConfigForLang, voiceIdForLang } from './phone-voices';
 
 const CUSTOMER_TOOL_NAMES = new Set([
   'lookupCustomerByPhone',
@@ -457,16 +461,60 @@ async function executeTool(
   }
 
   if (name === 'setCallLanguage') {
-    const lang = String(args.language || args.lang || 'en');
+    const { language, persisted } = await persistCallLanguagePreference(
+      identity,
+      String(args.language || args.lang || 'en'),
+    );
+    const voiceId = voiceIdForLang(language);
+    const voiceConfig = getVapiVoiceConfigForLang(language);
     const fresh = getCallById(callId);
+    const meta = ((fresh?.metadata as Record<string, unknown> | undefined) || {});
+    const vapiCallId = String(
+      call.providerCallId
+      || meta.vapiCallId
+      || (fresh as { providerCallId?: string } | undefined)?.providerCallId
+      || call.id
+      || '',
+    ).trim();
+
+    let voiceUpdated = false;
+    if (vapiCallId) {
+      try {
+        const patch = await vapiFetch(`/call/${vapiCallId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ voice: voiceConfig }),
+        });
+        voiceUpdated = patch.ok;
+        if (!patch.ok) {
+          console.warn(
+            `[setCallLanguage] voice PATCH failed status=${patch.status} call=${vapiCallId}`,
+            patch.raw?.slice?.(0, 200),
+          );
+        }
+      } catch (err) {
+        console.warn('[setCallLanguage] voice PATCH error:', err instanceof Error ? err.message : err);
+      }
+    }
+
     saveCall({
       id: callId,
       metadata: {
-        ...((fresh?.metadata as Record<string, unknown> | undefined) || {}),
-        callLanguage: lang,
+        ...meta,
+        callLanguage: language,
+        callVoiceId: voiceId,
+        callVoiceUpdated: voiceUpdated,
       },
     });
-    return { ok: true, language: lang };
+    return {
+      ok: true,
+      language,
+      voiceId,
+      voiceUpdated,
+      remembered: persisted,
+      instruction: spokenLanguageNudge(language),
+      sayFirst: spokenLanguageNudge(language),
+      normalized: normalizeLang(language),
+    };
   }
 
   if (name === 'transferToHuman') {
