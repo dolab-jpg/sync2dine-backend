@@ -42,7 +42,7 @@ export async function handlePhoneTurn(body: PhoneOrchestratorRequest): Promise<{
   const staffRoute = resolveInboundChannel(callContext.from, getRequestOrgId());
   if (staffRoute.mode === 'staff' || staffRoute.mode === 'foreman') {
     if (isFirstTurn) {
-      const greeting = `Alright ${staffRoute.name ?? 'boss'}, Builder Diddies on the line. What do you need?`;
+      const greeting = `Alright ${staffRoute.name ?? 'boss'}, Sync2Dine on the line. What do you need?`;
       return { content: greeting, intent: callContext.intent, toolsUsed, proposedActions: [] };
     }
     const inbound = await handleChannelInbound({

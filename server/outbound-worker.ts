@@ -1,7 +1,11 @@
-import { getDataStore, updateOutboundJob } from './data-store';
+import { getDataStore, updateOutboundJob, countOpenCallsForOrg, getMaxConcurrentCallsPerOrg } from './data-store';
 
 const POLL_MS = Number(process.env.OUTBOUND_POLL_MS ?? 15000);
 
+/**
+ * Max simultaneous live calls per org (inbound + outbound).
+ * Set MAX_CONCURRENT_CALLS_PER_ORG in env (default 5).
+ */
 export function startOutboundWorker(): void {
   if (process.env.DISABLE_OUTBOUND_WORKER === '1') return;
   setInterval(async () => {
@@ -23,7 +27,13 @@ async function processOutboundQueue(): Promise<void> {
   });
   if (!queue.length) return;
 
-  for (const job of queue.slice(0, 3)) {
+  const maxConcurrent = getMaxConcurrentCallsPerOrg();
+  const openCalls = countOpenCallsForOrg();
+  const diallingJobs = (store.outboundQueue ?? []).filter((j) => String(j.status ?? '') === 'dialling').length;
+  const slots = Math.max(0, maxConcurrent - openCalls - diallingJobs);
+  if (slots <= 0) return;
+
+  for (const job of queue.slice(0, slots)) {
     const id = String(job.id ?? '');
     updateOutboundJob(id, { status: 'dialling', startedAt: new Date().toISOString() });
     try {

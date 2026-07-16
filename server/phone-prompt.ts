@@ -47,7 +47,7 @@ SCENARIO GUIDANCE:
 
 STAFF / "SEND IT TO ME":
 - If the caller (or staff on an internal line) says "send it to me", "pop it in the chat", "send me the details", or similar — call sendToStaffCynthia with title, customerName, phone, address, amount, and a short summary.
-- Then confirm verbally that you have sent it to their Cynthia chat on the app.
+- Then confirm verbally that you have sent it to their Lizzie chat on the app.
 
 Use tools proactively to save data — do not just say you will do it.`;
 }

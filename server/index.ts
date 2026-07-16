@@ -22,6 +22,7 @@ import { handleAuthRoutes } from './auth';
 import { handleMailboxRoutes } from './mailbox-routes';
 import { handlePackageUpdatesRoute } from './mailbox/package-updates';
 import { handleLeadsRoutes } from './leads-routes';
+import { handleOrdersRoutes } from './orders-routes';
 import { handleOrgOpenAIKeyRoutes } from './org-openai-key-routes';
 import { handleCyrusRoutes } from './cyrus-routes';
 import { handleCynthiaRoutes } from './cynthia-routes';
@@ -97,6 +98,8 @@ const server = createServer(async (req, res) => {
 
     if (await handleLeadsRoutes(req, res, pathname, url)) return;
 
+    if (await handleOrdersRoutes(req, res, pathname)) return;
+
     if (await handleCyrusRoutes(req, res, pathname)) return;
 
     if (await handleCynthiaRoutes(req, res, pathname)) return;
@@ -134,7 +137,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, async () => {
   await initDataFromSupabase();
-  console.log(`Builder Diddies API server running on port ${PORT}`);
+  console.log(`Sync2Dine API server running on port ${PORT}`);
   ensureBdiddiesHomeOrg();
   startMailboxPoller();
   startOutboundWorker();

@@ -33,7 +33,8 @@ export async function sendOrgInviteEmail(org: Organization): Promise<void> {
   const baseUrl = process.env.APP_BASE_URL?.trim() || 'http://localhost:5174';
   const from = process.env.SMTP_FROM?.trim()
     || process.env.SMTP_FROM_EMAIL?.trim()
-    || resolveSmtpUser();
+    || resolveSmtpUser()
+    || 'info@sync2dine.io';
   await transport.sendMail({
     from,
     to: org.contactEmail,

@@ -20,7 +20,7 @@ export function spokenLanguageNudge(lang: SupportedLang): string {
   const label = LANG_LABELS[lang] ?? lang;
   return [
     `Speak your next reply aloud in ${label} immediately — do not list languages and stop.`,
-    'Your name is still Cynthia in every language; never introduce yourself as an ElevenLabs voice label.',
+    'Your name is still Lizzie in every language; never introduce yourself as an ElevenLabs voice label.',
     'Keep using the same tools as before. Tool calls, CRM writes, emails, contracts, quotes, and any text that reaches a customer stay formal UK English.',
   ].join(' ');
 }

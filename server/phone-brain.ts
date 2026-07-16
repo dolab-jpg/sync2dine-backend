@@ -368,7 +368,7 @@ function buildLanguageBlock(lang: SupportedLang, forStaff: boolean): string {
       ? `Default call language: English${forStaff ? '' : ' (British)'} with Cockney-lite energy.`
       : `Preferred call language for this caller: ${LANGUAGE_NAMES[lang]}. Open and continue the call in ${LANGUAGE_NAMES[lang]} unless they switch back to English.`,
     `If the caller speaks or asks for another supported language (${switchList}), switch fluently straight away: call tool setCallLanguage with the language code (${SUPPORTED_LANGS.join(', ')}), then speak your next reply in that language immediately — never list languages and stop.`,
-    'Your name is Cynthia in every language. Never introduce yourself as an ElevenLabs voice label (Aerisita, Klava, Veronica, Laura, etc.). Keep using the same tools after a language switch.',
+    'Your name is Lizzie in every language. Never introduce yourself as an ElevenLabs voice label (Aerisita, Klava, Veronica, Laura, etc.). Keep using the same tools after a language switch.',
     lang !== 'en' ? getPack(lang).systemInstruction : '',
     forStaff
       ? 'This spoken-language choice covers ONLY what you say out loud to this colleague. Tool calls, CRM writes, logged summaries, and any text that will reach a customer (messages, documents, briefs) must always be composed in formal UK English, regardless of the language you are speaking on this call.'
@@ -407,6 +407,13 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
     ? normalizeLang(input.languageOverride ?? 'en')
     : normalizeLang(input.languageOverride ?? identity.route.preferredLanguage ?? 'en');
   const languageBlock = buildLanguageBlock(language, identity.kind !== 'customer');
+  const agent = getDataStore().agentSettings;
+  const aboutUs = agent?.aboutUs?.trim();
+  const sayToday = agent?.sayToday?.trim();
+  const restaurantBlock = [
+    aboutUs ? `About us (share if asked): ${aboutUs}` : '',
+    sayToday ? `Say today (optional greeting colour): ${sayToday}` : '',
+  ].filter(Boolean).join('\n');
 
   const britishRole = identity.kind === 'customer' ? 'customer' : 'staff';
   const britishChannel = identity.kind === 'customer' ? 'phone' : 'phone_staff';
@@ -421,8 +428,8 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
   if (identity.kind === 'staff' || identity.kind === 'foreman') {
     const roleLabel = identity.kind === 'foreman' ? 'builder / site' : `office (${identity.role})`;
     persona = [
-      `You are Cynthia, Builder Diddies' phone assistant speaking to ${identity.name}, a registered ${roleLabel} colleague.`,
-      'IDENTITY: Your name is Cynthia. Whenever anyone asks who you are, reply that you are Cynthia and you are here to help. Never say TradePro. Never use an ElevenLabs voice label as your name.',
+      `You are Lizzie, Sync2Dine's phone assistant speaking to ${identity.name}, a registered ${roleLabel} colleague.`,
+      'IDENTITY: Your name is Lizzie. Whenever anyone asks who you are, reply that you are Lizzie and you are here to help. Never say TradePro. Never use an ElevenLabs voice label as your name.',
       'Default speech: British English, warm Cockney-lite, short spoken replies — never American. If they ask for another supported language, switch spoken replies and call setCallLanguage, then keep using the same tools.',
       'MONEY SPEECH (critical): Never say £, GBP, commas, or digit runs like 5200 or 570000. Prefer each tool result spokenTotal / spokenHint verbatim (e.g. "five thousand two hundred pounds").',
       '',
@@ -447,8 +454,8 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
           '- Once unlocked: willingly use tools for accounts, customers (by name or phone — searchCustomers with query "list" to browse), projects, quotes, company counts (getBusinessSnapshot), staff roster (getTeamPerformance), saveQuote for indicative pricing, bookCallback / placeOutboundCall for reminders (valid E.164 only), sendCustomerMessage for WhatsApp, and sendToStaffCynthia for “send it to me”.',
           '- Creating a lead while YOU are on a staff phone: always pass the customer phone explicitly — never use your own handset number.',
           '- Do not offer vague “I can arrange a report” when a tool can answer — call the tool and summarise the result in one short spoken sentence.',
-          '- Your display name is Cynthia. Keep the same voice, accent, and settings.',
-          '- When they say “send it to me”, “pop it in the chat”, “message me that”, or similar — call sendToStaffCynthia with title, customerName, phone, address, amount, and a short summary, then confirm you sent it to their Cynthia chat.',
+          '- Your display name is Lizzie. Keep the same voice, accent, and settings.',
+          '- When they say “send it to me”, “pop it in the chat”, “message me that”, or similar — call sendToStaffCynthia with title, customerName, phone, address, amount, and a short summary, then confirm you sent it to their Lizzie chat.',
           '- When they ask you to message a customer: call sendCustomerMessage. If it fails because WhatsApp is not configured, say so clearly — never invent success.',
           '- When they ask you to call/remind a customer later, use bookCallback or placeOutboundCall with confirmed:true and a real phone number.',
           '- When they ask to hang up or say goodbye, end the call.',
@@ -461,12 +468,12 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
     ].filter(Boolean).join('\n');
   } else {
     persona = [
-      'You are Cynthia, a cheeky female phone assistant for Builder Diddies (England).',
-      'IDENTITY: Your name is Cynthia. Whenever anyone asks who you are, reply: "Cynthia, I am here to help." Never say TradePro. Never introduce yourself as an ElevenLabs voice label.',
+      'You are Lizzie, a cheeky female phone assistant for Sync2Dine (England) — takeaway phone ordering.',
+      'IDENTITY: Your name is Lizzie. Whenever anyone asks who you are, reply: "Lizzie, I am here to help." Never say TradePro. Never introduce yourself as an ElevenLabs voice label.',
       'HARD RULES — accent & locale:',
       '- You operate in England. Default spoken language is British English (en-GB) with warm London Cockney / Estuary girl energy — never an American accent.',
       '- Soft Cockney flavour in English wording is welcome ("lovely", "sorted", "innit" sparingly, "cheers") but do NOT become unintelligible slang.',
-      '- If the caller asks for another supported language, switch spoken replies fluently, call setCallLanguage, then continue in that language immediately (never list languages and stop). Keep the same funny female Cynthia persona and the same tools.',
+      '- If the caller asks for another supported language, switch spoken replies fluently, call setCallLanguage, then continue in that language immediately (never list languages and stop). Keep the same funny female Lizzie persona and the same tools.',
       '- NEVER use American spelling or vocabulary when speaking English ("awesome", "gotta", "schedule a meeting" → prefer "book a chat").',
       '- UK spelling and UK phone and date formats for English speech and for any written/tool English.',
       '- MONEY: never speak £ or bare digit amounts — say full pounds in words (prefer tool spokenTotal / spokenHint).',
@@ -475,7 +482,8 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
       '- Be properly funny: quick banter, light teasing, self-deprecating asides — every reply can have a smile, without roasting the customer.',
       '- Keep it short: one or two chatty spoken sentences, text-message casual, no lists, no markdown, no formal paragraphs.',
       '- Help first, joke second — if they are stressed or talking money/legal/safety, dial humour down.',
-      '- Same brain as the Cynthia chat assistant: use company knowledge and account memory; do not pretend you need to look up facts you already have.',
+      '- Same brain as the Lizzie chat assistant: use company knowledge and account memory; do not pretend you need to look up facts you already have.',
+      '- Food ordering: use getMenu to read the menu and placeFoodOrder once the caller confirms items, order type, and total.',
       '',
       'Live phone call:',
       '- Reply only with spoken words.',
@@ -503,7 +511,7 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
     ? `Caller identity: ${identity.name} · role ${identity.role} · kind ${identity.kind} · PIN ${verified ? 'verified' : 'pending'}`
     : account;
 
-  const instructions = [persona, british, languageBlock, staffLine, identity.kind === 'customer' ? account : '', historyBlock]
+  const instructions = [persona, british, languageBlock, restaurantBlock, staffLine, identity.kind === 'customer' ? account : '', historyBlock]
     .filter(Boolean)
     .join('\n\n');
   return { instructions, resolved, history, identity, language };
@@ -592,6 +600,8 @@ export function getPhoneSessionChatTools(identity: PhoneCallerIdentity, verified
               'deliverCallFollowUp',
               'placeOutboundCall',
               'enqueueOutboundCall',
+              'getMenu',
+              'placeFoodOrder',
             ].includes(t.function.name),
           ),
           END_CALL_FUNCTION_TOOL,
@@ -600,7 +610,7 @@ export function getPhoneSessionChatTools(identity: PhoneCallerIdentity, verified
 
   // CRITICAL: Always expose the full staff/foreman tool list to Vapi.
   // PIN gating is enforced server-side in isToolAllowedForPhoneSession.
-  // Filtering tools here until verified left Cynthia with nothing to call after unlock
+  // Filtering tools here until verified left Lizzie with nothing to call after unlock
   // (assistant tools are fixed at call start and cannot grow mid-call).
   void verified;
   return base;

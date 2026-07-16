@@ -8,6 +8,7 @@ import {
   normalizePhoneExport,
   saveCall,
   saveCustomerRecord,
+  saveOrderRecord,
   saveQuoteRecord,
   saveRecruitmentCandidate,
   saveRecruitmentInterview,
@@ -455,6 +456,53 @@ export const PHONE_TOOLS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'getMenu',
+      description:
+        'Return the restaurant menu for Sync2Dine takeaway ordering (categories, item names, prices). Use before placing a food order.',
+      parameters: {
+        type: 'object',
+        properties: {
+          category: { type: 'string', description: 'Optional menu category filter e.g. mains, sides, drinks' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'placeFoodOrder',
+      description:
+        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling.',
+      parameters: {
+        type: 'object',
+        properties: {
+          customerName: { type: 'string' },
+          customerPhone: { type: 'string' },
+          orderType: { type: 'string', enum: ['collection', 'delivery', 'table'] },
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                qty: { type: 'number' },
+                price: { type: 'number' },
+              },
+              required: ['name'],
+            },
+          },
+          total: { type: 'number' },
+          deliveryAddress: { type: 'string' },
+          notes: { type: 'string' },
+          paymentStatus: { type: 'string', enum: ['unpaid', 'cash', 'card'] },
+        },
+        required: ['items'],
+      },
+    },
+  },
 ];
 
 export const PHONE_AUTO_ACTIONS = new Set([
@@ -475,6 +523,8 @@ export const PHONE_AUTO_ACTIONS = new Set([
   'saveCustomer',
   'saveQuote',
   'sendCustomerMessage',
+  'getMenu',
+  'placeFoodOrder',
 ]);
 
 export async function executePhoneTool(
@@ -1101,6 +1151,61 @@ export async function executePhoneTool(
             : "Done — I've put that in your Cynthia chat."
         : 'I could not complete that follow-up fully — check the details in Cynthia.',
       error: ok ? undefined : 'One or more follow-up actions failed',
+    };
+  }
+
+  if (name === 'getMenu') {
+    const store = getDataStore();
+    const aboutUs = store.agentSettings?.aboutUs?.trim();
+    const sayToday = store.agentSettings?.sayToday?.trim();
+    const category = firstString(input.category)?.toLowerCase();
+    const menu = [
+      { category: 'mains', name: 'Chicken biryani', price: 9.5 },
+      { category: 'mains', name: 'Lamb curry', price: 10.5 },
+      { category: 'sides', name: 'Garlic naan', price: 2.5 },
+      { category: 'sides', name: 'Pilau rice', price: 2.8 },
+      { category: 'sides', name: 'Onion bhaji', price: 3.2 },
+      { category: 'drinks', name: 'Mango lassi', price: 2.8 },
+    ].filter((item) => !category || item.category === category || item.name.toLowerCase().includes(category));
+    return {
+      ok: true,
+      menu,
+      aboutUs: aboutUs || undefined,
+      sayToday: sayToday || undefined,
+      spokenHint: sayToday
+        ? `Today: ${sayToday}. I can read the menu or take your order.`
+        : 'I can read the menu or take your order whenever you are ready.',
+    };
+  }
+
+  if (name === 'placeFoodOrder') {
+    const items = Array.isArray(input.items) ? input.items : [];
+    if (!items.length) {
+      return { ok: false, error: 'items_required', spokenHint: 'Tell me what you would like to order first.' };
+    }
+    const total = Number(input.total ?? items.reduce((sum, row) => {
+      const r = row as Record<string, unknown>;
+      return sum + Number(r.price ?? 0) * Number(r.qty ?? 1);
+    }, 0));
+    const record = saveOrderRecord({
+      customerName: firstString(input.customerName, body.customerContext?.name) ?? 'Guest',
+      customerPhone: firstString(input.customerPhone, callerPhone) ?? '',
+      channel: 'phone',
+      orderType: firstString(input.orderType) ?? 'collection',
+      status: 'new',
+      paymentStatus: firstString(input.paymentStatus) ?? 'unpaid',
+      items,
+      total,
+      deliveryAddress: firstString(input.deliveryAddress),
+      notes: firstString(input.notes) ?? '',
+      etaMinutes: firstString(input.orderType) === 'delivery' ? 40 : 20,
+    });
+    return {
+      ok: true,
+      orderId: record.id,
+      orderNumber: record.orderNumber,
+      total: record.total,
+      spokenHint: `Order ${record.orderNumber} is in — £${Number(record.total).toFixed(2)}. The kitchen has it.`,
     };
   }
 

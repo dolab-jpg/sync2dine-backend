@@ -5,6 +5,8 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { getDataStore, getProjectById, syncData, updateProjectRecord } from './data-store.js';
 import { sendViaSmtp } from './messages-routes.js';
 import { getSupabaseAdmin, resolveOrgUuid } from './supabase-admin.js';
+import { appendSync2DineEmailFooter } from './sync2dine-email-footer.js';
+import { BDIDDIES_COMPANY } from './home-org.js';
 
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -25,7 +27,7 @@ async function loadCompanyProfile(): Promise<Record<string, string>> {
       .maybeSingle();
     return (data?.values_encrypted ?? {}) as Record<string, string>;
   } catch {
-    return { autoSendReceiptOnPaid: 'true', companyName: 'Builder Diddies Ltd' };
+    return { autoSendReceiptOnPaid: 'true', companyName: BDIDDIES_COMPANY.companyName, website: BDIDDIES_COMPANY.website, email: BDIDDIES_COMPANY.email };
   }
 }
 
@@ -55,7 +57,7 @@ async function buildReceiptPdfBytes(
   const { height } = page.getSize();
   let y = height - 48;
 
-  const companyName = company.companyName?.trim() || 'Builder Diddies Ltd';
+  const companyName = company.companyName?.trim() || BDIDDIES_COMPANY.companyName;
   page.drawText(companyName, { x: 48, y, size: 14, font: bold, color: rgb(0.1, 0.1, 0.2) });
   y -= 28;
   page.drawText('PAYMENT RECEIPT', { x: 48, y, size: 18, font: bold, color: rgb(0.1, 0.1, 0.2) });
@@ -157,7 +159,10 @@ export async function sendReceiptForStageServer(
   const sendResult = await sendViaSmtp(
     {
       subject: `Payment receipt — ${stageLabel}`,
-      body: `Thank you for your payment of £${amount.toFixed(2)} for ${stageLabel}.`,
+      body: appendSync2DineEmailFooter(
+        `Thank you for your payment of £${amount.toFixed(2)} for ${stageLabel}.`,
+        company,
+      ),
       attachment: { filename, mimeType: 'application/pdf', content: pdfBase64 },
     },
     customerEmail

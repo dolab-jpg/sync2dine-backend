@@ -45,7 +45,7 @@ function resolveSmtp(config: SmtpConfig | undefined): Required<Pick<SmtpConfig, 
   const port = Number(config?.port || process.env.SMTP_PORT || 587);
   const username = config?.username || process.env.SMTP_USERNAME || process.env.SMTP_USER || '';
   const password = config?.password || process.env.SMTP_PASSWORD || process.env.SMTP_PASS || '';
-  const fromEmail = config?.fromEmail || process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || username;
+  const fromEmail = config?.fromEmail || process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || username || 'info@sync2dine.io';
   const fromName = config?.fromName || process.env.SMTP_FROM_NAME || 'Sync2Dine';
   return { host, port, username, password, fromEmail, fromName };
 }

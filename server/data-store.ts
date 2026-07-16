@@ -71,6 +71,8 @@ export interface SyncedData {
   clientReceipts: Array<Record<string, unknown>>;
   contracts: Array<Record<string, unknown>>;
   planningApplications: Array<Record<string, unknown>>;
+  /** Sync2Dine food orders (JSON fallback when Supabase orders table unavailable) */
+  orders?: Array<Record<string, unknown>>;
   agentSettings: AgentSettings;
   phoneLines: PhoneLine[];
 }
@@ -154,6 +156,10 @@ export interface AgentSettings {
   callQueueQuietStart?: string;
   /** Quiet hours end (HH:mm local) */
   callQueueQuietEnd?: string;
+  /** Restaurant “about us” blurb for phone brain */
+  aboutUs?: string;
+  /** Optional daily spoken line (“say today”) for phone greetings */
+  sayToday?: string;
   updatedAt: string;
 }
 
@@ -197,6 +203,7 @@ const defaultData: SyncedData = {
   clientReceipts: [],
   contracts: [],
   planningApplications: [],
+  orders: [],
   agentSettings: { ...defaultAgentSettings },
   phoneLines: [],
 };
@@ -240,6 +247,7 @@ function loadFromDisk(orgId: string): SyncedData {
         clientReceipts: Array.isArray(parsed.clientReceipts) ? parsed.clientReceipts : [],
         contracts: Array.isArray(parsed.contracts) ? parsed.contracts : [],
         planningApplications: Array.isArray(parsed.planningApplications) ? parsed.planningApplications : [],
+        orders: Array.isArray(parsed.orders) ? parsed.orders : [],
         agentSettings: parsed.agentSettings && typeof parsed.agentSettings === 'object'
           ? { ...defaultAgentSettings, ...(parsed.agentSettings as AgentSettings) }
           : { ...defaultAgentSettings },
@@ -398,6 +406,10 @@ export function syncData(data: Partial<SyncedData>, orgId?: string): void {
   next.projects = preferNonEmpty(data.projects as Array<Record<string, unknown>> | undefined, memoryStore.projects);
   next.quotes = preferNonEmpty(data.quotes as Array<Record<string, unknown>> | undefined, memoryStore.quotes);
   next.calls = preferNonEmpty(data.calls as Array<Record<string, unknown>> | undefined, memoryStore.calls);
+  next.orders = preferNonEmpty(
+    data.orders as Array<Record<string, unknown>> | undefined,
+    memoryStore.orders as Array<Record<string, unknown>> | undefined,
+  );
   next.phoneLines = preferNonEmpty(data.phoneLines, memoryStore.phoneLines);
 
   memoryStores.set(id, next);
@@ -559,6 +571,63 @@ export function updateQuoteRecord(id: string, patch: Record<string, unknown>): R
   store.quotes[idx] = { ...store.quotes[idx], ...patch, updatedAt: new Date().toISOString() };
   syncData(store);
   return store.quotes[idx];
+}
+
+export function listOrderRecords(): Array<Record<string, unknown>> {
+  const store = getDataStore();
+  return Array.isArray(store.orders) ? store.orders : [];
+}
+
+export function saveOrderRecord(order: Record<string, unknown>): Record<string, unknown> {
+  const store = getDataStore();
+  if (!Array.isArray(store.orders)) store.orders = [];
+  const id = String(order.id ?? `ord-${Date.now()}`);
+  const existing = store.orders.findIndex((o) => String(o.id) === id);
+  const maxNumber = store.orders.reduce((max, o) => {
+    const n = Number(o.orderNumber ?? 0);
+    return Number.isFinite(n) && n > max ? n : max;
+  }, 100);
+  const record = {
+    ...order,
+    id,
+    orderNumber: Number(order.orderNumber ?? maxNumber + 1),
+    status: String(order.status ?? 'new'),
+    paymentStatus: String(order.paymentStatus ?? 'unpaid'),
+    orderType: String(order.orderType ?? 'collection'),
+    items: Array.isArray(order.items) ? order.items : [],
+    total: Number(order.total ?? 0),
+    updatedAt: new Date().toISOString(),
+    createdAt: order.createdAt ?? new Date().toISOString(),
+  };
+  if (existing >= 0) {
+    store.orders[existing] = { ...store.orders[existing], ...record };
+  } else {
+    store.orders.unshift(record);
+  }
+  syncData(store);
+  return record;
+}
+
+export function updateOrderRecord(id: string, patch: Record<string, unknown>): Record<string, unknown> | null {
+  const store = getDataStore();
+  if (!Array.isArray(store.orders)) store.orders = [];
+  const idx = store.orders.findIndex((o) => String(o.id) === id);
+  if (idx < 0) return null;
+  store.orders[idx] = { ...store.orders[idx], ...patch, updatedAt: new Date().toISOString() };
+  syncData(store);
+  return store.orders[idx];
+}
+
+/** Count live ringing / in-progress calls for the current org data store. */
+export function countOpenCallsForOrg(): number {
+  expireStaleOpenCalls();
+  return getDataStore().calls.filter((c) => isOpenCallStatus(c.status)).length;
+}
+
+/** Max simultaneous live calls (inbound + outbound) per org. Default 5. */
+export function getMaxConcurrentCallsPerOrg(): number {
+  const n = Number(process.env.MAX_CONCURRENT_CALLS_PER_ORG ?? 5);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
 }
 
 export function updateProjectRecord(

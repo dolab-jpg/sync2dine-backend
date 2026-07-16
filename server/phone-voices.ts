@@ -1,5 +1,5 @@
 /**
- * Per-language ElevenLabs voices for Cynthia phone (Vapi).
+ * Per-language ElevenLabs voices for Lizzie phone (Vapi).
  * English / UK always uses Lizzie from env — never remapped by this module.
  */
 import { type SupportedLang, normalizeLang } from './language-packs';

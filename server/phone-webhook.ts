@@ -243,11 +243,11 @@ async function processCallTurn(
     .trim()
     .slice(0, 500)
     || (isConnect
-      ? `Hello${resolved.customerName ? ` ${resolved.customerName}` : ''}, it's Cynthia from Builder Diddies. How can I help today?`
+      ? `Hello${resolved.customerName ? ` ${resolved.customerName}` : ''}, it's Lizzie from Sync2Dine. How can I help today?`
       : "Sorry, I didn't quite catch that — could you say that again?");
 
   appendCallTurn(String(call.id), { role: 'agent', content: speak });
-  await appendAuditLog(call, 'assistant', speak, 'Cynthia');
+  await appendAuditLog(call, 'assistant', speak, 'Lizzie');
 
   const updated = getCallById(String(call.id)) ?? call;
   saveCall({
@@ -263,7 +263,7 @@ async function processCallTurn(
     appendCustomerCallActivity({
       customerId: resolved.customerId,
       callId: String(call.id),
-      summary: `Caller: ${speechText.slice(0, 160)} | Cynthia: ${speak.slice(0, 160)}`,
+      summary: `Caller: ${speechText.slice(0, 160)} | Lizzie: ${speak.slice(0, 160)}`,
     });
   }
 
