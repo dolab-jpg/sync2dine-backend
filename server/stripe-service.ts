@@ -124,6 +124,32 @@ export function mapStripeStatusToOrgStatus(
   }
 }
 
+async function syncOrgBillingToSupabase(
+  orgId: string,
+  patch: {
+    status?: string;
+    subscriptionStatus?: string;
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
+    currentPeriodEnd?: string;
+  },
+): Promise<void> {
+  try {
+    const { getSupabaseAdmin } = await import('./supabase-admin.js');
+    const supabase = getSupabaseAdmin();
+    const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (patch.status) row.status = patch.status;
+    if (patch.subscriptionStatus) row.subscription_status = patch.subscriptionStatus;
+    if (patch.stripeCustomerId) row.stripe_customer_id = patch.stripeCustomerId;
+    if (patch.stripeSubscriptionId) row.stripe_subscription_id = patch.stripeSubscriptionId;
+    if (patch.currentPeriodEnd) row.current_period_end = patch.currentPeriodEnd;
+    const { error } = await supabase.from('organizations').update(row).eq('id', orgId);
+    if (error) console.warn('[stripe] Supabase org sync failed:', error.message);
+  } catch (err) {
+    console.warn('[stripe] Supabase org sync unavailable:', err instanceof Error ? err.message : err);
+  }
+}
+
 export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case 'customer.subscription.created':
@@ -136,19 +162,34 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
         const { getOrganizationByStripeSubscriptionId } = await import('./organizations');
         org = getOrganizationByStripeSubscriptionId(sub.id);
       }
+      if (!org && orgId) {
+        // Supabase-provisioned orgs may not exist in the disk store yet.
+        org = { id: orgId } as ReturnType<typeof getOrganizationById>;
+      }
       if (!org) return;
 
       const status = event.type === 'customer.subscription.deleted'
         ? 'cancelled'
         : mapStripeStatusToOrgStatus(sub.status);
 
-      updateOrganization(org.id, {
+      const periodEnd = sub.current_period_end
+        ? new Date(sub.current_period_end * 1000).toISOString()
+        : undefined;
+
+      if (getOrganizationById(org.id)) {
+        updateOrganization(org.id, {
+          stripeSubscriptionId: sub.id,
+          subscriptionStatus: sub.status,
+          status,
+          currentPeriodEnd: periodEnd,
+        });
+      }
+
+      await syncOrgBillingToSupabase(org.id, {
         stripeSubscriptionId: sub.id,
         subscriptionStatus: sub.status,
         status,
-        currentPeriodEnd: sub.current_period_end
-          ? new Date(sub.current_period_end * 1000).toISOString()
-          : undefined,
+        currentPeriodEnd: periodEnd,
       });
       break;
     }
@@ -157,9 +198,23 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
       const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
       if (!customerId) return;
       const { getOrganizationByStripeCustomerId } = await import('./organizations');
-      const org = getOrganizationByStripeCustomerId(customerId);
+      let org = getOrganizationByStripeCustomerId(customerId);
+      if (!org) {
+        try {
+          const { getSupabaseAdmin } = await import('./supabase-admin.js');
+          const { data } = await getSupabaseAdmin()
+            .from('organizations')
+            .select('id')
+            .eq('stripe_customer_id', customerId)
+            .maybeSingle();
+          if (data?.id) org = { id: String(data.id) } as typeof org;
+        } catch { /* ignore */ }
+      }
       if (!org) return;
-      updateOrganization(org.id, { status: 'past_due', subscriptionStatus: 'past_due' });
+      if (getOrganizationById(org.id)) {
+        updateOrganization(org.id, { status: 'past_due', subscriptionStatus: 'past_due' });
+      }
+      await syncOrgBillingToSupabase(org.id, { status: 'past_due', subscriptionStatus: 'past_due' });
       break;
     }
     case 'invoice.paid': {
@@ -167,9 +222,23 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
       const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
       if (!customerId) return;
       const { getOrganizationByStripeCustomerId } = await import('./organizations');
-      const org = getOrganizationByStripeCustomerId(customerId);
+      let org = getOrganizationByStripeCustomerId(customerId);
+      if (!org) {
+        try {
+          const { getSupabaseAdmin } = await import('./supabase-admin.js');
+          const { data } = await getSupabaseAdmin()
+            .from('organizations')
+            .select('id')
+            .eq('stripe_customer_id', customerId)
+            .maybeSingle();
+          if (data?.id) org = { id: String(data.id) } as typeof org;
+        } catch { /* ignore */ }
+      }
       if (!org) return;
-      updateOrganization(org.id, { status: 'active', subscriptionStatus: 'active' });
+      if (getOrganizationById(org.id)) {
+        updateOrganization(org.id, { status: 'active', subscriptionStatus: 'active' });
+      }
+      await syncOrgBillingToSupabase(org.id, { status: 'active', subscriptionStatus: 'active' });
       break;
     }
     default:
