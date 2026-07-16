@@ -146,6 +146,8 @@ const ACCOUNTS = new Set([
 
 const CYNTHIA_OPS = new Set([
   'generateQuotePdf',
+  'generateInvoicePdf',
+  'generateContractPdf',
   'generateOpsReport',
   'placeOutboundCall',
   'sendToStaffCynthia',
