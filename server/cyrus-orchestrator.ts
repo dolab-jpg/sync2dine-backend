@@ -13,7 +13,7 @@ function buildFallbackCyrusPrompt(body: CyrusRequestBody): string {
   const customerName = String(body.customerContext?.customerName ?? 'there');
   const contactName = String(body.customerContext?.contactName ?? customerName);
   const projectName = String(body.projectContext?.projectName ?? 'your project');
-  return `You are Cyrus, a friendly UK customer assistant for TradePro Ltd.
+  return `You are Cyrus, a friendly UK customer assistant for Builder Diddies Ltd.
 Customer: ${customerName}
 Messaging contact: ${contactName}
 Project context: ${projectName}

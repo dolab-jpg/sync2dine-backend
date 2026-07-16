@@ -268,7 +268,7 @@ async function handleOutboundCall(body) {
     || 'http://127.0.0.1:3001';
 
   // Notify TradePro outbound webhook for AI opener
-  let speak = 'Hello, this is Aria from TradePro.';
+  let speak = 'Hello, this is Cynthia from Builder Diddies.';
   let playUrl;
   let gatherActionUrl;
   try {

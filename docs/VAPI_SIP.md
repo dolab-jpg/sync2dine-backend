@@ -1,12 +1,12 @@
 # Vapi managed SIP (Cynthia phone)
 
-Production phone AI path: Soho66 SIP ↔ Vapi (media) ↔ TradePro webhooks ↔ Cynthia brain, tools, and memory.
+Production phone AI path: Soho66 SIP ↔ Vapi (media) ↔ Builder Diddies webhooks ↔ Cynthia brain, tools, and memory.
 
 There is **no sip-bridge / local_realtime rollback**. Cynthia phone AI requires `VOICE_PROVIDER=vapi`.
 
 ## Why
 
-Home NAT/UPnP + custom RTP pacing caused one-way/no-reply calls. Vapi hosts SIP signalling and media; TradePro keeps Cynthia brain, tools, and memory via webhooks.
+Home NAT/UPnP + custom RTP pacing caused one-way/no-reply calls. Vapi hosts SIP signalling and media; Builder Diddies keeps Cynthia brain, tools, and memory via webhooks.
 
 ## Setup
 
@@ -20,7 +20,7 @@ VAPI_WEBHOOK_BASE_URL=https://YOUR_PUBLIC_HTTPS_HOST
 VOICE_PROVIDER=vapi
 ```
 
-3. Expose TradePro API publicly (tunnel for pilot):
+3. Expose the Builder Diddies API publicly (tunnel for pilot):
 
 ```powershell
 # example

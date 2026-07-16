@@ -25,7 +25,7 @@ async function loadCompanyProfile(): Promise<Record<string, string>> {
       .maybeSingle();
     return (data?.values_encrypted ?? {}) as Record<string, string>;
   } catch {
-    return { autoSendReceiptOnPaid: 'true', companyName: 'TradePro Ltd' };
+    return { autoSendReceiptOnPaid: 'true', companyName: 'Builder Diddies Ltd' };
   }
 }
 
@@ -55,7 +55,7 @@ async function buildReceiptPdfBytes(
   const { height } = page.getSize();
   let y = height - 48;
 
-  const companyName = company.companyName?.trim() || 'TradePro Ltd';
+  const companyName = company.companyName?.trim() || 'Builder Diddies Ltd';
   page.drawText(companyName, { x: 48, y, size: 14, font: bold, color: rgb(0.1, 0.1, 0.2) });
   y -= 28;
   page.drawText('PAYMENT RECEIPT', { x: 48, y, size: 18, font: bold, color: rgb(0.1, 0.1, 0.2) });

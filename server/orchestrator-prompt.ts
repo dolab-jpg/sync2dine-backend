@@ -146,7 +146,7 @@ export function resolveSystemPrompt(body: OrchestratorRequest): string {
 export function buildOrchestratorSystemPrompt(body: OrchestratorRequest): string {
   const mode = body.orchestratorMode ?? 'staff';
   const role = getRequestRole(body);
-  const company = firstString(body.companyName) ?? 'TradePro';
+  const company = firstString(body.companyName) ?? 'Builder Diddies';
   const userName = firstString(
     body.staffContext?.userName,
     body.customerContext?.customerName,
@@ -162,11 +162,15 @@ export function buildOrchestratorSystemPrompt(body: OrchestratorRequest): string
 
   const planningBlock = formatPlanningContext(body);
 
+  const identityBlock = `IDENTITY: Your name is Cynthia. You work for ${company}. Never call yourself TradePro AI or say the company is TradePro. Whenever anyone asks who you are, your name, what you are, or similar, reply: "Cynthia, I am here to help."`;
+
   if (mode === 'customer' || mode === 'cyrus' || role === 'customer') {
     const customerName = String(body.customerContext?.customerName ?? userName);
     const projectName = String(body.projectContext?.projectName ?? 'their project');
-    return `You are TradePro AI — the company assistant for ${company}. You are chatting with ${customerName}${userId ? ` (customer id: ${userId})` : ''}.
+    return `You are Cynthia, ${company}'s AI assistant. You are chatting with ${customerName}${userId ? ` (customer id: ${userId})` : ''}.
 Current page: ${route}. Active project: ${projectName}.
+
+${identityBlock}
 
 ${rolePersona('customer')}
 ${redLines('customer')}
@@ -186,11 +190,12 @@ Chat naturally like a helpful human — direct, warm, gently witty British tone.
     && FACADE_WEB_STAFF_MODES.has(mode)
     && (Boolean(body.orchestratorMode) || Boolean(body.staffContext) || Boolean(body.planningApplicationContext));
 
-  return `You are TradePro AI — the full company assistant for ${company}.
+  return `You are Cynthia — ${company}'s full company AI assistant.
 You are talking to ${userName} (role: ${role}, user id: ${userId ?? 'session'}) on page ${route}.
 Operating mode: ${mode}.
 Business snapshot: ${snapshot}.
 ${planningBlock ? `\n${planningBlock}\n` : ''}
+${identityBlock}
 ${rolePersona(role)}
 ${redLines(role)}
 

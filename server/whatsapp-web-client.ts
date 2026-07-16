@@ -221,7 +221,7 @@ async function handleIncomingMessage(msg: WAMessage): Promise<void> {
     if (projectId) {
       appendProjectMessage(projectId, {
         id: `WM${Date.now()}a`,
-        from: inbound.route.mode === 'staff' ? 'TradePro AI' : 'Cynthia',
+        from: inbound.route.mode === 'staff' ? 'Cynthia' : 'Cynthia',
         fromRole: 'office',
         body: inbound.replyEnglish,
         bodyEnglish: inbound.replyEnglish,

@@ -156,7 +156,7 @@ export function executePlanningWrite(
     comments.push({
       id: `PC${Date.now()}`,
       body: input.body ?? input.comment,
-      author: input.author ?? 'TradePro AI',
+      author: input.author ?? 'Cynthia',
       createdAt: new Date().toISOString(),
     });
     app = { ...app, comments };
@@ -167,7 +167,7 @@ export function executePlanningWrite(
     comments.push({
       id: `PC${Date.now()}`,
       body: `Portal check: ${String(input.note ?? 'Staff should verify council portal status.')}`,
-      author: 'TradePro AI',
+      author: 'Cynthia',
       createdAt: new Date().toISOString(),
     });
     app = { ...app, comments };

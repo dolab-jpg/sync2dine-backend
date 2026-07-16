@@ -134,7 +134,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, async () => {
   await initDataFromSupabase();
-  console.log(`TradePro API server running on port ${PORT}`);
+  console.log(`Builder Diddies API server running on port ${PORT}`);
   ensureBdiddiesHomeOrg();
   startMailboxPoller();
   startOutboundWorker();

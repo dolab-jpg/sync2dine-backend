@@ -56,9 +56,9 @@ export function buildVapiAssistantForParty(opts: {
       ? `Hi ${firstName || 'there'}, Cynthia here — you're unlocked, what do you need?`
       : `Hi ${firstName || 'there'}, Cynthia here — when you can, say your four-digit security code and I'll unlock your tools.`;
   } else if (opts.direction === 'outbound') {
-    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Cynthia from TradePro — how are you getting on?`;
+    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Cynthia from Builder Diddies — how are you getting on?`;
   } else {
-    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Cynthia from TradePro here — how can I help?`;
+    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Cynthia from Builder Diddies here — how can I help?`;
   }
 
   // Vapi uses native { type: 'endCall' } — do not also expose a function endCall
@@ -94,7 +94,7 @@ export function buildVapiAssistantForParty(opts: {
   }
 
   const assistant: Record<string, unknown> = {
-    name: identity.kind === 'customer' ? 'Cynthia TradePro' : `Cynthia (${identity.role})`,
+    name: identity.kind === 'customer' ? 'Cynthia Builder Diddies' : `Cynthia (${identity.role})`,
     firstMessage,
     model: {
       provider: 'openai',

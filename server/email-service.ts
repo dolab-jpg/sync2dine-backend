@@ -37,17 +37,17 @@ export async function sendOrgInviteEmail(org: Organization): Promise<void> {
   await transport.sendMail({
     from,
     to: org.contactEmail,
-    subject: `Welcome to TradePro — ${org.name}`,
+    subject: `Welcome to Builder Diddies — ${org.name}`,
     text: [
       `Hi ${org.contactName},`,
       '',
-      `Your TradePro workspace "${org.name}" has been provisioned.`,
+      `Your Builder Diddies workspace "${org.name}" has been provisioned.`,
       '',
       `Sign in at: ${baseUrl}`,
       '',
       'Your administrator will share login credentials separately.',
       '',
-      '— TradePro Platform',
+      '— Builder Diddies',
     ].join('\n'),
   });
 }

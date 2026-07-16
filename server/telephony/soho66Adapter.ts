@@ -54,7 +54,7 @@ export const soho66Adapter: TelephonyProvider = {
         gatherPlayUrl: undefined,
         gatherActionUrl: turnUrl,
         provider: 'soho66',
-        bridgeNote: 'Route Soho66 SIP through TradePro sip-bridge and POST call events to /webhooks/voice/*',
+        bridgeNote: 'Route Soho66 SIP through the sip-bridge and POST call events to /webhooks/voice/*',
       }),
     };
   },

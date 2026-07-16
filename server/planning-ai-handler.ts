@@ -80,7 +80,7 @@ function buildSystemPrompt(body: PlanningRequest): string {
     ? `\n\nCouncil/validation email pasted by the user:\n"""\n${body.sourceEmail}\n"""`
     : '';
 
-  return `You are the TradePro Planning & Consents Agent — an autonomous assistant for a UK building company that handles planning permission and related consents end to end.
+  return `You are the Builder Diddies Planning & Consents Agent — an autonomous assistant for a UK building company that handles planning permission and related consents end to end.
 
 You manage: pricing planning services, producing drawings, getting customer sign-off on drawings, submitting to the Local Planning Authority (LPA), handling validation-team change requests, tracking deadlines and the council portal, recording the decision, and the post-approval consents (structural engineering, Building Regulations, and build-over agreements with the water authority).
 

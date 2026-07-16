@@ -302,7 +302,7 @@ async function getCursorHealth(force = false): Promise<CodeFixHealth> {
       checkedAt,
       reason: live
         ? githubTokenConfigured
-          ? 'LIVE — Cursor API key valid and both TradePro repos accessible. Merges enabled.'
+          ? 'LIVE — Cursor API key valid and both Builder Diddies repos accessible. Merges enabled.'
           : 'LIVE — Cursor OK. GITHUB_TOKEN missing — Approve merge will open GitHub for manual merge.'
         : `Cursor key valid but missing repo access: ${missingRepos.join(', ')}. Connect GitHub in Cursor Dashboard.`,
     };
@@ -350,7 +350,7 @@ async function mergeGithubPr(prUrl: string): Promise<{
         Accept: 'application/vnd.github+json',
         'Content-Type': 'application/json',
         'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'TradePro-SelfHeal',
+        'User-Agent': 'BuilderDiddies-SelfHeal',
       },
       body: JSON.stringify({
         merge_method: 'squash',
@@ -489,7 +489,7 @@ function jobAlerts(jobs: CodeFixJob[]) {
 
 function buildAgentPrompt(job: CodeFixJob): string {
   return [
-    'You are fixing a production bug for TradePro (bathroom sales / estimation CRM).',
+    'You are fixing a production bug for Builder Diddies (bathroom sales / estimation CRM).',
     'SURGICAL FIX ONLY:',
     '- Smallest diff that clears this error.',
     '- Do NOT redesign the product, rewrite every page, or recreate full features.',
@@ -538,7 +538,7 @@ async function launchCursorAgent(job: CodeFixJob): Promise<{
         repos: [{ url: job.repoUrl || FRONTEND_REPO, startingRef: 'master' }],
         autoCreatePR: false,
         mode: 'plan',
-        name: `TradePro fix: ${job.errorCode || 'review'}`.slice(0, 100),
+        name: `Builder Diddies fix: ${job.errorCode || 'review'}`.slice(0, 100),
       }),
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -575,7 +575,7 @@ async function launchCursorAgent(job: CodeFixJob): Promise<{
       repos: [{ url: job.repoUrl || FRONTEND_REPO, startingRef: 'master' }],
       autoCreatePR: true,
       mode: 'agent',
-      name: `TradePro surgical: ${job.errorCode || 'bug'}`.slice(0, 100),
+      name: `Builder Diddies surgical: ${job.errorCode || 'bug'}`.slice(0, 100),
     }),
   });
 

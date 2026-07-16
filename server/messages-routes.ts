@@ -46,7 +46,7 @@ function resolveSmtp(config: SmtpConfig | undefined): Required<Pick<SmtpConfig, 
   const username = config?.username || process.env.SMTP_USERNAME || process.env.SMTP_USER || '';
   const password = config?.password || process.env.SMTP_PASSWORD || process.env.SMTP_PASS || '';
   const fromEmail = config?.fromEmail || process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || username;
-  const fromName = config?.fromName || process.env.SMTP_FROM_NAME || 'TradePro';
+  const fromName = config?.fromName || process.env.SMTP_FROM_NAME || 'Builder Diddies';
   return { host, port, username, password, fromEmail, fromName };
 }
 
@@ -114,7 +114,7 @@ async function sendViaResend(payload: SendPayload, to: string): Promise<{ succes
     || process.env.RESEND_FROM_EMAIL?.trim()
     || process.env.SMTP_FROM_EMAIL?.trim()
     || 'onboarding@resend.dev';
-  const fromName = payload.config?.fromName?.trim() || process.env.SMTP_FROM_NAME?.trim() || 'TradePro';
+  const fromName = payload.config?.fromName?.trim() || process.env.SMTP_FROM_NAME?.trim() || 'Builder Diddies';
 
   const body: Record<string, unknown> = {
     from: `${fromName} <${fromEmail}>`,
@@ -178,13 +178,13 @@ export async function handleMessageRoutes(
         ? await sendViaResend({
           ...payload,
           to,
-          subject: payload.subject || 'TradePro email test',
+          subject: payload.subject || 'Builder Diddies email test',
           body: payload.body || 'This is a test email confirming your Resend settings work.',
         }, to)
         : await sendViaSmtp({
           ...payload,
           to,
-          subject: payload.subject || 'TradePro SMTP test',
+          subject: payload.subject || 'Builder Diddies SMTP test',
           body: payload.body || 'This is a test email confirming your SMTP settings work.',
         }, to);
       sendJson(res, result.success ? 200 : 500, result);

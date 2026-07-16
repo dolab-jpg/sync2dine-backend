@@ -16,7 +16,7 @@ export interface IvrTreeConfig {
 }
 
 const DEFAULT_IVR_TREE: IvrTreeConfig = {
-  greeting: 'Welcome to TradePro. Press 1 for quotes and sales. Press 2 for site and projects. Press 3 to speak to the office. Press 9 to leave a message.',
+  greeting: 'Welcome to Builder Diddies. Press 1 for quotes and sales. Press 2 for site and projects. Press 3 to speak to the office. Press 9 to leave a message.',
   options: [
     { digit: '1', label: 'Quotes and sales', route: 'sales' },
     { digit: '2', label: 'Site and projects', route: 'foreman' },

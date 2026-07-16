@@ -139,7 +139,7 @@ async function main() {
   delete process.env.IVR_ENABLED;
 
   try {
-    const tts = await synthesizeSpeech('Hello from TradePro smoke test');
+    const tts = await synthesizeSpeech('Hello from Builder Diddies smoke test');
     results['TTS smoke'] = tts.buffer.length > 100 ? `PASS (${tts.provider})` : 'FAIL empty audio';
   } catch (err) {
     const hasOpenAi = Boolean(process.env.OPENAI_API_KEY);

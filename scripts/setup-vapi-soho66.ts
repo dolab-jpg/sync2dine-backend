@@ -96,7 +96,7 @@ async function main() {
   // sip:<E164>@<credentialId>.sip[.eu].vapi.ai — same Soho66 SIP auth, no extra account.
   const trunkBody = {
     provider: 'byo-sip-trunk',
-    name: 'TradePro Soho66 Aria',
+    name: 'Builder Diddies Soho66 Cynthia',
     gateways: [
       {
         ip: domain,
@@ -129,7 +129,7 @@ async function main() {
   // 2) Import phone number
   const phoneBody = {
     provider: 'byo-phone-number',
-    name: 'TradePro Soho66 DID',
+    name: 'Builder Diddies Soho66 DID',
     number: numberE164,
     numberE164CheckEnabled: true,
     credentialId: trunk.id,
@@ -155,15 +155,15 @@ async function main() {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        name: 'Aria TradePro (placeholder)',
-        firstMessage: "Hi, it's Aria from TradePro — how are you getting on?",
+        name: 'Cynthia Builder Diddies (placeholder)',
+        firstMessage: "Hi, it's Cynthia from Builder Diddies — how are you getting on?",
         model: {
           provider: 'openai',
           model: 'gpt-4o',
           messages: [
             {
               role: 'system',
-              content: 'You are Aria for TradePro UK. Speak concise British English. Real prompts are injected per call by TradePro.',
+              content: 'You are Cynthia for Builder Diddies UK. Speak concise British English. Real prompts are injected per call by Builder Diddies.',
             },
           ],
         },

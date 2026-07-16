@@ -17,7 +17,7 @@ import {
 const BLOCKED_SEND_ACTIONS = new Set(['sendEmailReply', 'sendEmailWithAttachment']);
 
 function buildLeadDeskPrompt(policy: string): string {
-  return `You are the TradePro lead desk AI. Process this inbound email autonomously.
+  return `You are the Builder Diddies lead desk AI. Process this inbound email autonomously.
 
 LEAD CALLBACK POLICY: ${policy}
 - alert_only: recommend staff call or follow up — do NOT use enqueueOutboundCall

@@ -108,7 +108,7 @@ loadTokensFromDisk();
 const mockAccounts: BankAccountDto[] = [
   {
     id: 'BA001',
-    name: 'TradePro Business Current',
+    name: 'Builder Diddies Business Current',
     sortCode: '20-00-00',
     accountNumberMasked: '****4521',
     ibanMasked: 'GB** **** **** **** 4521',
@@ -120,7 +120,7 @@ const mockAccounts: BankAccountDto[] = [
   },
   {
     id: 'BA002',
-    name: 'TradePro Materials Float',
+    name: 'Builder Diddies Materials Float',
     sortCode: '20-00-00',
     accountNumberMasked: '****8834',
     balance: 12400.0,

@@ -14,7 +14,7 @@ export function buildCynthiaPhoneSystemPrompt(body: OrchestratorRequest): string
   const intent = callCtx?.intent ?? 'unknown';
   const afterHours = callCtx?.isAfterHours ?? false;
   const direction = callCtx?.direction ?? 'inbound';
-  const company = body.companyName ?? 'TradePro';
+  const company = body.companyName ?? 'Builder Diddies';
 
   return `You are Cynthia, the friendly AI phone receptionist for ${company} — a UK construction and bathroom installation company.
 
@@ -64,13 +64,13 @@ export function buildGreeting(
   }
   if (afterHours) {
     return isKnown
-      ? `Good evening ${customerName.split(' ')[0]}, thank you for calling TradePro. Our office is currently closed, but I can take a message or arrange a callback for you. How can I help?`
-      : 'Good evening, thank you for calling TradePro. Our office is currently closed, but I can take a message or arrange a callback. How can I help you today?';
+      ? `Good evening ${customerName.split(' ')[0]}, thank you for calling Builder Diddies. Our office is currently closed, but I can take a message or arrange a callback for you. How can I help?`
+      : 'Good evening, thank you for calling Builder Diddies. Our office is currently closed, but I can take a message or arrange a callback. How can I help you today?';
   }
   if (isKnown) {
-    return `Hello ${customerName.split(' ')[0]}, thank you for calling TradePro. How can I help you today?`;
+    return `Hello ${customerName.split(' ')[0]}, thank you for calling Builder Diddies. How can I help you today?`;
   }
-  return 'Hello, thank you for calling TradePro. My name is Cynthia. How can I help you today?';
+  return 'Hello, thank you for calling Builder Diddies. My name is Cynthia. How can I help you today?';
 }
 
 export function detectIntentFromSpeech(text: string): CallIntent {

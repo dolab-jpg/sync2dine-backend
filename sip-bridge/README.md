@@ -1,4 +1,4 @@
-# TradePro Soho66 SIP bridge (UNSUPPORTED for Cynthia phone AI)
+# Soho66 SIP bridge (UNSUPPORTED for Cynthia phone AI — legacy; infra folder still named tradepro-sip-bridge)
 
 **Do not use this for AI answering.** Production Cynthia phone AI is **Vapi only** (`VOICE_PROVIDER=vapi`). See [docs/VAPI_SIP.md](../docs/VAPI_SIP.md).
 

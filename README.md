@@ -1,6 +1,8 @@
-# TradePro Backend
+# Builder Diddies Backend
 
-Supabase backend for the TradePro / Bathroom Sales Estimation Platform.
+Supabase + Node backend for the Builder Diddies bathroom sales / estimation platform.
+
+(GitHub/repo folder name remains `tradepro-backend` as a legacy infra codename.)
 
 **Full stack inventory / audit (frontend · backend · Flutter mobile · GitHub · VPS · Supabase):** sibling frontend [`docs/APPLICATION_MASTER.md`](../Bathroom%20Sales%20Estimation%20Platform/docs/APPLICATION_MASTER.md) — single living SoT (includes §27 Mobile).
 

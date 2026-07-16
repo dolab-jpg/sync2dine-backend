@@ -117,7 +117,7 @@ function buildBCSystemPrompt(body: BuildingControlRequest): string {
     ? `\n\nBuilding control email pasted by user:\n${body.sourceEmail}`
     : '';
 
-  return `You are the TradePro Building Control Agent — a UK construction compliance assistant for builders and office staff.
+  return `You are the Builder Diddies Building Control Agent — a UK construction compliance assistant for builders and office staff.
 
 ${tradeLine}
 ${projectLine}

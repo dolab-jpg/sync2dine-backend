@@ -135,27 +135,27 @@ export interface TelephonyProvider {
 
 export const OUTBOUND_CAMPAIGN_SCRIPTS: Record<OutboundCampaignTemplate, { greeting: string; purpose: string }> = {
   quote_chase: {
-    greeting: 'Hello, this is Cynthia calling from TradePro.',
+    greeting: 'Hello, this is Cynthia calling from Builder Diddies.',
     purpose: 'I am following up on the quote we sent you. Do you have a moment to discuss it?',
   },
   payment_reminder: {
-    greeting: 'Hello, this is Cynthia from TradePro.',
+    greeting: 'Hello, this is Cynthia from Builder Diddies.',
     purpose: 'I am calling regarding an upcoming payment on your project. May I speak with you briefly?',
   },
   appointment_reminder: {
-    greeting: 'Hello, this is Cynthia from TradePro.',
+    greeting: 'Hello, this is Cynthia from Builder Diddies.',
     purpose: 'I am calling to confirm your upcoming site survey appointment.',
   },
   recruitment_screening: {
-    greeting: 'Hello, this is Cynthia from TradePro recruitment.',
+    greeting: 'Hello, this is Cynthia from Builder Diddies recruitment.',
     purpose: 'Thank you for your interest in joining our team. I would like to ask you a few quick questions.',
   },
   satisfaction_check: {
-    greeting: 'Hello, this is Cynthia from TradePro.',
+    greeting: 'Hello, this is Cynthia from Builder Diddies.',
     purpose: 'We wanted to check in on how your project is going and see if there is anything we can help with.',
   },
   lead_callback: {
-    greeting: 'Hello, this is Cynthia from TradePro.',
+    greeting: 'Hello, this is Cynthia from Builder Diddies.',
     purpose: 'You recently enquired about our services. I am calling back to see how we can help.',
   },
 };
