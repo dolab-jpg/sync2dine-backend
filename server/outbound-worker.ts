@@ -1,4 +1,11 @@
-import { getDataStore, updateOutboundJob, countOpenCallsForOrg, getMaxConcurrentCallsPerOrg } from './data-store';
+import {
+  getDataStore,
+  updateOutboundJob,
+  countOpenCallsForOrg,
+  getMaxConcurrentCallsPerOrg,
+  getOutboundQueueState,
+  isWithinCallQueueQuietHours,
+} from './data-store';
 
 const POLL_MS = Number(process.env.OUTBOUND_POLL_MS ?? 15000);
 
@@ -18,6 +25,10 @@ export function startOutboundWorker(): void {
 }
 
 async function processOutboundQueue(): Promise<void> {
+  const queueState = getOutboundQueueState();
+  if (queueState !== 'running') return;
+  if (isWithinCallQueueQuietHours()) return;
+
   const store = getDataStore();
   const queue = (store.outboundQueue ?? []).filter((j) => {
     if (String(j.status ?? '') !== 'queued') return false;

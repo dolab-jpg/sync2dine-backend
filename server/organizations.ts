@@ -87,6 +87,54 @@ export function listOrganizations(): Organization[] {
   );
 }
 
+function mapSupabaseRowToOrganization(row: Record<string, unknown>): Organization {
+  const plan = String(row.plan ?? 'starter') as OrgPlan;
+  const planCfg = PLAN_CONFIG[plan] ?? PLAN_CONFIG.starter;
+  return {
+    id: String(row.id),
+    name: String(row.name ?? 'Organization'),
+    contactName: String(row.contact_name ?? ''),
+    contactEmail: String(row.contact_email ?? ''),
+    contactPhone: String(row.contact_phone ?? ''),
+    address: row.address ? String(row.address) : undefined,
+    status: (row.status as OrgStatus) ?? 'trial',
+    plan,
+    openaiApiKeyEncrypted: row.openai_api_key_encrypted ? String(row.openai_api_key_encrypted) : '',
+    monthlyTokenCap: Number(row.monthly_token_cap ?? planCfg.monthlyTokenCap),
+    stripeCustomerId: row.stripe_customer_id ? String(row.stripe_customer_id) : undefined,
+    stripeSubscriptionId: row.stripe_subscription_id ? String(row.stripe_subscription_id) : undefined,
+    subscriptionStatus: row.subscription_status ? String(row.subscription_status) : undefined,
+    currentPeriodEnd: row.current_period_end ? String(row.current_period_end) : undefined,
+    trialEndsAt: row.trial_ends_at ? String(row.trial_ends_at) : undefined,
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    updatedAt: String(row.updated_at ?? new Date().toISOString()),
+    notes: row.notes ? String(row.notes) : undefined,
+  };
+}
+
+/** Disk list merged with Supabase `organizations` rows not yet on disk. */
+export async function listOrganizationsWithSupabase(): Promise<Organization[]> {
+  const local = listOrganizations();
+  const supabase = await getSupabaseServiceClient();
+  if (!supabase) return local;
+
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error || !data?.length) return local;
+
+  const byId = new Map(local.map((o) => [o.id, o]));
+  for (const row of data) {
+    const id = String((row as { id?: string }).id ?? '');
+    if (!id || byId.has(id)) continue;
+    byId.set(id, mapSupabaseRowToOrganization(row as Record<string, unknown>));
+  }
+  return [...byId.values()].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+}
+
 /** Seed Sync2Dine as the platform home org if missing. Migrates legacy slug → uuid. */
 export function ensureBdiddiesHomeOrg(): Organization {
   if (memoryOrgs.length === 0) memoryOrgs = loadFromDisk();

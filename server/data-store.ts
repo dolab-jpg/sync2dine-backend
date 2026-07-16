@@ -156,6 +156,14 @@ export interface AgentSettings {
   callQueueQuietStart?: string;
   /** Quiet hours end (HH:mm local) */
   callQueueQuietEnd?: string;
+  /** Max simultaneous outbound dials (1–5) */
+  callQueueMaxConcurrent?: number;
+  /** Outbound worker state */
+  outboundQueueState?: 'running' | 'paused' | 'stopped';
+  /** Campaign brief stubs (review / reorder / winback) */
+  campaignReviewBrief?: string;
+  campaignReorderBrief?: string;
+  campaignWinbackBrief?: string;
   /** Restaurant “about us” blurb for phone brain */
   aboutUs?: string;
   /** Optional daily spoken line (“say today”) for phone greetings */
@@ -173,6 +181,11 @@ const defaultAgentSettings: AgentSettings = {
   callQueueRetryMinutes: 60,
   callQueueQuietStart: '20:00',
   callQueueQuietEnd: '08:00',
+  callQueueMaxConcurrent: 2,
+  outboundQueueState: 'running',
+  campaignReviewBrief: 'Ask how their recent order was and invite them to leave a Google review.',
+  campaignReorderBrief: 'Check if they would like to place another order — mention favourites or today\'s specials.',
+  campaignWinbackBrief: 'We have not seen them in a while — offer a welcome-back discount on their next order.',
   updatedAt: new Date().toISOString(),
 };
 
@@ -626,8 +639,49 @@ export function countOpenCallsForOrg(): number {
 
 /** Max simultaneous live calls (inbound + outbound) per org. Default 5. */
 export function getMaxConcurrentCallsPerOrg(): number {
+  const fromSettings = getAgentSettings().callQueueMaxConcurrent;
+  if (Number.isFinite(fromSettings) && fromSettings! > 0) {
+    return Math.max(1, Math.min(5, Math.floor(fromSettings!)));
+  }
   const n = Number(process.env.MAX_CONCURRENT_CALLS_PER_ORG ?? 5);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
+  return Number.isFinite(n) && n > 0 ? Math.min(5, Math.floor(n)) : 5;
+}
+
+/** True when auto outbound dialling should be skipped (quiet hours). */
+export function isWithinCallQueueQuietHours(now = new Date()): boolean {
+  const { callQueueQuietStart, callQueueQuietEnd } = getAgentSettings();
+  const start = String(callQueueQuietStart ?? '20:00').trim();
+  const end = String(callQueueQuietEnd ?? '08:00').trim();
+  const toMins = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map((v) => Number(v));
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+  };
+  const startM = toMins(start);
+  const endM = toMins(end);
+  if (startM == null || endM == null) return false;
+  const cur = now.getHours() * 60 + now.getMinutes();
+  if (startM === endM) return false;
+  if (startM < endM) return cur >= startM && cur < endM;
+  return cur >= startM || cur < endM;
+}
+
+export function getOutboundQueueState(): 'running' | 'paused' | 'stopped' {
+  const state = getAgentSettings().outboundQueueState;
+  return state === 'paused' || state === 'stopped' ? state : 'running';
+}
+
+/** Cancel queued outbound jobs when the queue is stopped. */
+export function cancelQueuedOutboundJobs(): number {
+  const store = getDataStore();
+  let count = 0;
+  for (const job of store.outboundQueue) {
+    if (String(job.status ?? '') !== 'queued') continue;
+    Object.assign(job, { status: 'cancelled', cancelledAt: new Date().toISOString() });
+    count += 1;
+  }
+  if (count) syncData(store);
+  return count;
 }
 
 export function updateProjectRecord(

@@ -4,6 +4,7 @@ import {
   deleteOrganization,
   getOrganizationById,
   listOrganizations,
+  listOrganizationsWithSupabase,
   maskOrganization,
   PLAN_CONFIG,
   updateOrganization,
@@ -87,7 +88,7 @@ export async function handlePlatformRoutes(
   }
 
   if (pathname === '/api/platform/organizations' && req.method === 'GET') {
-    const orgs = listOrganizations().map(o => enrichOrg(o)!);
+    const orgs = (await listOrganizationsWithSupabase()).map(o => enrichOrg(o)!);
     sendJson(res, 200, { organizations: orgs });
     return true;
   }

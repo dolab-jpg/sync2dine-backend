@@ -28,7 +28,10 @@ export type OutboundCampaignTemplate =
   | 'appointment_reminder'
   | 'recruitment_screening'
   | 'satisfaction_check'
-  | 'lead_callback';
+  | 'lead_callback'
+  | 'customer_review'
+  | 'customer_reorder'
+  | 'lapse_winback';
 
 export interface CallTurn {
   role: 'caller' | 'agent' | 'system';
@@ -157,5 +160,17 @@ export const OUTBOUND_CAMPAIGN_SCRIPTS: Record<OutboundCampaignTemplate, { greet
   lead_callback: {
     greeting: 'Hello, this is Cynthia from Builder Diddies.',
     purpose: 'You recently enquired about our services. I am calling back to see how we can help.',
+  },
+  customer_review: {
+    greeting: 'Hello, this is calling from the restaurant.',
+    purpose: 'We wanted to check how your recent order was and see if you would leave us a quick review.',
+  },
+  customer_reorder: {
+    greeting: 'Hello, this is calling from the restaurant.',
+    purpose: 'We noticed you have ordered with us before — would you like to place another order today?',
+  },
+  lapse_winback: {
+    greeting: 'Hello, this is calling from the restaurant.',
+    purpose: 'We have not seen you in a while and wanted to offer a welcome-back deal on your next order.',
   },
 };

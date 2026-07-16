@@ -129,6 +129,23 @@ async function handlePatchSettings(req: IncomingMessage, res: ServerResponse) {
   }
   if (typeof body.callQueueQuietStart === 'string') patch.callQueueQuietStart = body.callQueueQuietStart;
   if (typeof body.callQueueQuietEnd === 'string') patch.callQueueQuietEnd = body.callQueueQuietEnd;
+  if (typeof body.callQueueMaxConcurrent === 'number' && Number.isFinite(body.callQueueMaxConcurrent)) {
+    patch.callQueueMaxConcurrent = Math.max(1, Math.min(5, Math.round(body.callQueueMaxConcurrent)));
+  }
+  if (
+    body.outboundQueueState === 'running'
+    || body.outboundQueueState === 'paused'
+    || body.outboundQueueState === 'stopped'
+  ) {
+    patch.outboundQueueState = body.outboundQueueState;
+    if (body.outboundQueueState === 'stopped') {
+      const { cancelQueuedOutboundJobs } = await import('./data-store');
+      cancelQueuedOutboundJobs();
+    }
+  }
+  if (typeof body.campaignReviewBrief === 'string') patch.campaignReviewBrief = body.campaignReviewBrief;
+  if (typeof body.campaignReorderBrief === 'string') patch.campaignReorderBrief = body.campaignReorderBrief;
+  if (typeof body.campaignWinbackBrief === 'string') patch.campaignWinbackBrief = body.campaignWinbackBrief;
   const updated = updateAgentSettings(patch);
   sendJson(res, 200, updated);
 }
@@ -538,5 +555,39 @@ export async function handleAgentRoutes(
       return true;
     }
   }
+
+  if (pathname === '/api/campaigns/templates' && req.method === 'GET') {
+    const { getCampaignTemplates } = await import('./outbound-campaigns');
+    sendJson(res, 200, { templates: getCampaignTemplates() });
+    return true;
+  }
+  if (pathname === '/api/campaigns/lapsed-customers' && req.method === 'GET') {
+    const days = Math.max(1, Number(url.searchParams.get('days') ?? 30) || 30);
+    const { listCustomersWithLastOrderOlderThan } = await import('./outbound-campaigns');
+    sendJson(res, 200, { days, customers: listCustomersWithLastOrderOlderThan(days) });
+    return true;
+  }
+  if (pathname === '/api/campaigns/queue-lapsed' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req)) as {
+      template?: string;
+      daysOlderThan?: number;
+      dryRun?: boolean;
+    };
+    const template = String(body.template ?? 'lapse_winback');
+    const daysOlderThan = Math.max(1, Number(body.daysOlderThan ?? 30) || 30);
+    try {
+      const { queueLapsedCampaign } = await import('./outbound-campaigns');
+      const result = queueLapsedCampaign({
+        template: template as 'customer_review' | 'customer_reorder' | 'lapse_winback',
+        daysOlderThan,
+        dryRun: body.dryRun === true,
+      });
+      sendJson(res, 200, { success: true, ...result });
+    } catch (err) {
+      sendJson(res, 400, { error: err instanceof Error ? err.message : 'Campaign queue failed' });
+    }
+    return true;
+  }
+
   return false;
 }
