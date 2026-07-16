@@ -711,10 +711,23 @@ async function handleVapiMessage(
 
   if (type === 'status-update') {
     const call = ensureCallFromVapi(message);
-    const status = String(message.status || '').toLowerCase();
-    const mapped = status.includes('end') || status === 'ended' || status === 'completed'
+    const status = String(message.status || message.endedReason || '').toLowerCase();
+    const terminal =
+      status.includes('end')
+      || status === 'ended'
+      || status === 'completed'
+      || status.includes('hang')
+      || status.includes('cancel')
+      || status === 'busy'
+      || status.includes('no-answer')
+      || status.includes('no_answer')
+      || status.includes('customer-ended')
+      || status.includes('assistant-ended')
+      || status.includes('silence-timed-out')
+      || status.includes('max-duration');
+    const mapped = terminal
       ? 'completed'
-      : status.includes('fail')
+      : status.includes('fail') || status.includes('error')
         ? 'failed'
         : status.includes('ring')
           ? 'ringing'
@@ -723,7 +736,12 @@ async function handleVapiMessage(
       id: call.id,
       status: mapped,
       ...(mapped === 'completed' || mapped === 'failed'
-        ? { endedAt: new Date().toISOString() }
+        ? {
+            endedAt: new Date().toISOString(),
+            outcome: terminal
+              ? String(message.endedReason || message.status || 'remote_ended')
+              : undefined,
+          }
         : {}),
     });
     sendJson(res, 200, { ok: true });
@@ -732,10 +750,32 @@ async function handleVapiMessage(
 
   if (type === 'end-of-call-report' || type === 'hang') {
     const call = ensureCallFromVapi(message);
-    const partyPhone = String((call.metadata as Record<string, unknown> | undefined)?.partyPhone
-      || partyPhoneFromCall(message.call as Record<string, unknown>)
-      || '');
-    finalizeVapiCall(String(call.id), message, partyPhone);
+    // Always close the row even if finalize throws mid-way on CRM append
+    try {
+      const partyPhone = String((call.metadata as Record<string, unknown> | undefined)?.partyPhone
+        || partyPhoneFromCall(message.call as Record<string, unknown>)
+        || '');
+      finalizeVapiCall(String(call.id), message, partyPhone);
+    } catch (err) {
+      console.warn('[vapi] finalizeVapiCall error — forcing completed:', err instanceof Error ? err.message : err);
+      saveCall({
+        id: String(call.id),
+        status: 'completed',
+        endedAt: new Date().toISOString(),
+        outcome: 'finalize_error',
+      });
+    }
+    // Belt-and-braces: never leave hang/EOC as in_progress
+    const after = getCallById(String(call.id));
+    const afterStatus = String(after?.status ?? '');
+    if (after && (afterStatus === 'ringing' || afterStatus === 'in_progress')) {
+      saveCall({
+        id: String(call.id),
+        status: 'completed',
+        endedAt: new Date().toISOString(),
+        outcome: String(after.outcome ?? 'hang'),
+      });
+    }
     sendJson(res, 200, { ok: true });
     return;
   }

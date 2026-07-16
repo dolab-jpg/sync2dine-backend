@@ -1018,13 +1018,58 @@ export function maskPhoneLine(line: PhoneLine): Omit<PhoneLine, 'sipPassword'> &
   };
 }
 
+/** Open call rows older than this are treated as abandoned (missed end-of-call webhook). */
+export const STALE_OPEN_CALL_MAX_MS = Number(process.env.STALE_OPEN_CALL_MAX_MS ?? 45 * 60 * 1000);
+
+function callStartedAtMs(call: Record<string, unknown>): number {
+  const t = call.startedAt ? new Date(String(call.startedAt)).getTime() : NaN;
+  return Number.isFinite(t) ? t : NaN;
+}
+
+/** Persist-complete any ringing/in_progress call older than TTL. Returns how many were closed. */
+export function expireStaleOpenCalls(nowMs: number = Date.now()): number {
+  const store = getDataStore();
+  const maxAge = STALE_OPEN_CALL_MAX_MS > 0 ? STALE_OPEN_CALL_MAX_MS : 45 * 60 * 1000;
+  const stamp = new Date(nowMs).toISOString();
+  let closed = 0;
+  for (let i = 0; i < store.calls.length; i++) {
+    const c = store.calls[i];
+    const status = String(c.status ?? '');
+    if (status !== 'ringing' && status !== 'in_progress') continue;
+    if (c.endedAt) {
+      // Already ended but status left open — normalize
+      store.calls[i] = { ...c, status: 'completed', updatedAt: stamp };
+      closed += 1;
+      continue;
+    }
+    const started = callStartedAtMs(c);
+    if (!Number.isFinite(started) || nowMs - started < maxAge) continue;
+    store.calls[i] = {
+      ...c,
+      status: 'completed',
+      endedAt: stamp,
+      outcome: String(c.outcome ?? 'stale_timeout'),
+      updatedAt: stamp,
+    };
+    closed += 1;
+  }
+  if (closed > 0) syncData(store);
+  return closed;
+}
+
+function isOpenCallStatus(status: unknown): boolean {
+  const s = String(status ?? '');
+  return s === 'ringing' || s === 'in_progress';
+}
+
 export function getLinesSummary(): { total: number; registered: number; onCall: number } {
+  expireStaleOpenCalls();
   const store = getDataStore();
   const total = store.phoneLines.filter(l => l.enabled).length;
   const registered = store.phoneLines.filter(l => l.enabled && l.status === 'registered').length;
   const activeLineIds = new Set(
     store.calls
-      .filter(c => ['ringing', 'in_progress'].includes(String(c.status ?? '')))
+      .filter(c => isOpenCallStatus(c.status))
       .map(c => String(c.lineId ?? ''))
       .filter(Boolean),
   );
@@ -1032,10 +1077,11 @@ export function getLinesSummary(): { total: number; registered: number; onCall: 
 }
 
 export function resolveAvailableLineForOutbound(): PhoneLine | undefined {
+  expireStaleOpenCalls();
   const store = getDataStore();
   const busyLineIds = new Set(
     store.calls
-      .filter(c => ['ringing', 'in_progress'].includes(String(c.status ?? '')))
+      .filter(c => isOpenCallStatus(c.status))
       .map(c => String(c.lineId ?? ''))
       .filter(Boolean),
   );
@@ -1080,6 +1126,7 @@ export function getAgentStatusSnapshot(): {
     callbacksBooked: number;
   };
 } {
+  expireStaleOpenCalls();
   const store = getDataStore();
   const todayStart = startOfTodayLocal();
   const todayCalls = store.calls.filter(c => {
@@ -1088,10 +1135,7 @@ export function getAgentStatusSnapshot(): {
   });
 
   const activeCalls = store.calls
-    .filter(c => {
-      const status = String(c.status ?? '');
-      return status === 'ringing' || status === 'in_progress';
-    })
+    .filter(c => isOpenCallStatus(c.status))
     .map(call => ({
       ...call,
       elapsedSec: computeCallDurationSec(call),
