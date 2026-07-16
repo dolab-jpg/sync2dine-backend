@@ -41,9 +41,9 @@ alter table public.orders enable row level security;
 
 drop policy if exists "orders_org_members_select" on public.orders;
 create policy "orders_org_members_select" on public.orders for select
-  using (org_id = public.current_org_id());
+  using (public.org_access(org_id));
 
 drop policy if exists "orders_org_members_write" on public.orders;
 create policy "orders_org_members_write" on public.orders for all
-  using (org_id = public.current_org_id())
-  with check (org_id = public.current_org_id());
+  using (public.org_access(org_id))
+  with check (public.org_access(org_id));
