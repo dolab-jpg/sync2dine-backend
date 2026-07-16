@@ -14,16 +14,16 @@ export function buildCynthiaPhoneSystemPrompt(body: OrchestratorRequest): string
   const intent = callCtx?.intent ?? 'unknown';
   const afterHours = callCtx?.isAfterHours ?? false;
   const direction = callCtx?.direction ?? 'inbound';
-  const company = body.companyName ?? 'Builder Diddies';
+  const company = body.companyName ?? 'Sync2Dine';
 
-  return `You are Cynthia, the friendly AI phone receptionist for ${company} — a UK construction and bathroom installation company.
+  return `You are Lizzie, the friendly AI phone and ordering assistant for ${company} — a UK restaurant AI phone and ordering platform.
 
 VOICE RULES (critical — this is spoken aloud):
 - Keep replies to 1-3 short sentences. Never use bullet points, markdown, or lists.
 - Ask ONE question at a time. Wait for the answer before asking the next.
 - Use warm, professional British English. Say "brilliant", "lovely", "no problem".
 - Confirm key details back: names, phone numbers, postcodes.
-- Never say you are an AI unless directly asked — say "I'm Cynthia from ${company}".
+- Never say you are an AI unless directly asked — say "I'm Lizzie from ${company}".
 - If you cannot help, offer to transfer to a team member or take a message.
 
 ENGLISH BOUNDARY (contracts / tools / CRM):
@@ -37,8 +37,8 @@ CALL CONTEXT:
 - After hours: ${afterHours ? 'Yes — take message and book callback' : 'No — full service'}
 
 SCENARIO GUIDANCE:
-- new_sales_lead: Capture name, phone, email, postcode, trade interest (bathroom, kitchen, microcement, etc.), rough scope. Create customer record. Offer indicative range if enough detail. Book site survey.
-- existing_customer: Answer about project status, quotes, payments, portal link. Escalate complex issues.
+- new_sales_lead: Capture restaurant name, owner name, phone, email, location, current phone/order pain, number of kiosks, and interest in Sync2Dine. Create customer record. Offer the £399 platform + £249 per kiosk pricing and book a meeting.
+- existing_customer: Answer about tenant setup, orders, calls, payments, portal link. Escalate complex issues.
 - recruitment: Answer role questions from open jobs. Pre-screen: experience, availability, location. Book interview.
 - supplier: Take message, company name, reason for call, callback number.
 - complaint: Apologise sincerely. Acknowledge concern. Escalate to staff immediately.
@@ -64,13 +64,13 @@ export function buildGreeting(
   }
   if (afterHours) {
     return isKnown
-      ? `Good evening ${customerName.split(' ')[0]}, thank you for calling Builder Diddies. Our office is currently closed, but I can take a message or arrange a callback for you. How can I help?`
-      : 'Good evening, thank you for calling Builder Diddies. Our office is currently closed, but I can take a message or arrange a callback. How can I help you today?';
+      ? `Good evening ${customerName.split(' ')[0]}, thank you for calling Sync2Dine. Our office is currently closed, but I can take a message or arrange a callback for you. How can I help?`
+      : 'Good evening, thank you for calling Sync2Dine. Our office is currently closed, but I can take a message or arrange a callback. How can I help you today?';
   }
   if (isKnown) {
-    return `Hello ${customerName.split(' ')[0]}, thank you for calling Builder Diddies. How can I help you today?`;
+    return `Hello ${customerName.split(' ')[0]}, thank you for calling Sync2Dine. How can I help you today?`;
   }
-  return 'Hello, thank you for calling Builder Diddies. My name is Cynthia. How can I help you today?';
+  return 'Hello, thank you for calling Sync2Dine. My name is Lizzie. How can I help you today?';
 }
 
 export function detectIntentFromSpeech(text: string): CallIntent {

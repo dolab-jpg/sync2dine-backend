@@ -10,7 +10,8 @@ export type UserRole =
   | 'staff'
   | 'builder'
   | 'recruitment'
-  | 'customer';
+  | 'customer'
+  | 'kiosk';
 
 const INVITE_ROLES: UserRole[] = [
   'super_admin',
@@ -19,6 +20,7 @@ const INVITE_ROLES: UserRole[] = [
   'builder',
   'recruitment',
   'customer',
+  'kiosk',
 ];
 
 const USERNAME_RE = /^[a-z0-9._-]{3,30}$/;

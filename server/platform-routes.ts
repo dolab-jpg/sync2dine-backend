@@ -165,10 +165,23 @@ export async function handlePlatformRoutes(
           }
         }
 
+        let stripeCheckoutUrl: string | undefined;
+        let stripeWarning: string | undefined;
+        if (body.createStripeSubscription) {
+          try {
+            const { createCheckoutSessionForOrg } = await import('./stripe-service');
+            stripeCheckoutUrl = await createCheckoutSessionForOrg(organization.id);
+          } catch (err) {
+            stripeWarning = err instanceof Error ? err.message : String(err);
+          }
+        }
+
         sendJson(res, 201, {
           organization,
           mainUserEmail: provisioned.mainUserEmail,
           mainUserCreated: true,
+          stripeCheckoutUrl,
+          stripeWarning,
         });
         return true;
       } catch (err) {

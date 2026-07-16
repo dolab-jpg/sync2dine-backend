@@ -1,10 +1,10 @@
-/** Canonical home tenant branding for platform_owner (Builder Diddies). */
+/** Canonical home tenant branding for platform_owner (Sync2Dine). */
 
 const ORG_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Legacy slug used in early file-based org store — NOT a Postgres uuid. */
-export const BDIDDIES_HOME_ORG_LEGACY_ID = 'bdiddies';
+export const BDIDDIES_HOME_ORG_LEGACY_ID = 'sync2dine';
 
 const FALLBACK_HOME_ORG_UUID = '4fc49703-d1b0-4ac7-892d-9c32d31e9661';
 
@@ -30,8 +30,8 @@ export function sanitizeOrgId(id: string | null | undefined): string | null {
 }
 
 export const BDIDDIES_COMPANY = {
-  companyName: 'Builder Diddies',
-  website: 'https://b-diddies.com',
-  email: 'info@b-diddies.com',
+  companyName: 'Sync2Dine',
+  website: 'https://sync2dine.io',
+  email: 'info@sync2dine.io',
   phone: '020 3745 3233',
 } as const;

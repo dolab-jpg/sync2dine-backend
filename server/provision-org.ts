@@ -94,6 +94,8 @@ export async function provisionOrganizationInSupabase(
     starter: 500_000,
     pro: 2_000_000,
     enterprise: 10_000_000,
+    sync2dine_platform: 3_000_000,
+    sync2dine_kiosk: 750_000,
   };
   const monthlyTokenCap = input.monthlyTokenCap || tokenCaps[plan] || 500_000;
 
@@ -105,7 +107,7 @@ export async function provisionOrganizationInSupabase(
       contact_email: contactEmail,
       contact_phone: input.contactPhone ?? '',
       address: input.address ?? null,
-      plan: plan as 'starter' | 'pro' | 'enterprise',
+      plan: plan as 'starter' | 'pro' | 'enterprise' | 'sync2dine_platform' | 'sync2dine_kiosk',
       status: 'trial',
       monthly_token_cap: monthlyTokenCap,
       notes: input.notes ?? null,
@@ -175,11 +177,19 @@ export async function provisionOrganizationInSupabase(
 
 export function mapSupabaseOrgToApi(row: Record<string, unknown>) {
   const plan = String(row.plan ?? 'starter');
-  const planPrice: Record<string, number> = { starter: 99, pro: 199, enterprise: 499 };
+  const planPrice: Record<string, number> = {
+    starter: 99,
+    pro: 199,
+    enterprise: 499,
+    sync2dine_platform: 399,
+    sync2dine_kiosk: 249,
+  };
   const planLabel: Record<string, string> = {
     starter: 'Starter',
     pro: 'Pro',
     enterprise: 'Enterprise',
+    sync2dine_platform: 'Sync2Dine Platform',
+    sync2dine_kiosk: 'Sync2Dine Kiosk Screen',
   };
   return {
     id: String(row.id),

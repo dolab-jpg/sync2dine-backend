@@ -9,7 +9,7 @@ const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
 const ORGS_FILE = join(DATA_DIR, 'organizations.json');
 
 export type OrgStatus = 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
-export type OrgPlan = 'starter' | 'pro' | 'enterprise';
+export type OrgPlan = 'starter' | 'pro' | 'enterprise' | 'sync2dine_platform' | 'sync2dine_kiosk';
 
 export const PLAN_CONFIG: Record<
   OrgPlan,
@@ -18,6 +18,8 @@ export const PLAN_CONFIG: Record<
   starter: { label: 'Starter', monthlyPriceGbp: 99, monthlyTokenCap: 500_000 },
   pro: { label: 'Pro', monthlyPriceGbp: 199, monthlyTokenCap: 2_000_000 },
   enterprise: { label: 'Enterprise', monthlyPriceGbp: 499, monthlyTokenCap: 10_000_000 },
+  sync2dine_platform: { label: 'Sync2Dine Platform', monthlyPriceGbp: 399, monthlyTokenCap: 3_000_000 },
+  sync2dine_kiosk: { label: 'Sync2Dine Kiosk Screen', monthlyPriceGbp: 249, monthlyTokenCap: 750_000 },
 };
 
 export type AIBrainProvider = 'openai' | 'deepseek';
@@ -85,7 +87,7 @@ export function listOrganizations(): Organization[] {
   );
 }
 
-/** Seed Builder Diddies as the platform home org if missing. Migrates legacy "bdiddies" slug → uuid. */
+/** Seed Sync2Dine as the platform home org if missing. Migrates legacy slug → uuid. */
 export function ensureBdiddiesHomeOrg(): Organization {
   if (memoryOrgs.length === 0) memoryOrgs = loadFromDisk();
   const homeId = getHomeOrgId();
@@ -123,7 +125,7 @@ export function ensureBdiddiesHomeOrg(): Organization {
     monthlyTokenCap: PLAN_CONFIG.enterprise.monthlyTokenCap,
     createdAt: now,
     updatedAt: now,
-    notes: 'Platform home org (Builder Diddies). Staff invited by platform_owner land here.',
+    notes: 'Platform home org (Sync2Dine). Staff invited by platform_owner land here.',
   };
   memoryOrgs = [org, ...memoryOrgs];
   persist();
