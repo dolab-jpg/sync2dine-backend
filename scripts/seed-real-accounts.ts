@@ -2,14 +2,14 @@
  * Idempotent seed of real Supabase Auth users + org.
  * Preserves existing openai_api_key_encrypted and integrations — never deletes keys.
  *
- * Usage (from tradepro-backend):
+ * Usage (from sync2dine-backend):
  *   npx tsx --env-file=.env scripts/seed-real-accounts.ts
- * Optional: SEED_PASSWORD=yourpassword (default: TradeProSeed1!)
+ * Optional: SEED_PASSWORD=yourpassword (default: Sync2DineDemo1!)
  */
 import { createClient } from '@supabase/supabase-js';
 
-const SEED_PASSWORD = process.env.SEED_PASSWORD?.trim() || 'TradeProSeed1!';
-const ORG_NAME = 'Bathroom Pro Demo';
+const SEED_PASSWORD = process.env.SEED_PASSWORD?.trim() || 'Sync2DineDemo1!';
+const ORG_NAME = 'Sync2Dine Demo Kitchen';
 
 type Role =
   | 'platform_owner'
@@ -27,13 +27,13 @@ const USERS: Array<{
   role: Role;
   attachOrg: boolean;
 }> = [
-  { username: 'owner', email: 'owner@tradepro.com', name: 'Platform Owner', role: 'platform_owner', attachOrg: false },
-  { username: 'john.smith', email: 'john@bathroompro.com', name: 'John Smith', role: 'super_admin', attachOrg: true },
-  { username: 'sarah.johnson', email: 'sarah@bathroompro.com', name: 'Sarah Johnson', role: 'manager', attachOrg: true },
-  { username: 'mike.davis', email: 'mike@bathroompro.com', name: 'Mike Davis', role: 'staff', attachOrg: true },
-  { username: 'mike.wilson', email: 'mike.wilson@bathroompro.com', name: 'Mike Wilson', role: 'builder', attachOrg: true },
-  { username: 'emma.thompson', email: 'emma@bathroompro.com', name: 'Emma Thompson', role: 'recruitment', attachOrg: true },
-  { username: 'amanda.peterson', email: 'amanda.peterson@email.com', name: 'Amanda Peterson', role: 'customer', attachOrg: true },
+  { username: 'owner', email: 'owner@sync2dine.io', name: 'Platform Owner', role: 'platform_owner', attachOrg: false },
+  { username: 'maya.nguyen', email: 'maya@demo.sync2dine.io', name: 'Maya Nguyen', role: 'super_admin', attachOrg: true },
+  { username: 'leo.martinez', email: 'leo@demo.sync2dine.io', name: 'Leo Martinez', role: 'manager', attachOrg: true },
+  { username: 'priya.patel', email: 'priya@demo.sync2dine.io', name: 'Priya Patel', role: 'staff', attachOrg: true },
+  { username: 'kai.brooks', email: 'kai@demo.sync2dine.io', name: 'Kai Brooks', role: 'builder', attachOrg: true },
+  { username: 'nina.ross', email: 'nina@demo.sync2dine.io', name: 'Nina Ross', role: 'recruitment', attachOrg: true },
+  { username: 'guest.chen', email: 'guest@demo.sync2dine.io', name: 'Guest Chen', role: 'customer', attachOrg: true },
 ];
 
 function admin() {
@@ -51,7 +51,7 @@ async function ensureOrg(supabase: ReturnType<typeof admin>): Promise<{ id: stri
   const { data: existing } = await supabase
     .from('organizations')
     .select('id, name, openai_api_key_encrypted')
-    .or(`name.eq.${ORG_NAME},contact_email.eq.john@bathroompro.com`)
+    .or(`name.eq.${ORG_NAME},contact_email.eq.maya@demo.sync2dine.io`)
     .limit(1)
     .maybeSingle();
 
@@ -77,8 +77,8 @@ async function ensureOrg(supabase: ReturnType<typeof admin>): Promise<{ id: stri
     .from('organizations')
     .insert({
       name: ORG_NAME,
-      contact_name: 'John Smith',
-      contact_email: 'john@bathroompro.com',
+      contact_name: 'Maya Nguyen',
+      contact_email: 'maya@demo.sync2dine.io',
       contact_phone: '',
       plan: 'pro',
       status: 'active',

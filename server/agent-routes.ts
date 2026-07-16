@@ -146,6 +146,8 @@ async function handlePatchSettings(req: IncomingMessage, res: ServerResponse) {
   if (typeof body.campaignReviewBrief === 'string') patch.campaignReviewBrief = body.campaignReviewBrief;
   if (typeof body.campaignReorderBrief === 'string') patch.campaignReorderBrief = body.campaignReorderBrief;
   if (typeof body.campaignWinbackBrief === 'string') patch.campaignWinbackBrief = body.campaignWinbackBrief;
+  if (typeof body.aboutUs === 'string') patch.aboutUs = body.aboutUs;
+  if (typeof body.sayToday === 'string') patch.sayToday = body.sayToday;
   const updated = updateAgentSettings(patch);
   sendJson(res, 200, updated);
 }
