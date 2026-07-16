@@ -33,7 +33,8 @@ import {
   vapiFetch,
 } from './vapi-client';
 import { buildStaffOrchBody } from './phone-session';
-import { buildVapiAssistantForParty, resolveTransferNumber } from './vapi-assistant';
+import { buildVapiAssistantForParty } from './vapi-assistant';
+import { resolveTransferDestination, resolveTransferNumber } from './transfer-numbers';
 import { assertVapiProductionReady, isProductionRuntime } from './provider-gates';
 import {
   isToolAllowedForPhoneSession,
@@ -519,28 +520,35 @@ async function executeTool(
 
   if (name === 'transferToHuman') {
     const takeMessage = Boolean(args.takeMessage);
-    const transferNumber = resolveTransferNumber(String(args.department || 'general'));
-    const willTransfer = Boolean(transferNumber) && !takeMessage;
+    const department = String(args.department || 'general');
+    const transferNumber = resolveTransferNumber(department);
+    const destination = !takeMessage
+      ? resolveTransferDestination({
+          department,
+          reason: String(args.reason || args.message || ''),
+          message: String(args.message || ''),
+        })
+      : null;
+    const willTransfer = Boolean(destination) && !takeMessage;
     const fresh = getCallById(callId);
     saveCall({
       id: callId,
       outcome: willTransfer ? 'transferred' : 'message_taken',
       ...(willTransfer ? { status: 'transferred' } : {}),
-      transferredTo: String(args.department ?? 'general'),
+      transferredTo: department,
       metadata: {
         ...((fresh?.metadata as Record<string, unknown> | undefined) || {}),
         transferNumber: transferNumber || undefined,
+        transferMode: willTransfer ? 'warm-transfer-experimental' : undefined,
       },
     });
     return {
-      transferred: Boolean(transferNumber) && !takeMessage,
+      transferred: willTransfer,
       transferNumber: transferNumber || null,
       department: args.department ?? 'general',
       message: args.message ?? args.reason,
-      takeMessage: takeMessage || !transferNumber,
-      destination: transferNumber && !takeMessage
-        ? { type: 'number', number: transferNumber }
-        : undefined,
+      takeMessage: takeMessage || !destination,
+      destination: destination || undefined,
     };
   }
 

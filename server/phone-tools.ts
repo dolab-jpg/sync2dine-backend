@@ -19,7 +19,7 @@ import { actionRequiresConfirmation } from './action-registry';
 import { formatSpokenGbp } from './spoken-money';
 import { resolvePhoneCallerIdentity } from './phone-auth';
 import { ensureEnglishForCustomerSend } from './outbound-english-guard';
-import { resolveTransferNumber } from './transfer-numbers';
+import { resolveTransferDestination, resolveTransferNumber } from './transfer-numbers';
 
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -325,7 +325,8 @@ export const PHONE_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'transferToHuman',
-      description: 'Transfer the call to a human team member or take a message if unavailable',
+      description:
+        'Warm-transfer the live call to a human: put the caller on hold, dial staff, brief them, then connect. Use takeMessage if they only want a message.',
       parameters: {
         type: 'object',
         properties: {
@@ -774,9 +775,17 @@ export async function executePhoneTool(
   }
 
   if (name === 'transferToHuman') {
-    const transferNumber = resolveTransferNumber(String(input.department || 'general')) ?? '';
-    const takeMessage = Boolean(input.takeMessage) || !transferNumber;
-    const willTransfer = Boolean(transferNumber) && !takeMessage;
+    const department = String(input.department || 'general');
+    const transferNumber = resolveTransferNumber(department) ?? '';
+    const destination = !input.takeMessage
+      ? resolveTransferDestination({
+          department,
+          reason: String(input.reason || input.message || ''),
+          message: String(input.message || ''),
+        })
+      : null;
+    const takeMessage = Boolean(input.takeMessage) || !destination;
+    const willTransfer = Boolean(destination) && !takeMessage;
     if (callId) {
       saveCall({
         id: callId,
@@ -791,9 +800,7 @@ export async function executePhoneTool(
       department: input.department ?? 'general',
       message: input.message ?? input.reason,
       takeMessage,
-      destination: willTransfer
-        ? { type: 'number', number: transferNumber }
-        : undefined,
+      destination: willTransfer ? destination : undefined,
     };
   }
 
