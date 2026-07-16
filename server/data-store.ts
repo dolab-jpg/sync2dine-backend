@@ -586,15 +586,91 @@ export function updateQuoteRecord(id: string, patch: Record<string, unknown>): R
   return store.quotes[idx];
 }
 
-export function listOrderRecords(): Array<Record<string, unknown>> {
+/**
+ * List food orders — Supabase `public.orders` is primary when configured;
+ * disk JSON is a write-through cache / offline fallback.
+ */
+export async function listOrderRecords(
+  orgIdHint?: string | null,
+): Promise<Array<Record<string, unknown>>> {
+  const orgId = resolveStorageOrgId(orgIdHint ?? getRequestOrgId());
+  try {
+    const {
+      isSupabaseOrdersConfigured,
+      listOrdersFromSupabase,
+    } = await import('./supabase-orders');
+    if (isSupabaseOrdersConfigured()) {
+      const result = await listOrdersFromSupabase(orgId);
+      if (result.ok) {
+        const store = getDataStore();
+        store.orders = result.orders;
+        syncData(store);
+        return result.orders;
+      }
+    }
+  } catch (err) {
+    console.warn(
+      '[orders] Supabase list failed, using disk:',
+      err instanceof Error ? err.message : err,
+    );
+  }
   const store = getDataStore();
   return Array.isArray(store.orders) ? store.orders : [];
 }
 
-export function saveOrderRecord(order: Record<string, unknown>): Record<string, unknown> {
+/**
+ * Create/upsert a food order — UUID id, per-org order number, Supabase primary.
+ */
+export async function saveOrderRecord(
+  order: Record<string, unknown>,
+  orgIdHint?: string | null,
+): Promise<Record<string, unknown>> {
+  const orgId = resolveStorageOrgId(
+    orgIdHint ?? (order.orgId as string | undefined) ?? getRequestOrgId(),
+  );
+
+  try {
+    const {
+      isSupabaseOrdersConfigured,
+      upsertOrderToSupabase,
+      newOrderId,
+      isOrderUuid,
+    } = await import('./supabase-orders');
+    if (isSupabaseOrdersConfigured()) {
+      const withId = {
+        ...order,
+        orgId,
+        id: isOrderUuid(String(order.id ?? '')) ? String(order.id) : newOrderId(),
+      };
+      const result = await upsertOrderToSupabase(withId, orgId);
+      if (result.ok && result.order) {
+        const store = getDataStore();
+        if (!Array.isArray(store.orders)) store.orders = [];
+        const idx = store.orders.findIndex((o) => String(o.id) === String(result.order!.id));
+        if (idx >= 0) store.orders[idx] = result.order;
+        else store.orders.unshift(result.order);
+        syncData(store);
+        return result.order;
+      }
+      console.warn('[orders] Supabase upsert failed, writing disk:', result.error);
+    }
+  } catch (err) {
+    console.warn(
+      '[orders] Supabase save failed, using disk:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // Offline / unconfigured fallback — still prefer UUID when possible
   const store = getDataStore();
   if (!Array.isArray(store.orders)) store.orders = [];
-  const id = String(order.id ?? `ord-${Date.now()}`);
+  let id = String(order.id ?? '');
+  try {
+    const { newOrderId, isOrderUuid } = await import('./supabase-orders');
+    if (!isOrderUuid(id)) id = newOrderId();
+  } catch {
+    if (!id) id = `ord-${Date.now()}`;
+  }
   const existing = store.orders.findIndex((o) => String(o.id) === id);
   const maxNumber = store.orders.reduce((max, o) => {
     const n = Number(o.orderNumber ?? 0);
@@ -603,6 +679,7 @@ export function saveOrderRecord(order: Record<string, unknown>): Record<string, 
   const record = {
     ...order,
     id,
+    orgId,
     orderNumber: Number(order.orderNumber ?? maxNumber + 1),
     status: String(order.status ?? 'new'),
     paymentStatus: String(order.paymentStatus ?? 'unpaid'),
@@ -621,7 +698,43 @@ export function saveOrderRecord(order: Record<string, unknown>): Record<string, 
   return record;
 }
 
-export function updateOrderRecord(id: string, patch: Record<string, unknown>): Record<string, unknown> | null {
+export async function updateOrderRecord(
+  id: string,
+  patch: Record<string, unknown>,
+  orgIdHint?: string | null,
+): Promise<Record<string, unknown> | null> {
+  const orgId = resolveStorageOrgId(orgIdHint ?? getRequestOrgId());
+
+  try {
+    const {
+      isSupabaseOrdersConfigured,
+      updateOrderInSupabase,
+      isOrderUuid,
+    } = await import('./supabase-orders');
+    if (isSupabaseOrdersConfigured() && isOrderUuid(id)) {
+      const result = await updateOrderInSupabase(id, patch, orgId);
+      if (result.ok && result.order) {
+        const store = getDataStore();
+        if (!Array.isArray(store.orders)) store.orders = [];
+        const idx = store.orders.findIndex((o) => String(o.id) === id);
+        if (idx >= 0) store.orders[idx] = result.order;
+        else store.orders.unshift(result.order);
+        syncData(store);
+        return result.order;
+      }
+      if (result.error === 'not found') {
+        // Fall through to disk for legacy non-cloud ids
+      } else if (result.error) {
+        console.warn('[orders] Supabase update failed, trying disk:', result.error);
+      }
+    }
+  } catch (err) {
+    console.warn(
+      '[orders] Supabase update failed, using disk:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   const store = getDataStore();
   if (!Array.isArray(store.orders)) store.orders = [];
   const idx = store.orders.findIndex((o) => String(o.id) === id);

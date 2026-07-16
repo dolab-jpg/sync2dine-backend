@@ -118,6 +118,37 @@ export type Database = {
         Insert: Partial<Database['public']['Tables']['usage_events']['Row']> & { org_id: string }
         Update: Partial<Database['public']['Tables']['usage_events']['Row']>
       }
+      orders: {
+        Row: {
+          id: string
+          org_id: string
+          customer_id: string | null
+          customer_name: string
+          customer_phone: string
+          channel: string
+          order_type: string
+          status: string
+          payment_status: string
+          payment_method: string | null
+          order_number: number
+          items: Json
+          total: number
+          delivery_address: string | null
+          notes: string
+          review_score: number | null
+          review_text: string | null
+          review_called_at: string | null
+          last_winback_call_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: Partial<Database['public']['Tables']['orders']['Row']> & {
+          id: string
+          org_id: string
+          order_number: number
+        }
+        Update: Partial<Database['public']['Tables']['orders']['Row']>
+      }
     }
     Views: Record<string, never>
     Functions: {

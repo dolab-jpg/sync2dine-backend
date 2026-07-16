@@ -1187,9 +1187,16 @@ export async function executePhoneTool(
       const r = row as Record<string, unknown>;
       return sum + Number(r.price ?? 0) * Number(r.qty ?? 1);
     }, 0));
-    const record = saveOrderRecord({
+    const phone = firstString(input.customerPhone, callerPhone) ?? '';
+    let customerId = firstString(input.customerId, body.customerContext?.customerId);
+    if (!customerId && phone) {
+      const found = lookupContactByPhone(phone);
+      if (found.found && found.customerId) customerId = found.customerId;
+    }
+    const record = await saveOrderRecord({
+      customerId: customerId || undefined,
       customerName: firstString(input.customerName, body.customerContext?.name) ?? 'Guest',
-      customerPhone: firstString(input.customerPhone, callerPhone) ?? '',
+      customerPhone: phone,
       channel: 'phone',
       orderType: firstString(input.orderType) ?? 'collection',
       status: 'new',
@@ -1205,6 +1212,7 @@ export async function executePhoneTool(
       orderId: record.id,
       orderNumber: record.orderNumber,
       total: record.total,
+      customerId: record.customerId ?? customerId ?? null,
       spokenHint: `Order ${record.orderNumber} is in — £${Number(record.total).toFixed(2)}. The kitchen has it.`,
     };
   }

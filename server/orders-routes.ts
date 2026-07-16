@@ -24,8 +24,8 @@ function readBody(req: IncomingMessage): Promise<string> {
 }
 
 /**
- * Sync2Dine restaurant orders API — JSON data-store primary with optional
- * Supabase mirror later. Mirrors BD quote/customer record patterns.
+ * Sync2Dine restaurant orders API — Supabase `public.orders` is primary;
+ * disk JSON is write-through cache / offline fallback.
  */
 export async function handleOrdersRoutes(
   req: IncomingMessage,
@@ -38,7 +38,8 @@ export async function handleOrdersRoutes(
   setRequestOrgId(orgId);
 
   if (pathname === '/api/orders' && req.method === 'GET') {
-    sendJson(res, 200, { orders: listOrderRecords() });
+    const orders = await listOrderRecords(orgId);
+    sendJson(res, 200, { orders });
     return true;
   }
 
@@ -50,9 +51,10 @@ export async function handleOrdersRoutes(
       sendJson(res, 400, { error: 'Invalid JSON body' });
       return true;
     }
-    const record = saveOrderRecord({
+    const record = await saveOrderRecord({
       ...body,
       orgId,
+      customerId: body.customerId ?? undefined,
       customerName: body.customerName ?? body.customer ?? 'Guest',
       customerPhone: body.customerPhone ?? body.phone ?? '',
       channel: body.channel ?? 'phone',
@@ -63,7 +65,7 @@ export async function handleOrdersRoutes(
       total: body.total ?? 0,
       deliveryAddress: body.deliveryAddress ?? body.address,
       notes: body.notes ?? '',
-    });
+    }, orgId);
     sendJson(res, 201, { order: record });
     return true;
   }
@@ -78,7 +80,7 @@ export async function handleOrdersRoutes(
       sendJson(res, 400, { error: 'Invalid JSON body' });
       return true;
     }
-    const updated = updateOrderRecord(id, body);
+    const updated = await updateOrderRecord(id, body, orgId);
     if (!updated) {
       sendJson(res, 404, { error: 'Order not found' });
       return true;

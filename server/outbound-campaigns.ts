@@ -49,9 +49,9 @@ export interface LapsedCustomerRow {
 }
 
 /** Customers whose most recent order is older than `days` days. */
-export function listCustomersWithLastOrderOlderThan(days: number): LapsedCustomerRow[] {
+export async function listCustomersWithLastOrderOlderThan(days: number): Promise<LapsedCustomerRow[]> {
   const cutoff = Date.now() - days * 86400000;
-  const orders = listOrderRecords();
+  const orders = await listOrderRecords();
   const byKey = new Map<string, { name: string; phone: string; customerId?: string; lastAt: number; count: number }>();
 
   for (const order of orders) {
@@ -98,16 +98,16 @@ function briefForTemplate(template: LapseCampaignTemplate): string {
   return settings.campaignWinbackBrief ?? 'Win-back call';
 }
 
-export function queueLapsedCampaign(input: {
+export async function queueLapsedCampaign(input: {
   template: LapseCampaignTemplate;
   daysOlderThan: number;
   dryRun?: boolean;
-}): { queued: number; candidates: LapsedCustomerRow[]; jobs: Array<Record<string, unknown>> } {
+}): Promise<{ queued: number; candidates: LapsedCustomerRow[]; jobs: Array<Record<string, unknown>> }> {
   if (!LAPSE_TEMPLATES.includes(input.template)) {
     throw new Error('Invalid campaign template');
   }
   const days = Math.max(1, Math.round(input.daysOlderThan));
-  const candidates = listCustomersWithLastOrderOlderThan(days);
+  const candidates = await listCustomersWithLastOrderOlderThan(days);
   if (input.dryRun) {
     return { queued: 0, candidates, jobs: [] };
   }

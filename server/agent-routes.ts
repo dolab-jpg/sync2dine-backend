@@ -564,7 +564,7 @@ export async function handleAgentRoutes(
   if (pathname === '/api/campaigns/lapsed-customers' && req.method === 'GET') {
     const days = Math.max(1, Number(url.searchParams.get('days') ?? 30) || 30);
     const { listCustomersWithLastOrderOlderThan } = await import('./outbound-campaigns');
-    sendJson(res, 200, { days, customers: listCustomersWithLastOrderOlderThan(days) });
+    sendJson(res, 200, { days, customers: await listCustomersWithLastOrderOlderThan(days) });
     return true;
   }
   if (pathname === '/api/campaigns/queue-lapsed' && req.method === 'POST') {
@@ -577,7 +577,7 @@ export async function handleAgentRoutes(
     const daysOlderThan = Math.max(1, Number(body.daysOlderThan ?? 30) || 30);
     try {
       const { queueLapsedCampaign } = await import('./outbound-campaigns');
-      const result = queueLapsedCampaign({
+      const result = await queueLapsedCampaign({
         template: template as 'customer_review' | 'customer_reorder' | 'lapse_winback',
         daysOlderThan,
         dryRun: body.dryRun === true,
