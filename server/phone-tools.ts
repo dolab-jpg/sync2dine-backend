@@ -474,9 +474,36 @@ export const PHONE_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'checkDeliveryArea',
+      description:
+        'Check whether a UK postcode is inside the restaurant delivery area (configured postcode prefixes). Call before placeFoodOrder when orderType is delivery.',
+      parameters: {
+        type: 'object',
+        properties: {
+          postcode: { type: 'string', description: 'Full or partial UK postcode from the caller' },
+        },
+        required: ['postcode'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'getDeliveryAreas',
+      description:
+        'List the postcode beginnings this restaurant delivers to, plus any delivery fee / minimum notes. Use when the caller asks where you deliver.',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'placeFoodOrder',
       description:
-        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling.',
+        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. For delivery, pass postcode (and address) after checkDeliveryArea succeeds.',
       parameters: {
         type: 'object',
         properties: {
@@ -497,6 +524,11 @@ export const PHONE_TOOLS = [
           },
           total: { type: 'number' },
           deliveryAddress: { type: 'string' },
+          postcode: { type: 'string', description: 'UK postcode required for delivery orders' },
+          specialName: {
+            type: 'string',
+            description: 'Named customer special applied on this order (from their CRM specialName)',
+          },
           notes: { type: 'string' },
           paymentStatus: { type: 'string', enum: ['unpaid', 'cash', 'card'] },
         },
@@ -526,6 +558,8 @@ export const PHONE_AUTO_ACTIONS = new Set([
   'sendCustomerMessage',
   'getMenu',
   'placeFoodOrder',
+  'checkDeliveryArea',
+  'getDeliveryAreas',
 ]);
 
 export async function executePhoneTool(
@@ -1188,11 +1222,122 @@ export async function executePhoneTool(
     };
   }
 
+  if (name === 'getDeliveryAreas') {
+    const { normalizeDeliveryPrefixes } = await import('./delivery-areas');
+    const settings = getDataStore().agentSettings;
+    const prefixes = normalizeDeliveryPrefixes(settings?.deliveryPostcodePrefixes);
+    const notes = settings?.deliveryNotes?.trim() || '';
+    if (!prefixes.length) {
+      return {
+        ok: true,
+        prefixes: [],
+        deliveryNotes: notes || undefined,
+        spokenHint: notes
+          ? `We have not set delivery postcodes in the app yet. ${notes}`
+          : 'We have not set delivery postcodes in the app yet — I can offer collection, or take a message for the team.',
+      };
+    }
+    const spokenPrefixes = prefixes.join(', ');
+    return {
+      ok: true,
+      prefixes,
+      deliveryNotes: notes || undefined,
+      spokenHint: notes
+        ? `We deliver to postcodes starting ${spokenPrefixes}. ${notes}`
+        : `We deliver to postcodes starting ${spokenPrefixes}.`,
+    };
+  }
+
+  if (name === 'checkDeliveryArea') {
+    const { matchDeliveryPostcode, normalizeDeliveryPrefixes } = await import('./delivery-areas');
+    const settings = getDataStore().agentSettings;
+    const prefixes = normalizeDeliveryPrefixes(settings?.deliveryPostcodePrefixes);
+    const postcode = firstString(input.postcode) ?? '';
+    // #region agent log
+    fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'342d7b'},body:JSON.stringify({sessionId:'342d7b',runId:'pre-fix',hypothesisId:'D',location:'phone-tools.ts:checkDeliveryArea',message:'delivery area check',data:{prefixCount:prefixes.length,prefixes:prefixes.slice(0,8),hasPostcode:Boolean(postcode),postcodeLen:postcode.length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (!postcode) {
+      return {
+        ok: false,
+        error: 'postcode_required',
+        spokenHint: 'I need the postcode to check if we deliver there.',
+      };
+    }
+    if (!prefixes.length) {
+      return {
+        ok: false,
+        error: 'delivery_areas_not_configured',
+        postcode,
+        spokenHint: 'Delivery areas are not set up in the app yet — shall I put this down for collection instead?',
+      };
+    }
+    const match = matchDeliveryPostcode(postcode, prefixes);
+    const notes = settings?.deliveryNotes?.trim() || '';
+    if (!match.ok) {
+      return {
+        ok: false,
+        inArea: false,
+        postcode: match.normalized || postcode,
+        prefixes,
+        spokenHint: 'We do not stretch that far for delivery yet — collection is a shout though, or I can take another postcode?',
+      };
+    }
+    return {
+      ok: true,
+      inArea: true,
+      postcode: match.normalized,
+      matchedPrefix: match.matchedPrefix,
+      deliveryNotes: notes || undefined,
+      spokenHint: notes
+        ? `Yes, we deliver to ${match.normalized}. ${notes}`
+        : `Yes, we deliver to ${match.normalized}.`,
+    };
+  }
+
   if (name === 'placeFoodOrder') {
     const rawItems = Array.isArray(input.items) ? input.items : [];
     if (!rawItems.length) {
       return { ok: false, error: 'items_required', spokenHint: 'Tell me what you would like to order first.' };
     }
+    const orderType = firstString(input.orderType) ?? 'collection';
+    const postcode = firstString(input.postcode);
+    const streetAddress = firstString(input.deliveryAddress);
+
+    if (orderType === 'delivery') {
+      if (!postcode && !streetAddress) {
+        return {
+          ok: false,
+          error: 'delivery_address_required',
+          spokenHint: 'For delivery I need the street address and postcode first.',
+        };
+      }
+      if (!postcode) {
+        return {
+          ok: false,
+          error: 'postcode_required',
+          spokenHint: 'I just need the postcode so I can check we deliver there.',
+        };
+      }
+      const { matchDeliveryPostcode, normalizeDeliveryPrefixes } = await import('./delivery-areas');
+      const prefixes = normalizeDeliveryPrefixes(getDataStore().agentSettings?.deliveryPostcodePrefixes);
+      if (!prefixes.length) {
+        return {
+          ok: false,
+          error: 'delivery_areas_not_configured',
+          spokenHint: 'Delivery areas are not set up yet — shall I make this collection instead?',
+        };
+      }
+      const match = matchDeliveryPostcode(postcode, prefixes);
+      if (!match.ok) {
+        return {
+          ok: false,
+          error: 'out_of_delivery_area',
+          postcode: match.normalized || postcode,
+          spokenHint: 'We do not stretch that far for delivery yet — collection instead, or a different postcode?',
+        };
+      }
+    }
+
     // Fill missing/zero prices from the live catalog so phone orders never total £0.
     let catalog: Awaited<ReturnType<typeof listMenuItemsForOrg>> = [];
     try {
@@ -1209,7 +1354,7 @@ export async function executePhoneTool(
       }
       return r;
     });
-    const total = Number(input.total ?? items.reduce((sum, row) => {
+    const totalBeforeSpecial = Number(input.total ?? items.reduce((sum, row) => {
       const r = row as Record<string, unknown>;
       return sum + Number(r.price ?? 0) * Number(r.qty ?? 1);
     }, 0));
@@ -1219,27 +1364,88 @@ export async function executePhoneTool(
       const found = lookupContactByPhone(phone);
       if (found.found && found.customerId) customerId = found.customerId;
     }
+
+    const store = getDataStore();
+    const customerRow = customerId
+      ? store.customers.find((c) => String(c.id) === customerId)
+      : undefined;
+    const crmSpecialName = customerRow?.specialName != null ? String(customerRow.specialName).trim() : '';
+    const crmSpecialNote = customerRow?.specialDealNote != null ? String(customerRow.specialDealNote).trim() : '';
+    const appliedSpecialName = firstString(input.specialName) || undefined;
+    let total = totalBeforeSpecial;
+    let specialAppliedNote = '';
+    // #region agent log
+    fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'342d7b'},body:JSON.stringify({sessionId:'342d7b',runId:'pre-fix',hypothesisId:'C',location:'phone-tools.ts:placeFoodOrder',message:'special before apply',data:{customerId:customerId??null,hasCrmSpecial:Boolean(crmSpecialName),hasCrmDeal:Boolean(crmSpecialNote),inputSpecialName:Boolean(appliedSpecialName),totalBefore:totalBeforeSpecial,orderType},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (appliedSpecialName && crmSpecialNote) {
+      const pctMatch = crmSpecialNote.match(/(\d+(?:\.\d+)?)\s*%/);
+      if (pctMatch) {
+        const pct = Math.min(100, Math.max(0, Number(pctMatch[1])));
+        if (Number.isFinite(pct) && pct > 0) {
+          total = Math.round(totalBeforeSpecial * (1 - pct / 100) * 100) / 100;
+          specialAppliedNote = `${appliedSpecialName}: ${pct}% off (${formatSpokenGbp(totalBeforeSpecial)} → ${formatSpokenGbp(total)})`;
+        }
+      }
+      if (!specialAppliedNote) {
+        specialAppliedNote = `${appliedSpecialName}: ${crmSpecialNote}`;
+      }
+    } else if (appliedSpecialName && crmSpecialName) {
+      specialAppliedNote = `Special: ${appliedSpecialName}${crmSpecialNote ? ` — ${crmSpecialNote}` : ''}`;
+    }
+
+    const { formatUkPostcodeDisplay, normalizeUkPostcode } = await import('./delivery-areas');
+    const normalizedPostcode = postcode ? formatUkPostcodeDisplay(postcode) : '';
+    const compactPc = postcode ? normalizeUkPostcode(postcode) : '';
+    let deliveryAddress = streetAddress || undefined;
+    if (orderType === 'delivery' && normalizedPostcode) {
+      if (deliveryAddress) {
+        const upper = deliveryAddress.toUpperCase().replace(/\s+/g, '');
+        if (!upper.includes(compactPc)) {
+          deliveryAddress = `${deliveryAddress.replace(/,\s*$/, '')}, ${normalizedPostcode}`;
+        }
+      } else {
+        deliveryAddress = normalizedPostcode;
+      }
+    }
+
+    const baseNotes = firstString(input.notes) ?? '';
+    const notes = [baseNotes, specialAppliedNote].filter(Boolean).join(' | ');
+
     const record = await saveOrderRecord({
       customerId: customerId || undefined,
       customerName: firstString(input.customerName, body.customerContext?.name) ?? 'Guest',
       customerPhone: phone,
       channel: 'phone',
-      orderType: firstString(input.orderType) ?? 'collection',
+      orderType,
       status: 'new',
       paymentStatus: firstString(input.paymentStatus) ?? 'unpaid',
       items,
       total,
-      deliveryAddress: firstString(input.deliveryAddress),
-      notes: firstString(input.notes) ?? '',
-      etaMinutes: firstString(input.orderType) === 'delivery' ? 40 : 20,
+      deliveryAddress,
+      deliveryPostcode: normalizedPostcode || undefined,
+      specialName: appliedSpecialName,
+      notes,
+      etaMinutes: orderType === 'delivery' ? 40 : 20,
     });
+    const spokenTotal = formatSpokenGbp(Number(record.total));
+    const where =
+      orderType === 'delivery' && deliveryAddress
+        ? ` Delivery to ${deliveryAddress}.`
+        : orderType === 'collection'
+          ? ' Collection.'
+          : '';
+    const specialSpeak = specialAppliedNote ? ` Special applied: ${appliedSpecialName}.` : '';
     return {
       ok: true,
       orderId: record.id,
       orderNumber: record.orderNumber,
       total: record.total,
+      spokenTotal,
+      specialName: appliedSpecialName ?? null,
+      deliveryAddress: record.deliveryAddress ?? deliveryAddress ?? null,
+      deliveryPostcode: normalizedPostcode || null,
       customerId: record.customerId ?? customerId ?? null,
-      spokenHint: `Order ${record.orderNumber} is in — £${Number(record.total).toFixed(2)}. The kitchen has it.`,
+      spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${specialSpeak} The kitchen has it.`,
     };
   }
 

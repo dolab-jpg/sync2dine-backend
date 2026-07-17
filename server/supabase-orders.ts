@@ -65,8 +65,53 @@ type OrderRow = {
   updated_at: string;
 };
 
+/** Persist specials/postcode in notes — orders table has no dedicated columns. */
+const S2D_META_RE = /\s*\[\[s2d:([^\]]+)\]\]\s*$/;
+
+function encodeOrderMeta(notes: string, order: Record<string, unknown>): string {
+  const base = String(notes ?? '').replace(S2D_META_RE, '').trim();
+  const parts: string[] = [];
+  if (order.specialName != null && String(order.specialName).trim()) {
+    parts.push(`special=${encodeURIComponent(String(order.specialName).trim())}`);
+  }
+  if (order.deliveryPostcode != null && String(order.deliveryPostcode).trim()) {
+    parts.push(`pc=${encodeURIComponent(String(order.deliveryPostcode).trim())}`);
+  }
+  if (!parts.length) return base;
+  return base ? `${base} [[s2d:${parts.join('|')}]]` : `[[s2d:${parts.join('|')}]]`;
+}
+
+function decodeOrderMeta(notes: string): { notes: string; specialName?: string; deliveryPostcode?: string } {
+  const raw = String(notes ?? '');
+  const m = raw.match(S2D_META_RE);
+  if (!m) return { notes: raw };
+  const cleaned = raw.replace(S2D_META_RE, '').trim();
+  let specialName: string | undefined;
+  let deliveryPostcode: string | undefined;
+  for (const part of m[1].split('|')) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    const key = part.slice(0, eq);
+    const val = decodeURIComponent(part.slice(eq + 1));
+    if (key === 'special' && val) specialName = val;
+    if (key === 'pc' && val) deliveryPostcode = val;
+  }
+  return { notes: cleaned, specialName, deliveryPostcode };
+}
+
+function extractPostcodeFromAddress(address: string | null | undefined): string | undefined {
+  if (!address) return undefined;
+  const m = String(address).match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i);
+  return m ? m[1].toUpperCase().replace(/\s+/g, ' ').trim() : undefined;
+}
+
 /** Map Supabase row → camelCase API / disk shape. */
 export function rowToOrder(row: OrderRow): Record<string, unknown> {
+  const decoded = decodeOrderMeta(row.notes ?? '');
+  const deliveryPostcode = decoded.deliveryPostcode || extractPostcodeFromAddress(row.delivery_address);
+  // #region agent log
+  fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'61363c'},body:JSON.stringify({sessionId:'61363c',runId:'post-fix',hypothesisId:'B',location:'supabase-orders.ts:rowToOrder',message:'order fields after supabase read',data:{hasDeliveryPostcode:Boolean(deliveryPostcode),hasSpecialName:Boolean(decoded.specialName),notesLen:decoded.notes.length},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   return {
     id: row.id,
     orgId: row.org_id,
@@ -82,7 +127,9 @@ export function rowToOrder(row: OrderRow): Record<string, unknown> {
     items: Array.isArray(row.items) ? row.items : [],
     total: Number(row.total ?? 0),
     deliveryAddress: row.delivery_address ?? undefined,
-    notes: row.notes ?? '',
+    deliveryPostcode,
+    specialName: decoded.specialName,
+    notes: decoded.notes,
     reviewScore: row.review_score ?? undefined,
     reviewText: row.review_text ?? undefined,
     reviewCalledAt: row.review_called_at ?? undefined,
@@ -95,6 +142,10 @@ export function rowToOrder(row: OrderRow): Record<string, unknown> {
 /** Map camelCase order → Supabase insert/upsert row. */
 export function orderToRow(order: Record<string, unknown>, orgId: string): Record<string, unknown> {
   const id = isOrderUuid(String(order.id ?? '')) ? String(order.id) : newOrderId();
+  const notesEncoded = encodeOrderMeta(String(order.notes ?? ''), order);
+  // #region agent log
+  fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'61363c'},body:JSON.stringify({sessionId:'61363c',runId:'post-fix',hypothesisId:'B',location:'supabase-orders.ts:orderToRow',message:'order fields before supabase map',data:{hasDeliveryPostcode:order.deliveryPostcode!=null,hasSpecialName:order.specialName!=null,hasDeliveryAddress:order.deliveryAddress!=null,notesEncodedHasMeta:notesEncoded.includes('[[s2d:'),notesLen:notesEncoded.length},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   return {
     id,
     org_id: orgId,
@@ -116,7 +167,7 @@ export function orderToRow(order: Record<string, unknown>, orgId: string): Recor
       : order.address != null
         ? String(order.address)
         : null,
-    notes: String(order.notes ?? ''),
+    notes: notesEncoded,
     review_score: order.reviewScore != null ? Number(order.reviewScore) : null,
     review_text: order.reviewText != null ? String(order.reviewText) : null,
     review_called_at: order.reviewCalledAt != null ? String(order.reviewCalledAt) : null,

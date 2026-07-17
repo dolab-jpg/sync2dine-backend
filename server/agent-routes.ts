@@ -148,6 +148,11 @@ async function handlePatchSettings(req: IncomingMessage, res: ServerResponse) {
   if (typeof body.campaignWinbackBrief === 'string') patch.campaignWinbackBrief = body.campaignWinbackBrief;
   if (typeof body.aboutUs === 'string') patch.aboutUs = body.aboutUs;
   if (typeof body.sayToday === 'string') patch.sayToday = body.sayToday;
+  if (Array.isArray(body.deliveryPostcodePrefixes)) {
+    const { normalizeDeliveryPrefixes } = await import('./delivery-areas');
+    patch.deliveryPostcodePrefixes = normalizeDeliveryPrefixes(body.deliveryPostcodePrefixes);
+  }
+  if (typeof body.deliveryNotes === 'string') patch.deliveryNotes = body.deliveryNotes;
   const updated = updateAgentSettings(patch);
   sendJson(res, 200, updated);
 }

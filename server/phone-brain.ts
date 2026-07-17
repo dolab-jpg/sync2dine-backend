@@ -305,6 +305,17 @@ export function buildAccountBrainContext(
     ? (store.customers as Array<Record<string, unknown>>).find((c) => String(c.id) === resolved.customerId)
     : undefined;
   if (customer?.notes) lines.push(`Notes: ${String(customer.notes).slice(0, 400)}`);
+  const specialName = customer?.specialName != null ? String(customer.specialName).trim() : '';
+  const specialDealNote = customer?.specialDealNote != null ? String(customer.specialDealNote).trim() : '';
+  // #region agent log
+  fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'342d7b'},body:JSON.stringify({sessionId:'342d7b',runId:'post-fix',hypothesisId:'A',location:'phone-brain.ts:buildAccountBrainContext',message:'account context specials',data:{hasCustomer:Boolean(customer),customerId:resolved.customerId??null,hasSpecialName:Boolean(specialName),hasSpecialDealNote:Boolean(specialDealNote),specialNameLen:specialName.length,dealNoteLen:specialDealNote.length,customerCount:store.customers.length},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  if (specialName || specialDealNote) {
+    lines.push('CUSTOMER SPECIAL (offer / honour this — do not invent a different deal):');
+    if (specialName) lines.push(`- Special name (they may ask for this): ${specialName}`);
+    if (specialDealNote) lines.push(`- Deal to apply: ${specialDealNote}`);
+    lines.push('- Ask once if they want their special tonight (by name). If yes, apply the deal note to the basket/total and pass specialName into placeFoodOrder.');
+  }
   const activities = Array.isArray(customer?.activities)
     ? (customer!.activities as Array<Record<string, unknown>>).slice(0, 8)
     : [];
@@ -410,9 +421,17 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
   const agent = getDataStore().agentSettings;
   const aboutUs = agent?.aboutUs?.trim();
   const sayToday = agent?.sayToday?.trim();
+  const deliveryNotes = agent?.deliveryNotes?.trim();
+  const deliveryPrefixes = Array.isArray(agent?.deliveryPostcodePrefixes)
+    ? agent.deliveryPostcodePrefixes.map((p) => String(p).trim().toUpperCase()).filter(Boolean)
+    : [];
   const restaurantBlock = [
     aboutUs ? `About us (share if asked): ${aboutUs}` : '',
     sayToday ? `Say today (optional greeting colour): ${sayToday}` : '',
+    deliveryPrefixes.length
+      ? `Delivery postcode prefixes we cover (use checkDeliveryArea — do not invent): ${deliveryPrefixes.join(', ')}`
+      : 'Delivery areas are not configured yet — if they ask about delivery, say you will check with the team or offer collection.',
+    deliveryNotes ? `Delivery notes (share if asked): ${deliveryNotes}` : '',
   ].filter(Boolean).join('\n');
 
   const britishRole = identity.kind === 'customer' ? 'customer' : 'staff';
@@ -479,11 +498,21 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
       '- MONEY: never speak £ or bare digit amounts — say full pounds in words (prefer tool spokenTotal / spokenHint).',
       '',
       'Tone & style:',
-      '- Be properly funny: quick banter, light teasing, self-deprecating asides — every reply can have a smile, without roasting the customer.',
+      '- Be properly funny and happier: quick banter, light teasing, self-deprecating asides — every reply can have a smile, without roasting the customer.',
       '- Keep it short: one or two chatty spoken sentences, text-message casual, no lists, no markdown, no formal paragraphs.',
       '- Help first, joke second — if they are stressed or talking money/legal/safety, dial humour down.',
       '- Same brain as the Lizzie chat assistant: use company knowledge and account memory; do not pretend you need to look up facts you already have.',
-      '- Food ordering: use getMenu to read the menu and placeFoodOrder once the caller confirms items, order type, and total.',
+      '',
+      'FOOD ORDER PLAYBOOK (follow this sequence):',
+      '1. Open — one cheeky greeting; mention Say today if set.',
+      '2. Intent — collection or delivery? Never invent dishes.',
+      '3. Menu — call getMenu before offering items; only offer what the tool returns.',
+      '4. Basket — take items; confirm quantities; never invent prices.',
+      '5. Confirm — read back items and total in spoken words (prefer tool spokenTotal / spokenHint).',
+      '5b. Customer special — if Account memory lists a named special, ask once: “Want your {special name} special tonight?” If yes, apply the deal note exactly (discount / free item) before placing; never invent a different promo.',
+      '6. Delivery gate — for delivery: ask name, street, and postcode; call checkDeliveryArea before placing. If out of area, be kind and funny and offer collection instead.',
+      '7. Place — call placeFoodOrder once they confirm (include specialName when used); celebrate briefly ("lovely jubbly, kitchen\'s got it").',
+      '8. If they ask where you deliver: call getDeliveryAreas — do not guess.',
       '',
       'Live phone call:',
       '- Reply only with spoken words.',
@@ -602,6 +631,8 @@ export function getPhoneSessionChatTools(identity: PhoneCallerIdentity, verified
               'enqueueOutboundCall',
               'getMenu',
               'placeFoodOrder',
+              'checkDeliveryArea',
+              'getDeliveryAreas',
             ].includes(t.function.name),
           ),
           END_CALL_FUNCTION_TOOL,

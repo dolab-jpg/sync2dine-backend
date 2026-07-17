@@ -168,6 +168,10 @@ export interface AgentSettings {
   aboutUs?: string;
   /** Optional daily spoken line (“say today”) for phone greetings */
   sayToday?: string;
+  /** UK postcode beginnings we deliver to (e.g. B1, B11, CV1) — longest match wins */
+  deliveryPostcodePrefixes?: string[];
+  /** Free-text delivery fee / min order / area notes for the phone AI */
+  deliveryNotes?: string;
   updatedAt: string;
 }
 
@@ -186,6 +190,8 @@ const defaultAgentSettings: AgentSettings = {
   campaignReviewBrief: 'Ask how their recent order was and invite them to leave a Google review.',
   campaignReorderBrief: 'Check if they would like to place another order — mention favourites or today\'s specials.',
   campaignWinbackBrief: 'We have not seen them in a while — offer a welcome-back discount on their next order.',
+  deliveryPostcodePrefixes: [],
+  deliveryNotes: '',
   updatedAt: new Date().toISOString(),
 };
 
@@ -514,21 +520,40 @@ export function resolveContactByPhone(phone: string): {
   const contact = store.contacts.find(
     c => normalizePhone(String(c.phone ?? '')) === normalized
   );
-  const customerId = contact ? String(contact.customerId) : null;
+  let customerId = contact ? String(contact.customerId) : null;
+  // Restaurant / takeaway customers often exist only on `customers` (no contacts row).
+  // Fall back so phone Lizzie can load specials, history, and greet by name.
+  let customerFromPhone: Record<string, unknown> | undefined;
+  if (!customerId && normalized) {
+    customerFromPhone = store.customers.find(
+      (c) => normalizePhone(String(c.phone ?? '')) === normalized,
+    );
+    if (customerFromPhone?.id) customerId = String(customerFromPhone.id);
+  }
+  // #region agent log
+  fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'342d7b'},body:JSON.stringify({sessionId:'342d7b',runId:'post-fix',hypothesisId:'B',location:'data-store.ts:resolveContactByPhone',message:'resolve phone',data:{hasContact:Boolean(contact),hasCustomerFallback:Boolean(customerFromPhone),customerId:customerId??null,normalizedLen:normalized.length},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   const primaryContact = customerId
     ? store.contacts.find(c => String(c.customerId) === customerId && c.isPrimary)
     : null;
   const project = store.projects.find(
     p => String(p.customerId) === customerId && p.status !== 'completed'
   );
+  const customerRow = customerId
+    ? store.customers.find((c) => String(c.id) === customerId)
+    : customerFromPhone;
   const accountName = primaryContact
     ? String(primaryContact.name)
-    : (contact ? String(contact.name) : 'Guest');
+    : contact
+      ? String(contact.name)
+      : customerRow?.name
+        ? String(customerRow.name)
+        : 'Guest';
   return {
     customerId,
     customerName: accountName,
-    contactName: contact ? String(contact.name) : 'Guest',
-    contactRole: contact ? String(contact.role ?? 'primary') : 'guest',
+    contactName: contact ? String(contact.name) : accountName,
+    contactRole: contact ? String(contact.role ?? 'primary') : (customerId ? 'primary' : 'guest'),
     projectId: project ? String(project.id) : null,
     activeQuotes: getActiveQuotes(customerId),
   };
