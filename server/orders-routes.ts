@@ -7,6 +7,7 @@ import {
   updateOrderRecord,
 } from './data-store';
 import { resolveOrgIdForRequest } from './auth';
+import { notifyConnectorOrderStatusChange } from './connectors/routes';
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
@@ -84,6 +85,9 @@ export async function handleOrdersRoutes(
     if (!updated) {
       sendJson(res, 404, { error: 'Order not found' });
       return true;
+    }
+    if (body.status != null) {
+      void notifyConnectorOrderStatusChange(orgId, updated);
     }
     sendJson(res, 200, { order: updated });
     return true;

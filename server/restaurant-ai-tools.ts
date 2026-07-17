@@ -1,7 +1,8 @@
 /**
  * Restaurant staff / Cynthia tools: menu CRUD + order pay/status.
  */
-import { listMenuItemsForOrg, upsertMenuItemForOrg, deleteMenuItemForOrg } from './menu-catalog';
+import { listMenuItemsForOrg, upsertMenuItemForOrg, deleteMenuItemForOrg, type MealDeal } from './menu-catalog';
+import { normalizeAllergenCodes, normalizeDietaryCodes } from './allergens';
 import { listOrderRecords, updateOrderRecord } from './data-store';
 import type { OrchestratorRequest } from './orchestrator-types';
 
@@ -17,7 +18,7 @@ export const RESTAURANT_TOOL_DEFS = [
     type: 'function' as const,
     function: {
       name: 'getMenu',
-      description: 'List the restaurant food menu (name, category, price, description).',
+      description: 'List the restaurant food menu (name, category, price, description, UK 14 allergens).',
       parameters: {
         type: 'object',
         properties: {
@@ -31,7 +32,7 @@ export const RESTAURANT_TOOL_DEFS = [
     function: {
       name: 'upsertMenuItem',
       description:
-        'Add or update a menu dish. Include name, price, category (starters|mains|sides|drinks|desserts|specials|other), and description so the phone agent can read it out.',
+        'Add or update a menu dish. Include name, price, category (starters|mains|sides|drinks|desserts|specials|other), description, and UK 14 allergen contains/may-contain so the phone agent can read it out.',
       parameters: {
         type: 'object',
         properties: {
@@ -41,6 +42,11 @@ export const RESTAURANT_TOOL_DEFS = [
           price: { type: 'number' },
           description: { type: 'string' },
           available: { type: 'boolean' },
+          allergensContains: { type: 'array', items: { type: 'string' } },
+          allergensMayContain: { type: 'array', items: { type: 'string' } },
+          dietary: { type: 'array', items: { type: 'string' } },
+          allergenNotes: { type: 'string' },
+          allergenDeclared: { type: 'boolean' },
         },
         required: ['name', 'price'],
       },
@@ -127,7 +133,15 @@ export async function executeRestaurantTool(
 
   if (name === 'getMenu') {
     const items = await listMenuItemsForOrg(orgId, firstString(input.category));
-    return { ok: true, count: items.length, items };
+    return {
+      ok: true,
+      count: items.length,
+      items: items.map((item) => ({
+        ...item,
+        allergensContains: item.allergensContains,
+        allergensMayContain: item.allergensMayContain,
+      })),
+    };
   }
 
   if (name === 'upsertMenuItem') {
@@ -141,8 +155,17 @@ export async function executeRestaurantTool(
       deal: input.deal === null
         ? null
         : input.deal && typeof input.deal === 'object'
-          ? (input.deal as { roles: Array<{ role: string; qtyPerDeal?: number; choices: string[] }> })
+          ? (input.deal as MealDeal)
           : undefined,
+      allergensContains: Array.isArray(input.allergensContains)
+        ? normalizeAllergenCodes(input.allergensContains)
+        : undefined,
+      allergensMayContain: Array.isArray(input.allergensMayContain)
+        ? normalizeAllergenCodes(input.allergensMayContain)
+        : undefined,
+      dietary: Array.isArray(input.dietary) ? normalizeDietaryCodes(input.dietary) : undefined,
+      allergenNotes: firstString(input.allergenNotes),
+      allergenDeclared: input.allergenDeclared === true,
     });
     return result;
   }

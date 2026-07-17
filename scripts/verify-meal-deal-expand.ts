@@ -5,19 +5,21 @@
 import { expandMealDealOrderItems, type MenuItem } from '../server/menu-catalog';
 
 const catalog: MenuItem[] = [
-  { id: '1', name: 'Chicken biryani', category: 'mains', price: 9.5 },
-  { id: '2', name: 'Butter chicken', category: 'mains', price: 11 },
-  { id: '3', name: 'Lamb curry', category: 'mains', price: 10.5 },
-  { id: '4', name: 'Pilau rice', category: 'sides', price: 2.8 },
-  { id: '5', name: 'Chips', category: 'sides', price: 2.5 },
-  { id: '6', name: 'Garlic naan', category: 'sides', price: 2.5 },
-  { id: '7', name: 'Coke', category: 'drinks', price: 1.8 },
-  { id: '8', name: 'Mango lassi', category: 'drinks', price: 3 },
+  { id: '1', name: 'Chicken biryani', category: 'mains', price: 9.5, allergensContains: [], allergensMayContain: [] },
+  { id: '2', name: 'Butter chicken', category: 'mains', price: 11, allergensContains: [], allergensMayContain: [] },
+  { id: '3', name: 'Lamb curry', category: 'mains', price: 10.5, allergensContains: [], allergensMayContain: [] },
+  { id: '4', name: 'Pilau rice', category: 'sides', price: 2.8, allergensContains: [], allergensMayContain: [] },
+  { id: '5', name: 'Chips', category: 'sides', price: 2.5, allergensContains: [], allergensMayContain: [] },
+  { id: '6', name: 'Garlic naan', category: 'sides', price: 2.5, allergensContains: [], allergensMayContain: [] },
+  { id: '7', name: 'Coke', category: 'drinks', price: 1.8, allergensContains: [], allergensMayContain: [] },
+  { id: '8', name: 'Mango lassi', category: 'drinks', price: 3, allergensContains: [], allergensMayContain: [] },
   {
     id: '9',
     name: 'Mile a Meal',
     category: 'specials',
     price: 12.5,
+    allergensContains: [],
+    allergensMayContain: [],
     deal: {
       roles: [
         { role: 'main', qtyPerDeal: 1, choices: ['Chicken biryani', 'Butter chicken', 'Lamb curry'] },

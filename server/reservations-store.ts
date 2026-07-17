@@ -155,24 +155,26 @@ function rowToReservation(row: ReservationRow): Reservation {
 }
 
 function diskTables(): DiningTable[] {
-  const store = getDataStore() as { diningTables?: DiningTable[] };
-  return Array.isArray(store.diningTables) ? store.diningTables : [];
+  const store = getDataStore();
+  const raw = store.diningTables;
+  return Array.isArray(raw) ? raw as unknown as DiningTable[] : [];
 }
 
 function diskReservations(): Reservation[] {
-  const store = getDataStore() as { reservations?: Reservation[] };
-  return Array.isArray(store.reservations) ? store.reservations : [];
+  const store = getDataStore();
+  const raw = store.reservations;
+  return Array.isArray(raw) ? raw as unknown as Reservation[] : [];
 }
 
 function saveDiskTables(tables: DiningTable[]): void {
-  const store = getDataStore() as { diningTables?: DiningTable[] };
-  store.diningTables = tables;
+  const store = getDataStore();
+  store.diningTables = tables as unknown as Array<Record<string, unknown>>;
   syncData(store);
 }
 
 function saveDiskReservations(rows: Reservation[]): void {
-  const store = getDataStore() as { reservations?: Reservation[] };
-  store.reservations = rows;
+  const store = getDataStore();
+  store.reservations = rows as unknown as Array<Record<string, unknown>>;
   syncData(store);
 }
 
@@ -188,8 +190,8 @@ export async function listDiningTables(orgIdHint?: string | null): Promise<Dinin
       .order('sort_order', { ascending: true });
     if (!error && data) {
       const tables = (data as TableRow[]).map(rowToTable);
-      const store = getDataStore() as { diningTables?: DiningTable[] };
-      store.diningTables = tables;
+      const store = getDataStore();
+      store.diningTables = tables as unknown as Array<Record<string, unknown>>;
       syncData(store);
       return tables;
     }
@@ -247,8 +249,8 @@ export async function listReservations(
         const day = filter.day.slice(0, 10);
         rows = rows.filter((r) => r.startsAt.slice(0, 10) === day);
       }
-      const store = getDataStore() as { reservations?: Reservation[] };
-      store.reservations = rows;
+      const store = getDataStore();
+      store.reservations = rows as unknown as Array<Record<string, unknown>>;
       syncData(store);
       return rows;
     }

@@ -25,18 +25,18 @@ const EXTRA_STAFF: StaffSeed[] = [
 ];
 
 const MENU = [
-  { id: 'food-chicken-biryani', name: 'Chicken biryani', sellPrice: 9.5, category: 'mains' },
-  { id: 'food-lamb-curry', name: 'Lamb curry', sellPrice: 10.5, category: 'mains' },
-  { id: 'food-garlic-naan', name: 'Garlic naan', sellPrice: 2.5, category: 'sides' },
-  { id: 'food-pilau-rice', name: 'Pilau rice', sellPrice: 2.8, category: 'sides' },
-  { id: 'food-onion-bhaji', name: 'Onion bhaji', sellPrice: 3.5, category: 'starters' },
-  { id: 'food-mango-lassi', name: 'Mango lassi', sellPrice: 3.0, category: 'drinks' },
-  { id: 'food-veg-samosa', name: 'Veg samosa (2)', sellPrice: 3.2, category: 'starters' },
-  { id: 'food-butter-chicken', name: 'Butter chicken', sellPrice: 11.0, category: 'mains' },
-  { id: 'food-paneer-tikka', name: 'Paneer tikka', sellPrice: 9.0, category: 'mains' },
-  { id: 'food-gulab-jamun', name: 'Gulab jamun', sellPrice: 3.5, category: 'desserts' },
-  { id: 'food-chips', name: 'Chips', sellPrice: 2.5, category: 'sides' },
-  { id: 'food-coke', name: 'Coke', sellPrice: 1.8, category: 'drinks' },
+  { id: 'food-chicken-biryani', name: 'Chicken biryani', sellPrice: 9.5, category: 'mains', allergensContains: ['milk'], allergensMayContain: ['nuts'], allergenDeclared: true },
+  { id: 'food-lamb-curry', name: 'Lamb curry', sellPrice: 10.5, category: 'mains', allergensContains: ['milk'], dietary: ['halal'], allergenDeclared: true },
+  { id: 'food-garlic-naan', name: 'Garlic naan', sellPrice: 2.5, category: 'sides', allergensContains: ['gluten', 'milk'], allergenDeclared: true },
+  { id: 'food-pilau-rice', name: 'Pilau rice', sellPrice: 2.8, category: 'sides', allergensContains: [] as string[], allergenDeclared: true },
+  { id: 'food-onion-bhaji', name: 'Onion bhaji', sellPrice: 3.5, category: 'starters', allergensContains: ['gluten'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-mango-lassi', name: 'Mango lassi', sellPrice: 3.0, category: 'drinks', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-veg-samosa', name: 'Veg samosa (2)', sellPrice: 3.2, category: 'starters', allergensContains: ['gluten'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-butter-chicken', name: 'Butter chicken', sellPrice: 11.0, category: 'mains', allergensContains: ['milk', 'nuts'], allergenDeclared: true },
+  { id: 'food-paneer-tikka', name: 'Paneer tikka', sellPrice: 9.0, category: 'mains', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-gulab-jamun', name: 'Gulab jamun', sellPrice: 3.5, category: 'desserts', allergensContains: ['milk', 'gluten'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-chips', name: 'Chips', sellPrice: 2.5, category: 'sides', allergensContains: [] as string[], allergenDeclared: true },
+  { id: 'food-coke', name: 'Coke', sellPrice: 1.8, category: 'drinks', allergensContains: [] as string[], allergenDeclared: true },
   {
     id: 'food-mile-a-meal',
     name: 'Mile a Meal',
@@ -164,6 +164,11 @@ async function upsertMenu(supabase: ReturnType<typeof admin>, orgId: string) {
     const extra = item as {
       description?: string;
       deal?: { roles: Array<{ role: string; qtyPerDeal: number; choices: string[] }> };
+      allergensContains?: string[];
+      allergensMayContain?: string[];
+      dietary?: string[];
+      allergenNotes?: string;
+      allergenDeclared?: boolean;
     };
     return {
       id: item.id,
@@ -181,6 +186,11 @@ async function upsertMenu(supabase: ReturnType<typeof admin>, orgId: string) {
         available: true,
         ...(extra.description ? { description: extra.description } : {}),
         ...(extra.deal ? { deal: extra.deal } : {}),
+        ...(extra.allergensContains ? { allergensContains: extra.allergensContains } : {}),
+        ...(extra.allergensMayContain ? { allergensMayContain: extra.allergensMayContain } : {}),
+        ...(extra.dietary ? { dietary: extra.dietary } : {}),
+        ...(extra.allergenNotes ? { allergenNotes: extra.allergenNotes } : {}),
+        ...(extra.allergenDeclared ? { allergenDeclared: true } : {}),
       },
       updated_at: now,
     };
@@ -613,6 +623,72 @@ async function seedHugePartyOrdersIfMissing(supabase: ReturnType<typeof admin>, 
   console.log(`[populate] Huge party orders created: ${rows.length}`);
 }
 
+async function seedTablesAndReservations(supabase: ReturnType<typeof admin>, orgId: string) {
+  const tables = [
+    { label: 'Table 1', seats: 2, zone: 'Window', sort_order: 1 },
+    { label: 'Table 2', seats: 4, zone: 'Main', sort_order: 2 },
+    { label: 'Table 3', seats: 4, zone: 'Main', sort_order: 3 },
+    { label: 'Table 4', seats: 6, zone: 'Booth', sort_order: 4 },
+    { label: 'Table 5', seats: 8, zone: 'Party', sort_order: 5 },
+  ];
+  const now = new Date();
+  const tableRows = tables.map((t) => ({
+    id: randomUUID(),
+    org_id: orgId,
+    label: t.label,
+    seats: t.seats,
+    zone: t.zone,
+    active: true,
+    sort_order: t.sort_order,
+    updated_at: now.toISOString(),
+    created_at: now.toISOString(),
+  }));
+  const { error: tableErr } = await supabase.from('dining_tables').upsert(tableRows, { onConflict: 'id' });
+  if (tableErr) console.warn('[populate] dining_tables skipped:', tableErr.message);
+  else console.log(`[populate] Dining tables: ${tableRows.length}`);
+
+  const starts = new Date(now.getTime() + 2 * 60 * 60_000);
+  const reservations = [
+    {
+      id: randomUUID(),
+      org_id: orgId,
+      table_id: tableRows[1]?.id ?? null,
+      party_size: 4,
+      customer_name: 'Amelia Hart',
+      customer_phone: '07700900101',
+      customer_id: 'C-DEMO-001',
+      starts_at: starts.toISOString(),
+      ends_at: new Date(starts.getTime() + 90 * 60_000).toISOString(),
+      status: 'confirmed',
+      channel: 'phone',
+      notes: '[demo-seed] Friday table',
+      call_ids: [],
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    },
+    {
+      id: randomUUID(),
+      org_id: orgId,
+      table_id: tableRows[0]?.id ?? null,
+      party_size: 2,
+      customer_name: 'Ben Okonkwo',
+      customer_phone: '07700900102',
+      customer_id: 'C-DEMO-002',
+      starts_at: new Date(starts.getTime() + 3 * 60 * 60_000).toISOString(),
+      ends_at: new Date(starts.getTime() + 4.5 * 60 * 60_000).toISOString(),
+      status: 'confirmed',
+      channel: 'phone',
+      notes: '[demo-seed] Date night',
+      call_ids: [],
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    },
+  ];
+  const { error: resErr } = await supabase.from('reservations').insert(reservations);
+  if (resErr) console.warn('[populate] reservations skipped:', resErr.message);
+  else console.log(`[populate] Reservations: ${reservations.length}`);
+}
+
 async function main() {
   const supabase = admin();
   const orgId = await resolveOrgId(supabase);
@@ -620,6 +696,7 @@ async function main() {
   await upsertCustomers(supabase, orgId);
   await seedStaff(supabase, orgId);
   await seedOrders(supabase, orgId);
+  await seedTablesAndReservations(supabase, orgId);
 
   console.log('\n=== Demo restaurant populated ===');
   console.log(`Org: ${orgId}`);

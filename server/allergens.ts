@@ -168,6 +168,9 @@ export function customerAllergenConflict(
   const spoken = customerAllergies.toLowerCase();
   return contains.filter((code) => {
     const label = ALLERGEN_LABELS[code].toLowerCase();
-    return spoken.includes(label) || spoken.includes(code.replace('_', ' '));
+    const singular = label.endsWith('s') ? label.slice(0, -1) : label;
+    return spoken.includes(label)
+      || spoken.includes(singular)
+      || spoken.includes(code.replace('_', ' '));
   });
 }

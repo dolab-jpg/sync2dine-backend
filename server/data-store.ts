@@ -73,6 +73,8 @@ export interface SyncedData {
   planningApplications: Array<Record<string, unknown>>;
   /** Sync2Dine food orders (JSON fallback when Supabase orders table unavailable) */
   orders?: Array<Record<string, unknown>>;
+  diningTables?: Array<Record<string, unknown>>;
+  reservations?: Array<Record<string, unknown>>;
   agentSettings: AgentSettings;
   phoneLines: PhoneLine[];
 }

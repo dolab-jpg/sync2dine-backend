@@ -27,6 +27,7 @@ import {
   SERVER_READ_TOOLS,
 } from './orchestrator-tool-exec';
 import { executePhoneTool, PHONE_AUTO_ACTIONS } from './phone-tools';
+import { backfillCallRecordingOnFinalize } from './call-recording-backfill';
 import type { OrchestratorRequest } from './orchestrator-types';
 import {
   getVapiServerSecret,
@@ -340,6 +341,8 @@ function finalizeVapiCall(
       brief: afterMeta.brief ?? afterMeta.aim,
     },
   });
+
+  void backfillCallRecordingOnFinalize(callId, recordingUrl, DEFAULT_ORG_ID);
 
   completeOutboundJobsForCall(callId, { disposition, endedReason: endedReason || undefined });
 

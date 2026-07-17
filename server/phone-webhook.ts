@@ -25,6 +25,7 @@ import { OpenAIConnectionError } from './openai-connection';
 import { getOrganizationByPhoneDid } from './organizations';
 import { handleChannelInbound } from './channel-inbound-handler';
 import { buildPhoneBrainPrompt } from './phone-brain';
+import { backfillCallRecordingOnFinalize } from './call-recording-backfill';
 import {
   getTelephonyProvider,
   resolveTelephonyConfig,
@@ -340,6 +341,9 @@ export async function handlePhoneStatus(req: IncomingMessage, res: ServerRespons
           ? computeCallDurationSec({ ...call, endedAt: new Date().toISOString() })
           : undefined,
       });
+      if (event.recordingUrl && ['completed', 'failed'].includes(event.status)) {
+        void backfillCallRecordingOnFinalize(String(call.id), event.recordingUrl, DEFAULT_ORG_ID);
+      }
     }
   }
 

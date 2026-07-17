@@ -23,6 +23,14 @@ import { resolvePhoneCallerIdentity } from './phone-auth';
 import { ensureEnglishForCustomerSend } from './outbound-english-guard';
 import { resolveTransferDestination, resolveTransferNumber } from './transfer-numbers';
 import { expandMealDealOrderItems, listMenuItemsForOrg, type OrderLineInput } from './menu-catalog';
+import { allergenSafetyHint, customerAllergenConflict } from './allergens';
+import {
+  cancelReservation,
+  checkTableAvailability,
+  createReservation,
+  listReservations,
+  updateReservation,
+} from './reservations-store';
 import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from './restaurant-ai-tools';
 
 function firstString(...values: unknown[]): string | undefined {
@@ -463,7 +471,7 @@ export const PHONE_TOOLS = [
     function: {
       name: 'getMenu',
       description:
-        'Return the restaurant menu for Sync2Dine takeaway ordering (categories, item names, prices). Use before placing a food order.',
+        'Return the restaurant menu for Sync2Dine takeaway ordering (categories, item names, prices, UK 14 allergen contains/may-contain). Use before placing a food order.',
       parameters: {
         type: 'object',
         properties: {
@@ -540,9 +548,96 @@ export const PHONE_TOOLS = [
             description: 'Named customer special applied on this order (from their CRM specialName)',
           },
           notes: { type: 'string' },
+          customerAllergies: {
+            type: 'string',
+            description: 'Spoken allergy summary e.g. peanuts, sesame — ask once before placing',
+          },
+          allergyConfirmed: {
+            type: 'boolean',
+            description: 'True after you asked about allergies (even if none)',
+          },
           paymentStatus: { type: 'string', enum: ['unpaid', 'cash', 'card'] },
         },
         required: ['items'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'checkTableAvailability',
+      description: 'Check table availability for a party size at a date/time. Use when caller wants to book a table.',
+      parameters: {
+        type: 'object',
+        properties: {
+          startsAt: { type: 'string', description: 'ISO datetime or spoken slot converted e.g. 2026-07-17T19:00:00Z' },
+          partySize: { type: 'number' },
+        },
+        required: ['startsAt', 'partySize'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'bookTable',
+      description: 'Book a table reservation after confirming party size and time. Links this phone call automatically.',
+      parameters: {
+        type: 'object',
+        properties: {
+          startsAt: { type: 'string' },
+          partySize: { type: 'number' },
+          customerName: { type: 'string' },
+          customerPhone: { type: 'string' },
+          notes: { type: 'string' },
+        },
+        required: ['startsAt', 'partySize'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'updateReservation',
+      description: 'Change an existing table reservation (time, party size, notes). Lookup by reservationId or customer phone.',
+      parameters: {
+        type: 'object',
+        properties: {
+          reservationId: { type: 'string' },
+          customerPhone: { type: 'string' },
+          startsAt: { type: 'string' },
+          partySize: { type: 'number' },
+          notes: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'cancelReservation',
+      description: 'Cancel a table reservation by id or customer phone for upcoming bookings.',
+      parameters: {
+        type: 'object',
+        properties: {
+          reservationId: { type: 'string' },
+          customerPhone: { type: 'string' },
+          reason: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'listReservations',
+      description: 'List reservations for a day or phone number (staff/agent lookup).',
+      parameters: {
+        type: 'object',
+        properties: {
+          day: { type: 'string', description: 'YYYY-MM-DD' },
+          phone: { type: 'string' },
+        },
       },
     },
   },
@@ -570,6 +665,11 @@ export const PHONE_AUTO_ACTIONS = new Set([
   'placeFoodOrder',
   'checkDeliveryArea',
   'getDeliveryAreas',
+  'checkTableAvailability',
+  'bookTable',
+  'updateReservation',
+  'cancelReservation',
+  'listReservations',
   'upsertMenuItem',
   'deleteMenuItem',
   'listOrders',
@@ -692,7 +792,7 @@ export async function executePhoneTool(
       const found = lookupContactByPhone(custPhone);
       if (found.found && found.customerId) {
         resolvedId = found.customerId;
-        customerName = found.customerName || customerName;
+        customerName = found.name || customerName;
       }
     }
     if (custPhone && !isStaffPartyPhone(custPhone) && !resolvedId) {
@@ -1226,11 +1326,27 @@ export async function executePhoneTool(
     }
     return {
       ok: true,
-      menu: menu.map(({ category: cat, name: itemName, price, description, deal }) => ({
+      menu: menu.map(({
+        category: cat,
+        name: itemName,
+        price,
+        description,
+        deal,
+        allergensContains,
+        allergensMayContain,
+        dietary,
+        allergenNotes,
+        allergenDeclared,
+      }) => ({
         category: cat,
         name: itemName,
         price,
         ...(description ? { description } : {}),
+        allergensContains,
+        allergensMayContain,
+        ...(dietary?.length ? { dietary } : {}),
+        ...(allergenNotes ? { allergenNotes } : {}),
+        ...(allergenDeclared ? { allergenDeclared: true } : {}),
         ...(deal
           ? {
               deal: {
@@ -1403,6 +1519,40 @@ export async function executePhoneTool(
       };
     }
 
+    const customerAllergies = firstString(input.customerAllergies) ?? '';
+    const allergyConfirmed = input.allergyConfirmed === true;
+    if (!allergyConfirmed) {
+      return {
+        ok: false,
+        error: 'allergy_check_required',
+        spokenHint: 'Before I place that — any allergies or intolerances we should know about?',
+      };
+    }
+
+    const allergenWarnings: string[] = [];
+    for (const line of expanded.items) {
+      const match = catalog.find((c) => c.name.toLowerCase() === String(line.name).toLowerCase());
+      if (!match) continue;
+      const safety = allergenSafetyHint(match);
+      if (safety) allergenWarnings.push(safety);
+      if (customerAllergies) {
+        const conflicts = customerAllergenConflict(customerAllergies, match.allergensContains ?? []);
+        if (conflicts.length) {
+          allergenWarnings.push(
+            `${match.name} contains ${conflicts.join(', ')} which matches the caller allergies — suggest alternatives or kitchen check.`,
+          );
+        }
+      }
+    }
+    if (allergenWarnings.length) {
+      return {
+        ok: false,
+        error: 'allergen_review_required',
+        allergenWarnings,
+        spokenHint: allergenWarnings[0],
+      };
+    }
+
     // Price: meal deals charge the deal price × qty; components are kitchen lines.
     let pricedTotal = 0;
     for (const line of rawLines) {
@@ -1498,7 +1648,7 @@ export async function executePhoneTool(
 
     const record = await saveOrderRecord({
       customerId: customerId || undefined,
-      customerName: firstString(input.customerName, body.customerContext?.name) ?? 'Guest',
+      customerName: firstString(input.customerName, body.customerContext?.customerName) ?? 'Guest',
       customerPhone: phone,
       channel: 'phone',
       orderType,
@@ -1511,8 +1661,15 @@ export async function executePhoneTool(
       deliveryPostcode: normalizedPostcode || undefined,
       specialName: appliedSpecialName,
       notes,
+      customerAllergies,
+      allergyConfirmed,
+      sourceCallId: callId,
+      callIds: callId ? [callId] : [],
+      source: 'phone',
+      syncState: 'local',
+      placedAt: new Date().toISOString(),
       etaMinutes: orderType === 'delivery' ? 40 : 20,
-    });
+    }, firstString(body.orgId) ?? getRequestOrgId());
     const spokenTotal = formatSpokenGbp(Number(record.total));
     const where =
       orderType === 'delivery' && deliveryAddress
@@ -1532,6 +1689,126 @@ export async function executePhoneTool(
       deliveryPostcode: normalizedPostcode || null,
       customerId: record.customerId ?? customerId ?? null,
       spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${specialSpeak} The kitchen has it.`,
+    };
+  }
+
+  if (name === 'checkTableAvailability') {
+    const startsAt = firstString(input.startsAt, input.dateTime) ?? '';
+    const partySize = Math.max(1, Number(input.partySize ?? 2) || 2);
+    if (!startsAt) {
+      return { ok: false, error: 'startsAt_required', spokenHint: 'What day and time were you thinking?' };
+    }
+    const result = await checkTableAvailability({ startsAt, partySize }, firstString(body.orgId) ?? getRequestOrgId());
+    if (!result.ok) return { ok: false, error: result.error, spokenHint: 'I could not check tables just now.' };
+    if (!result.availableTables.length) {
+      const next = result.nextSlots?.[0];
+      return {
+        ok: true,
+        available: false,
+        nextSlots: result.nextSlots,
+        spokenHint: next
+          ? `Fully booked then — earliest I can do is ${new Date(next).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.`
+          : 'We are fully booked around then — want a different time?',
+      };
+    }
+    return {
+      ok: true,
+      available: true,
+      tables: result.availableTables,
+      spokenHint: `Yes — I can fit ${partySize} at that time.`,
+    };
+  }
+
+  if (name === 'bookTable') {
+    const startsAt = firstString(input.startsAt) ?? '';
+    const partySize = Math.max(1, Number(input.partySize ?? 2) || 2);
+    if (!startsAt) return { ok: false, error: 'startsAt_required' };
+    const result = await createReservation({
+      startsAt,
+      partySize,
+      customerName: firstString(input.customerName, body.customerContext?.customerName),
+      customerPhone: firstString(input.customerPhone, callerPhone),
+      notes: firstString(input.notes),
+      callId,
+      channel: 'phone',
+    }, firstString(body.orgId) ?? getRequestOrgId());
+    if (!result.ok || !result.reservation) {
+      return { ok: false, error: result.error, spokenHint: 'Could not book that slot — try another time?' };
+    }
+    const r = result.reservation;
+    return {
+      ok: true,
+      reservationId: r.id,
+      startsAt: r.startsAt,
+      partySize: r.partySize,
+      status: r.status,
+      spokenHint: `Table booked for ${partySize} at ${new Date(r.startsAt).toLocaleString('en-GB')}.`,
+    };
+  }
+
+  if (name === 'updateReservation') {
+    const org = firstString(body.orgId) ?? getRequestOrgId();
+    let id = firstString(input.reservationId);
+    if (!id) {
+      const phone = firstString(input.customerPhone, callerPhone);
+      const list = await listReservations(org, { phone });
+      const upcoming = list
+        .filter((r) => !['cancelled', 'completed', 'no_show'].includes(r.status))
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
+      id = upcoming?.id;
+    }
+    if (!id) return { ok: false, error: 'reservation_not_found' };
+    const patch: Record<string, unknown> = {};
+    if (input.startsAt != null) patch.startsAt = String(input.startsAt);
+    if (input.partySize != null) patch.partySize = Number(input.partySize);
+    if (input.notes != null) patch.notes = String(input.notes);
+    if (callId) {
+      const existing = (await listReservations(org)).find((r) => r.id === id);
+      patch.callIds = [...new Set([...(existing?.callIds ?? []), callId])];
+      patch.callId = existing?.callId || callId;
+    }
+    const result = await updateReservation(id, patch, org);
+    return result.ok
+      ? { ok: true, reservation: result.reservation, spokenHint: 'Reservation updated.' }
+      : { ok: false, error: result.error };
+  }
+
+  if (name === 'cancelReservation') {
+    const org = firstString(body.orgId) ?? getRequestOrgId();
+    let id = firstString(input.reservationId);
+    if (!id) {
+      const phone = firstString(input.customerPhone, callerPhone);
+      const list = await listReservations(org, { phone });
+      const upcoming = list
+        .filter((r) => !['cancelled', 'completed', 'no_show'].includes(r.status))
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
+      id = upcoming?.id;
+    }
+    if (!id) return { ok: false, error: 'reservation_not_found' };
+    const result = await cancelReservation(id, firstString(input.reason), org);
+    return result.ok
+      ? { ok: true, spokenHint: 'Reservation cancelled — see you another time.' }
+      : { ok: false, error: result.error };
+  }
+
+  if (name === 'listReservations') {
+    const org = firstString(body.orgId) ?? getRequestOrgId();
+    const rows = await listReservations(org, {
+      day: firstString(input.day),
+      phone: firstString(input.phone, callerPhone),
+    });
+    return {
+      ok: true,
+      count: rows.length,
+      reservations: rows.slice(0, 20).map((r) => ({
+        id: r.id,
+        partySize: r.partySize,
+        customerName: r.customerName,
+        customerPhone: r.customerPhone,
+        startsAt: r.startsAt,
+        status: r.status,
+        tableId: r.tableId,
+      })),
     };
   }
 

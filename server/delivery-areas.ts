@@ -54,14 +54,8 @@ export function matchDeliveryPostcode(
 
   for (const prefix of list) {
     if (outward === prefix || compact === prefix) {
-      // #region agent log
-      fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'61363c'},body:JSON.stringify({sessionId:'61363c',runId:'pre-fix',hypothesisId:'A',location:'delivery-areas.ts:match',message:'delivery match hit',data:{outward,prefix,compactLen:compact.length,ok:true},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       return { ok: true, matchedPrefix: prefix, normalized };
     }
   }
-  // #region agent log
-  fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'61363c'},body:JSON.stringify({sessionId:'61363c',runId:'pre-fix',hypothesisId:'A',location:'delivery-areas.ts:match',message:'delivery match miss',data:{outward,prefixCount:list.length,compactLen:compact.length,ok:false},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   return { ok: false, normalized };
 }
