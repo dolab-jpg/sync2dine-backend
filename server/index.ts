@@ -116,7 +116,7 @@ const server = createServer(async (req, res) => {
 
     if (await handlePushRoutes(req, res, pathname)) return;
 
-    if (await handleWWebRoutes(req, res, pathname)) return;
+    if (await handleWWebRoutes(req, res, pathname, url)) return;
 
     if (await handleGapApiRoutes(req, res, pathname, url)) return;
 
@@ -139,6 +139,18 @@ const server = createServer(async (req, res) => {
       }));
     }
   }
+});
+
+server.on('upgrade', (req, socket, head) => {
+  void import('./whatsapp-web-browser-login')
+    .then(({ handleBrowserLoginUpgrade }) => {
+      if (!handleBrowserLoginUpgrade(req, socket, head)) {
+        socket.destroy();
+      }
+    })
+    .catch(() => {
+      socket.destroy();
+    });
 });
 
 server.listen(PORT, async () => {

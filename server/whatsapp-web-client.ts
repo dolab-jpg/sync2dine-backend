@@ -10,6 +10,7 @@ type WAMessage = InstanceType<typeof pkg.Message>;
 
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { rm } from 'fs/promises';
 import { handleChannelInbound } from './channel-inbound-handler';
 import {
   resolveContactByPhone,
@@ -22,8 +23,27 @@ import {
 } from './data-store';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
+const AUTH_DATA_PATH = join(DATA_DIR, '.wwebjs_auth');
 
-export type WWebStatus = 'disconnected' | 'qr_pending' | 'authenticated' | 'ready';
+/** Current WhatsApp Web HTML pin; override with WA_WEB_VERSION_URL on VPS. */
+const DEFAULT_WA_WEB_VERSION_URL =
+  'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1043363706-alpha.html';
+
+const CHROME_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+export type WWebStatus =
+  | 'disconnected'
+  | 'initializing'
+  | 'qr_pending'
+  | 'authenticated'
+  | 'ready'
+  | 'error';
+
+export interface InitWWebOptions {
+  /** Keep Chromium available for screencast login UI. */
+  browserLogin?: boolean;
+}
 
 interface ReadReceipt {
   messageId: string;
@@ -35,7 +55,9 @@ interface ReadReceipt {
 let client: WAClient | null = null;
 let currentStatus: WWebStatus = 'disconnected';
 let currentQR: string | null = null;
+let lastError: string | null = null;
 let clientInfo: Record<string, unknown> | null = null;
+let initInFlight: Promise<void> | null = null;
 const readReceipts = new Map<string, ReadReceipt>();
 
 export function getWWebStatus(): WWebStatus {
@@ -52,6 +74,44 @@ export function getWWebInfo(): Record<string, unknown> | null {
 
 export function getWWebClient(): WAClient | null {
   return client;
+}
+
+export function getWWebLastError(): string | null {
+  return lastError;
+}
+
+export function getWWebAuthDataPath(): string {
+  return AUTH_DATA_PATH;
+}
+
+export function getWWebPupPage(): unknown | null {
+  return (client as { pupPage?: unknown } | null)?.pupPage ?? null;
+}
+
+function resolveWebVersionCache(): { type: 'remote'; remotePath: string } {
+  const remotePath =
+    process.env.WA_WEB_VERSION_URL?.trim() || DEFAULT_WA_WEB_VERSION_URL;
+  return { type: 'remote', remotePath };
+}
+
+function resolvePuppeteerOptions(browserLogin?: boolean) {
+  const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH?.trim() || undefined;
+  return {
+    headless: true as boolean,
+    executablePath,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--window-size=1280,800',
+      ...(browserLogin ? ['--remote-debugging-port=0'] : []),
+    ],
+  };
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((r) => setTimeout(r, ms));
 }
 
 export function getReadReceipts(chatId?: string): ReadReceipt[] {
@@ -252,115 +312,182 @@ async function handleIncomingMessage(msg: WAMessage): Promise<void> {
   }
 }
 
-export async function initWWebClient(): Promise<void> {
-  if (client) {
-    console.log('WhatsApp Web.js client already initialized');
-    return;
-  }
-
-  console.log('Initializing WhatsApp Web.js client...');
-
-  client = new Client({
-    authStrategy: new LocalAuth({
-      dataPath: join(DATA_DIR, '.wwebjs_auth'),
-    }),
-    puppeteer: {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--single-process',
-      ],
-    },
-  });
-
-  client.on('qr', (qr: string) => {
-    currentStatus = 'qr_pending';
-    currentQR = qr;
-    console.log('WhatsApp QR code received — scan from admin panel or terminal:');
-    try {
-      import('qrcode-terminal').then(m => m.default.generate(qr, { small: true }));
-    } catch {
-      console.log('QR:', qr);
-    }
-  });
-
-  client.on('authenticated', () => {
-    currentStatus = 'authenticated';
-    currentQR = null;
-    console.log('WhatsApp Web.js authenticated');
-  });
-
-  client.on('ready', () => {
-    currentStatus = 'ready';
-    currentQR = null;
-    if (client) {
-      const info = (client as any).info;
-      clientInfo = info ? {
-        pushname: info.pushname,
-        wid: info.wid?._serialized,
-        platform: info.platform,
-        phone: info.wid?.user,
-      } : null;
-    }
-    console.log('WhatsApp Web.js client ready:', JSON.stringify(clientInfo));
-  });
-
-  client.on('auth_failure', (err: string) => {
-    currentStatus = 'disconnected';
-    currentQR = null;
-    clientInfo = null;
-    console.error('WhatsApp Web.js auth failure:', err);
-  });
-
-  client.on('disconnected', (reason: string) => {
-    currentStatus = 'disconnected';
-    currentQR = null;
-    clientInfo = null;
-    console.log('WhatsApp Web.js disconnected:', reason);
-  });
-
-  client.on('message', (msg: WAMessage) => {
-    void handleIncomingMessage(msg);
-  });
-
-  client.on('message_ack', (msg: WAMessage, ack: number) => {
-    readReceipts.set(msg.id._serialized, {
-      messageId: msg.id._serialized,
-      chatId: msg.from,
-      ack,
-      timestamp: new Date().toISOString(),
-    });
-  });
-
+export async function wipeWWebAuthData(): Promise<void> {
   try {
-    await client.initialize();
+    await rm(AUTH_DATA_PATH, { recursive: true, force: true });
+    console.log('WhatsApp Web.js auth data wiped:', AUTH_DATA_PATH);
   } catch (err) {
-    console.error('WhatsApp Web.js failed to initialize:', err);
-    currentStatus = 'disconnected';
+    console.warn('WhatsApp Web.js auth wipe failed:', err);
   }
 }
 
-export async function logoutWWeb(): Promise<void> {
-  if (!client) return;
-  try {
-    await client.logout();
-  } catch {
-    // may already be disconnected
-  }
-  try {
-    await client.destroy();
-  } catch {
-    // ignore
-  }
+/** Force-destroy client even when stuck mid-init (does not wipe auth files). */
+export async function destroyWWeb(): Promise<void> {
+  const existing = client;
   client = null;
+  initInFlight = null;
   currentStatus = 'disconnected';
   currentQR = null;
   clientInfo = null;
   readReceipts.clear();
-  console.log('WhatsApp Web.js logged out and destroyed');
+
+  if (!existing) return;
+
+  try {
+    await Promise.race([
+      (async () => {
+        try {
+          await existing.logout();
+        } catch {
+          /* already gone */
+        }
+        try {
+          await existing.destroy();
+        } catch {
+          /* ignore */
+        }
+      })(),
+      sleep(8000),
+    ]);
+  } catch {
+    /* ignore */
+  }
+  console.log('WhatsApp Web.js client destroyed');
+}
+
+export async function logoutWWeb(): Promise<void> {
+  await destroyWWeb();
+  console.log('WhatsApp Web.js logged out');
+}
+
+export async function reconnectWWeb(opts?: { fresh?: boolean }): Promise<void> {
+  await destroyWWeb();
+  if (opts?.fresh) {
+    await wipeWWebAuthData();
+  }
+  lastError = null;
+  void initWWebClient();
+}
+
+export async function initWWebClient(options?: InitWWebOptions): Promise<void> {
+  if (client && currentStatus === 'ready') {
+    console.log('WhatsApp Web.js client already ready');
+    return;
+  }
+  if (initInFlight) {
+    return initInFlight;
+  }
+  if (client) {
+    console.log('WhatsApp Web.js replacing non-ready client...');
+    await destroyWWeb();
+  }
+
+  initInFlight = (async () => {
+    console.log('Initializing WhatsApp Web.js client...');
+    currentStatus = 'initializing';
+    lastError = null;
+    currentQR = null;
+    clientInfo = null;
+
+    const webVersionCache = resolveWebVersionCache();
+    console.log('WhatsApp Web version cache:', webVersionCache.remotePath);
+
+    client = new Client({
+      authStrategy: new LocalAuth({
+        dataPath: AUTH_DATA_PATH,
+      }),
+      puppeteer: resolvePuppeteerOptions(options?.browserLogin),
+      userAgent: CHROME_UA,
+      webVersionCache,
+    } as any);
+
+    client.on('qr', (qr: string) => {
+      currentStatus = 'qr_pending';
+      currentQR = qr;
+      lastError = null;
+      console.log('WhatsApp QR code received — scan from admin panel or terminal:');
+      try {
+        import('qrcode-terminal').then((m) => m.default.generate(qr, { small: true }));
+      } catch {
+        console.log('QR:', qr);
+      }
+    });
+
+    client.on('authenticated', () => {
+      currentStatus = 'authenticated';
+      currentQR = null;
+      lastError = null;
+      console.log('WhatsApp Web.js authenticated');
+    });
+
+    client.on('ready', () => {
+      currentStatus = 'ready';
+      currentQR = null;
+      lastError = null;
+      if (client) {
+        const info = (client as any).info;
+        clientInfo = info
+          ? {
+              pushname: info.pushname,
+              wid: info.wid?._serialized,
+              platform: info.platform,
+              phone: info.wid?.user,
+            }
+          : null;
+      }
+      console.log('WhatsApp Web.js client ready:', JSON.stringify(clientInfo));
+    });
+
+    client.on('auth_failure', (err: string) => {
+      currentStatus = 'error';
+      currentQR = null;
+      clientInfo = null;
+      lastError = `Auth failure: ${err}`;
+      console.error('WhatsApp Web.js auth failure:', err);
+    });
+
+    client.on('disconnected', (reason: string) => {
+      currentStatus = 'disconnected';
+      currentQR = null;
+      clientInfo = null;
+      lastError = `Disconnected: ${reason}`;
+      console.log('WhatsApp Web.js disconnected:', reason);
+    });
+
+    client.on('message', (msg: WAMessage) => {
+      void handleIncomingMessage(msg);
+    });
+
+    client.on('message_ack', (msg: WAMessage, ack: number) => {
+      readReceipts.set(msg.id._serialized, {
+        messageId: msg.id._serialized,
+        chatId: msg.from,
+        ack,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    try {
+      await client.initialize();
+    } catch (err) {
+      console.error('WhatsApp Web.js failed to initialize:', err);
+      currentStatus = 'error';
+      lastError = `Init failed: ${err instanceof Error ? err.message : String(err)}`;
+      const failed = client;
+      client = null;
+      if (failed) {
+        try {
+          await failed.destroy();
+        } catch {
+          /* ignore */
+        }
+      }
+    } finally {
+      initInFlight = null;
+    }
+  })();
+
+  return initInFlight;
 }
 
 export async function sendWWebMessage(

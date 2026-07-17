@@ -33,6 +33,7 @@
     "nodemailer": "^9.0.1",
     "openai": "^4.104.0",
     "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "stripe": "^18.5.0",
     "stun": "^2.1.0",
@@ -44,6 +45,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.10.0",
     "@types/nodemailer": "^8.0.1",
+    "@types/ws": "^8.18.1",
     "supabase": "^2.20.12",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
