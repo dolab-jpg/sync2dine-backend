@@ -1,17 +1,16 @@
 import {
   getDataStore,
   updateOutboundJob,
-  countOpenCallsForOrg,
-  getMaxConcurrentCallsPerOrg,
   getOutboundQueueState,
   isWithinCallQueueQuietHours,
+  getAgentCapacitySnapshot,
 } from './data-store';
 
 const POLL_MS = Number(process.env.OUTBOUND_POLL_MS ?? 15000);
 
 /**
  * Max simultaneous live calls per org (inbound + outbound).
- * Set MAX_CONCURRENT_CALLS_PER_ORG in env (default 5).
+ * Restaurant default: 4 inbound + 1 outbound (5 total).
  */
 export function startOutboundWorker(): void {
   if (process.env.DISABLE_OUTBOUND_WORKER === '1') return;
@@ -29,6 +28,9 @@ async function processOutboundQueue(): Promise<void> {
   if (queueState !== 'running') return;
   if (isWithinCallQueueQuietHours()) return;
 
+  const capacity = getAgentCapacitySnapshot();
+  if (capacity.outboundSlotsFree <= 0) return;
+
   const store = getDataStore();
   const queue = (store.outboundQueue ?? []).filter((j) => {
     if (String(j.status ?? '') !== 'queued') return false;
@@ -38,13 +40,7 @@ async function processOutboundQueue(): Promise<void> {
   });
   if (!queue.length) return;
 
-  const maxConcurrent = getMaxConcurrentCallsPerOrg();
-  const openCalls = countOpenCallsForOrg();
-  const diallingJobs = (store.outboundQueue ?? []).filter((j) => String(j.status ?? '') === 'dialling').length;
-  const slots = Math.max(0, maxConcurrent - openCalls - diallingJobs);
-  if (slots <= 0) return;
-
-  for (const job of queue.slice(0, slots)) {
+  for (const job of queue.slice(0, capacity.outboundSlotsFree)) {
     const id = String(job.id ?? '');
     updateOutboundJob(id, { status: 'dialling', startedAt: new Date().toISOString() });
     try {
@@ -70,7 +66,6 @@ async function processOutboundQueue(): Promise<void> {
       });
       if (res.ok) {
         const data = await res.json().catch(() => ({})) as { callId?: string };
-        // Stay dialling until end-of-call webhook marks completed
         updateOutboundJob(id, {
           status: 'dialling',
           callId: data.callId ?? job.callId,

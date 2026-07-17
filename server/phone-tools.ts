@@ -1592,6 +1592,20 @@ export async function executePhoneTool(
       const found = lookupContactByPhone(phone);
       if (found.found && found.customerId) customerId = found.customerId;
     }
+    if (!customerId && phone) {
+      const { ensureGuestCustomerForCall } = await import('./data-store');
+      const guest = ensureGuestCustomerForCall(phone, callId);
+      customerId = guest.customerId ?? undefined;
+    }
+    if (customerId && callId) {
+      appendCustomerCallActivity({
+        customerId,
+        callId,
+        summary: 'Order placed by phone',
+        outcome: 'order_placed',
+        updateCallQueue: true,
+      });
+    }
 
     const store = getDataStore();
     const customerRow = customerId

@@ -10,6 +10,8 @@ import {
   computeCallDurationSec,
   computeCallSentiment,
   DEFAULT_ORG_ID,
+  ensureGuestCustomerForCall,
+  getAgentCapacitySnapshot,
   getAgentSettings,
   getCallById,
   getCallByProviderId,
@@ -128,38 +130,133 @@ function partyPhoneFromCall(call: Record<string, unknown> | undefined): string {
   return toE164Uk(from || customerNumber || to);
 }
 
+function extractMonitorUrls(callOrMessage: Record<string, unknown>): {
+  listenUrl?: string;
+  controlUrl?: string;
+} {
+  const call = (callOrMessage.call || callOrMessage) as Record<string, unknown>;
+  const monitor = (call.monitor || callOrMessage.monitor || {}) as Record<string, unknown>;
+  const listenUrl = String(monitor.listenUrl || call.listenUrl || '').trim();
+  const controlUrl = String(monitor.controlUrl || call.controlUrl || '').trim();
+  return {
+    ...(listenUrl ? { listenUrl } : {}),
+    ...(controlUrl ? { controlUrl } : {}),
+  };
+}
+
+async function enrichMonitorUrlsFromVapi(
+  callId: string,
+  vapiCallId: string,
+  existing?: { listenUrl?: string; controlUrl?: string },
+): Promise<{ listenUrl?: string; controlUrl?: string }> {
+  if (existing?.listenUrl) return existing;
+  try {
+    const { ok, json } = await vapiFetch(`/call/${encodeURIComponent(vapiCallId)}`);
+    if (!ok) return existing ?? {};
+    const monitor = (json.monitor || {}) as Record<string, unknown>;
+    const listenUrl = String(monitor.listenUrl || '').trim();
+    const controlUrl = String(monitor.controlUrl || '').trim();
+    if (listenUrl || controlUrl) {
+      saveCall({
+        id: callId,
+        ...(listenUrl ? { listenUrl } : {}),
+        ...(controlUrl ? { controlUrl } : {}),
+        metadata: {
+          ...(((getCallById(callId)?.metadata as Record<string, unknown> | undefined) || {})),
+          ...(listenUrl ? { listenUrl } : {}),
+          ...(controlUrl ? { controlUrl } : {}),
+        },
+      });
+    }
+    return {
+      ...(listenUrl ? { listenUrl } : {}),
+      ...(controlUrl ? { controlUrl } : {}),
+    };
+  } catch {
+    return existing ?? {};
+  }
+}
+
 function ensureCallFromVapi(message: Record<string, unknown>): Record<string, unknown> {
   setRequestOrgId(DEFAULT_ORG_ID);
   const call = (message.call || message) as Record<string, unknown>;
   const vapiId = String(call.id || message.callId || `vapi-${Date.now()}`);
   const metaIn = (call.metadata || message.metadata || {}) as Record<string, unknown>;
   const tradeproCallId = String(metaIn.tradeproCallId || '').trim();
+  const monitor = extractMonitorUrls(message);
 
   const byProvider = getCallByProviderId(vapiId);
   if (byProvider) {
-    // Link provider id + merge any orphan UUID-as-id twin transcripts
-    return mergeOrphanVapiCall(String(byProvider.id), vapiId, metaIn);
+    const merged = mergeOrphanVapiCall(String(byProvider.id), vapiId, metaIn);
+    if (monitor.listenUrl || monitor.controlUrl) {
+      return saveCall({
+        id: String(merged.id),
+        ...monitor,
+        metadata: {
+          ...((merged.metadata as Record<string, unknown> | undefined) || {}),
+          ...monitor,
+        },
+      });
+    }
+    return merged;
   }
   if (tradeproCallId) {
     const byTrade = getCallById(tradeproCallId);
     if (byTrade) {
-      return mergeOrphanVapiCall(tradeproCallId, vapiId, {
+      const merged = mergeOrphanVapiCall(tradeproCallId, vapiId, {
         ...((byTrade.metadata as Record<string, unknown> | undefined) || {}),
         ...metaIn,
       });
+      if (monitor.listenUrl || monitor.controlUrl) {
+        return saveCall({
+          id: String(merged.id),
+          ...monitor,
+          metadata: {
+            ...((merged.metadata as Record<string, unknown> | undefined) || {}),
+            ...monitor,
+          },
+        });
+      }
+      return merged;
     }
   }
   const existing = getCallById(vapiId);
-  if (existing) return existing;
+  if (existing) {
+    if (monitor.listenUrl || monitor.controlUrl) {
+      return saveCall({
+        id: String(existing.id),
+        ...monitor,
+        metadata: {
+          ...((existing.metadata as Record<string, unknown> | undefined) || {}),
+          ...monitor,
+        },
+      });
+    }
+    return existing;
+  }
 
   const partyPhone = partyPhoneFromCall(call) || toE164Uk(String(metaIn.partyPhone || ''));
   const identity = resolvePhoneCallerIdentity(partyPhone);
-  const resolved = resolveContactByPhone(partyPhone);
   const directionRaw = String(call.type || '').toLowerCase();
   const direction = directionRaw.includes('outbound') ? 'outbound' : 'inbound';
+  const callId = tradeproCallId || vapiId;
+
+  let customerId: string | null = null;
+  let contactName = identity.kind !== 'customer' ? identity.name : 'Guest';
+  if (identity.kind === 'customer' && partyPhone) {
+    const guest = ensureGuestCustomerForCall(partyPhone, callId);
+    customerId = guest.customerId;
+    contactName = guest.contactName;
+  } else {
+    const resolved = resolveContactByPhone(partyPhone);
+    customerId = resolved.customerId;
+    contactName = identity.kind !== 'customer'
+      ? identity.name
+      : (resolved.customerName || resolved.contactName);
+  }
 
   return saveCall({
-    id: tradeproCallId || vapiId,
+    id: callId,
     providerCallId: vapiId,
     provider: 'vapi',
     direction,
@@ -170,12 +267,12 @@ function ensureCallFromVapi(message: Record<string, unknown>): Record<string, un
     status: 'in_progress',
     transcript: [],
     startedAt: new Date().toISOString(),
-    contactName: identity.kind !== 'customer'
-      ? identity.name
-      : (resolved.customerName || resolved.contactName),
-    customerId: resolved.customerId,
+    contactName,
+    customerId,
+    ...monitor,
     metadata: {
       ...metaIn,
+      ...monitor,
       vapiCallId: vapiId,
       tradeproCallId: tradeproCallId || undefined,
       partyPhone,
@@ -700,6 +797,35 @@ async function handleVapiMessage(
   const type = String(message.type || body.type || '');
 
   if (type === 'assistant-request') {
+    const capacity = getAgentCapacitySnapshot();
+    const directionRaw = String(((message.call || {}) as Record<string, unknown>).type || '').toLowerCase();
+    const isOutbound = directionRaw.includes('outbound');
+    if (!isOutbound && capacity.overflowArmed && !capacity.canAcceptInboundAi) {
+      const overflow = capacity.overflowNumber
+        || getAgentSettings().overflowNumber
+        || getAgentSettings().transferNumbers?.general
+        || '';
+      if (overflow) {
+        sendJson(res, 200, {
+          destination: {
+            type: 'number',
+            number: overflow,
+            message: 'All lines are busy — connecting you to the restaurant now.',
+          },
+        });
+        return;
+      }
+    }
+    const call = ensureCallFromVapi(message);
+    const vapiId = String(
+      ((message.call || {}) as Record<string, unknown>).id
+      || message.callId
+      || call.providerCallId
+      || '',
+    );
+    if (vapiId) {
+      void enrichMonitorUrlsFromVapi(String(call.id), vapiId, extractMonitorUrls(message));
+    }
     const assistant = await buildTransientAssistant(message);
     sendJson(res, 200, { assistant });
     return;
@@ -784,9 +910,25 @@ async function handleVapiMessage(
         : status.includes('ring')
           ? 'ringing'
           : 'in_progress';
+    const monitor = extractMonitorUrls(message);
+    if (!terminal && !monitor.listenUrl) {
+      const vapiId = String(call.providerCallId || ((message.call || {}) as Record<string, unknown>).id || '');
+      if (vapiId) void enrichMonitorUrlsFromVapi(String(call.id), vapiId, monitor);
+    }
+    const meta = { ...((call.metadata as Record<string, unknown> | undefined) || {}) };
+    if (terminal) {
+      delete meta.listenUrl;
+      delete meta.controlUrl;
+    } else if (monitor.listenUrl || monitor.controlUrl) {
+      Object.assign(meta, monitor);
+    }
     saveCall({
       id: call.id,
       status: mapped,
+      ...(terminal
+        ? { listenUrl: null, controlUrl: null }
+        : monitor),
+      metadata: meta,
       ...(mapped === 'completed' || mapped === 'failed'
         ? {
             endedAt: new Date().toISOString(),

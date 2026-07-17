@@ -158,10 +158,20 @@ export interface AgentSettings {
   callQueueQuietStart?: string;
   /** Quiet hours end (HH:mm local) */
   callQueueQuietEnd?: string;
-  /** Max simultaneous outbound dials (1–5) */
+  /** Max simultaneous outbound dials (1–5) — prefer maxOutboundSlots */
   callQueueMaxConcurrent?: number;
   /** Outbound worker state */
   outboundQueueState?: 'running' | 'paused' | 'stopped';
+  /** Total AI agent slots (inbound + outbound). Default 5. */
+  maxAgentSlots?: number;
+  /** Reserved inbound AI slots. Default 4. */
+  maxInboundSlots?: number;
+  /** Max concurrent outbound dials. Default 1. */
+  maxOutboundSlots?: number;
+  /** When all slots busy, divert inbound to this PSTN number */
+  overflowNumber?: string;
+  /** Enable overflow divert when at capacity */
+  overflowWhenFull?: boolean;
   /** Campaign brief stubs (review / reorder / winback) */
   campaignReviewBrief?: string;
   campaignReorderBrief?: string;
@@ -187,8 +197,12 @@ const defaultAgentSettings: AgentSettings = {
   callQueueRetryMinutes: 60,
   callQueueQuietStart: '20:00',
   callQueueQuietEnd: '08:00',
-  callQueueMaxConcurrent: 2,
+  callQueueMaxConcurrent: 1,
   outboundQueueState: 'running',
+  maxAgentSlots: 5,
+  maxInboundSlots: 4,
+  maxOutboundSlots: 1,
+  overflowWhenFull: true,
   campaignReviewBrief: 'Ask how their recent order was and invite them to leave a Google review.',
   campaignReorderBrief: 'Check if they would like to place another order — mention favourites or today\'s specials.',
   campaignWinbackBrief: 'We have not seen them in a while — offer a welcome-back discount on their next order.',
@@ -584,6 +598,61 @@ export function resolveContactByPhone(phone: string): {
 }
 
 /**
+ * Match existing customer by phone, or create a minimal Guest CRM row on ring.
+ * Never creates a lead against a staff handset.
+ */
+export function ensureGuestCustomerForCall(
+  phone: string,
+  callId?: string,
+): { customerId: string | null; isNew: boolean; contactName: string } {
+  const normalized = normalizePhone(phone);
+  if (!normalized) {
+    return { customerId: null, isNew: false, contactName: 'Guest' };
+  }
+  if (resolveStaffByPhone(phone)) {
+    return { customerId: null, isNew: false, contactName: 'Guest' };
+  }
+  const resolved = resolveContactByPhone(phone);
+  if (resolved.customerId) {
+    if (callId) {
+      appendCustomerCallActivity({
+        customerId: resolved.customerId,
+        callId,
+        summary: 'Inbound call started',
+        updateCallQueue: true,
+      });
+      saveCall({ id: callId, customerId: resolved.customerId, contactName: resolved.customerName });
+    }
+    return {
+      customerId: resolved.customerId,
+      isNew: false,
+      contactName: resolved.customerName || resolved.contactName || 'Guest',
+    };
+  }
+
+  const customer = saveCustomerRecord({
+    name: 'Guest',
+    phone,
+    email: '',
+    address: '',
+    status: 'lead',
+    source: 'phone',
+    sourceCallId: callId,
+  });
+  const customerId = String(customer.id);
+  if (callId) {
+    saveCall({ id: callId, customerId, contactName: 'Guest' });
+    appendCustomerCallActivity({
+      customerId,
+      callId,
+      summary: 'Inbound call started — Guest created',
+      updateCallQueue: true,
+    });
+  }
+  return { customerId, isNew: true, contactName: 'Guest' };
+}
+
+/**
  * Ensure phone Lizzie sees Customers-tab rows (specials live in Supabase when UI saves there).
  * Call before building the inbound prompt.
  */
@@ -817,12 +886,80 @@ export function countOpenCallsForOrg(): number {
 
 /** Max simultaneous live calls (inbound + outbound) per org. Default 5. */
 export function getMaxConcurrentCallsPerOrg(): number {
-  const fromSettings = getAgentSettings().callQueueMaxConcurrent;
+  const settings = getAgentSettings();
+  const fromSlots = settings.maxAgentSlots;
+  if (Number.isFinite(fromSlots) && fromSlots! > 0) {
+    return Math.max(1, Math.min(10, Math.floor(fromSlots!)));
+  }
+  const fromSettings = settings.callQueueMaxConcurrent;
   if (Number.isFinite(fromSettings) && fromSettings! > 0) {
     return Math.max(1, Math.min(5, Math.floor(fromSettings!)));
   }
   const n = Number(process.env.MAX_CONCURRENT_CALLS_PER_ORG ?? 5);
   return Number.isFinite(n) && n > 0 ? Math.min(5, Math.floor(n)) : 5;
+}
+
+export function countOpenCallsByDirection(): { inbound: number; outbound: number; total: number } {
+  expireStaleOpenCalls();
+  const open = getDataStore().calls.filter((c) => isOpenCallStatus(c.status));
+  let inbound = 0;
+  let outbound = 0;
+  for (const c of open) {
+    if (String(c.direction ?? '') === 'outbound') outbound += 1;
+    else inbound += 1;
+  }
+  return { inbound, outbound, total: open.length };
+}
+
+export function getInboundOutboundSlotLimits(): { maxInbound: number; maxOutbound: number; maxTotal: number } {
+  const settings = getAgentSettings();
+  const maxTotal = getMaxConcurrentCallsPerOrg();
+  const maxInbound = Math.max(1, Math.min(maxTotal, Math.floor(settings.maxInboundSlots ?? 4)));
+  const maxOutbound = Math.max(1, Math.min(maxTotal, Math.floor(settings.maxOutboundSlots ?? 1)));
+  return { maxInbound, maxOutbound, maxTotal };
+}
+
+/** Capacity snapshot for Call Centre UI + outbound worker. */
+export function getAgentCapacitySnapshot(): {
+  inboundActive: number;
+  outboundActive: number;
+  totalActive: number;
+  maxInbound: number;
+  maxOutbound: number;
+  maxTotal: number;
+  outboundSlotsFree: number;
+  inboundSlotsFree: number;
+  overflowArmed: boolean;
+  overflowNumber?: string;
+  canAcceptInboundAi: boolean;
+} {
+  const counts = countOpenCallsByDirection();
+  const limits = getInboundOutboundSlotLimits();
+  const settings = getAgentSettings();
+  const diallingJobs = (getDataStore().outboundQueue ?? []).filter(
+    (j) => String(j.status ?? '') === 'dialling',
+  ).length;
+  const outboundActive = counts.outbound + diallingJobs;
+  const inboundSlotsFree = Math.max(0, limits.maxInbound - counts.inbound);
+  const outboundSlotsFree = Math.max(0, Math.min(
+    limits.maxOutbound - outboundActive,
+    limits.maxTotal - counts.total - diallingJobs,
+  ));
+  const overflowArmed = settings.overflowWhenFull !== false;
+  const atCapacity = counts.total >= limits.maxTotal;
+  return {
+    inboundActive: counts.inbound,
+    outboundActive,
+    totalActive: counts.total,
+    maxInbound: limits.maxInbound,
+    maxOutbound: limits.maxOutbound,
+    maxTotal: limits.maxTotal,
+    outboundSlotsFree,
+    inboundSlotsFree,
+    overflowArmed,
+    overflowNumber: settings.overflowNumber || settings.transferNumbers?.general || undefined,
+    canAcceptInboundAi: !atCapacity && inboundSlotsFree > 0,
+  };
 }
 
 /** True when auto outbound dialling should be skipped (quiet hours). */
@@ -1511,6 +1648,9 @@ function startOfTodayLocal(): number {
 export function getAgentStatusSnapshot(): {
   activeCall: Record<string, unknown> | null;
   activeCalls: Array<Record<string, unknown>>;
+  ringingCount: number;
+  inProgressCount: number;
+  capacity: ReturnType<typeof getAgentCapacitySnapshot>;
   linesSummary: { total: number; registered: number; onCall: number };
   todayStats: {
     totalCalls: number;
@@ -1529,12 +1669,37 @@ export function getAgentStatusSnapshot(): {
 
   const activeCalls = store.calls
     .filter(c => isOpenCallStatus(c.status))
-    .map(call => ({
-      ...call,
-      elapsedSec: computeCallDurationSec(call),
-      contactName: call.contactName ?? resolveContactByPhone(String(call.from ?? '')).customerName,
-      lineLabel: call.lineLabel ?? store.phoneLines.find(l => l.id === call.lineId)?.label,
-    }));
+    .map(call => {
+      const phone = String(
+        (call.metadata as Record<string, unknown> | undefined)?.partyPhone
+        ?? (call.direction === 'outbound' ? call.to : call.from)
+        ?? '',
+      );
+      const resolvedContact = resolveContactByPhone(phone || String(call.from ?? ''));
+      const contactName = String(call.contactName ?? resolvedContact.customerName ?? 'Guest');
+      const isGuest = !resolvedContact.customerId
+        || /^guest$/i.test(contactName)
+        || contactName.trim() === '';
+      const meta = (call.metadata as Record<string, unknown> | undefined) || {};
+      const listenUrl = isOpenCallStatus(call.status)
+        ? String(call.listenUrl ?? meta.listenUrl ?? '')
+        : '';
+      const controlUrl = isOpenCallStatus(call.status)
+        ? String(call.controlUrl ?? meta.controlUrl ?? '')
+        : '';
+      return {
+        ...call,
+        elapsedSec: computeCallDurationSec(call),
+        contactName,
+        customerId: call.customerId ?? resolvedContact.customerId,
+        isGuest,
+        direction: call.direction ?? 'inbound',
+        status: call.status,
+        listenUrl: listenUrl || undefined,
+        controlUrl: controlUrl || undefined,
+        lineLabel: call.lineLabel ?? store.phoneLines.find(l => l.id === call.lineId)?.label,
+      };
+    });
 
   const activeCall = activeCalls[0] ?? null;
 
@@ -1563,6 +1728,10 @@ export function getAgentStatusSnapshot(): {
     return Number.isFinite(t) && t >= todayStart;
   }).length;
 
+  const capacity = getAgentCapacitySnapshot();
+  const ringingCount = activeCalls.filter((c) => String(c.status) === 'ringing').length;
+  const inProgressCount = activeCalls.filter((c) => String(c.status) === 'in_progress').length;
+
   return {
     activeCall: activeCall
       ? {
@@ -1570,6 +1739,9 @@ export function getAgentStatusSnapshot(): {
         }
       : null,
     activeCalls,
+    ringingCount,
+    inProgressCount,
+    capacity,
     linesSummary: getLinesSummary(),
     todayStats: {
       totalCalls: todayCalls.length,

@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import {
   deletePhoneLine,
+  getAgentCapacitySnapshot,
   getAgentSettings,
   getAgentStatusSnapshot,
   getPhoneLineByAssignedUserId,
@@ -182,6 +183,7 @@ async function handleGetStatus(_req: IncomingMessage, res: ServerResponse) {
   sendJson(res, 200, {
     ...snapshot,
     isActive: getAgentSettings().isActive,
+    capacity: snapshot.capacity ?? getAgentCapacitySnapshot(),
   });
 }
 
@@ -607,6 +609,42 @@ export async function handleAgentRoutes(
       sendJson(res, 200, { success: true, ...result });
     } catch (err) {
       sendJson(res, 400, { error: err instanceof Error ? err.message : 'Campaign queue failed' });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/agent/capacity' && req.method === 'GET') {
+    sendJson(res, 200, getAgentCapacitySnapshot());
+    return true;
+  }
+
+  if (pathname === '/api/campaigns/upload' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req)) as {
+      csv?: string;
+      rows?: Array<{ name?: string; phone?: string; notes?: string; customerId?: string }>;
+      template?: string;
+      brief?: string;
+      dryRun?: boolean;
+    };
+    try {
+      const { parseCampaignCsv, queueCsvCampaign } = await import('./outbound-campaigns');
+      const rows = Array.isArray(body.rows) && body.rows.length
+        ? body.rows.map((r) => ({
+            name: String(r.name ?? 'Guest'),
+            phone: String(r.phone ?? ''),
+            notes: r.notes != null ? String(r.notes) : undefined,
+            customerId: r.customerId != null ? String(r.customerId) : undefined,
+          }))
+        : parseCampaignCsv(String(body.csv ?? ''));
+      const result = queueCsvCampaign({
+        rows,
+        template: body.template,
+        brief: body.brief,
+        dryRun: body.dryRun === true,
+      });
+      sendJson(res, 200, { success: true, ...result });
+    } catch (err) {
+      sendJson(res, 400, { error: err instanceof Error ? err.message : 'Campaign upload failed' });
     }
     return true;
   }
