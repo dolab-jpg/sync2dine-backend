@@ -61,6 +61,18 @@ type OrderRow = {
   review_text: string | null;
   review_called_at: string | null;
   last_winback_call_at: string | null;
+  external_id?: string | null;
+  source?: string | null;
+  source_status?: string | null;
+  sync_state?: string | null;
+  placed_at?: string | null;
+  due_at?: string | null;
+  provider_meta?: unknown;
+  customer_allergies?: string | null;
+  allergy_confirmed?: boolean | null;
+  source_call_id?: string | null;
+  recording_url?: string | null;
+  call_ids?: unknown;
   created_at: string;
   updated_at: string;
 };
@@ -122,9 +134,7 @@ function extractPostcodeFromAddress(address: string | null | undefined): string 
 export function rowToOrder(row: OrderRow): Record<string, unknown> {
   const decoded = decodeOrderMeta(row.notes ?? '');
   const deliveryPostcode = decoded.deliveryPostcode || extractPostcodeFromAddress(row.delivery_address);
-  // #region agent log
-  fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'61363c'},body:JSON.stringify({sessionId:'61363c',runId:'post-fix',hypothesisId:'B',location:'supabase-orders.ts:rowToOrder',message:'order fields after supabase read',data:{hasDeliveryPostcode:Boolean(deliveryPostcode),hasSpecialName:Boolean(decoded.specialName),notesLen:decoded.notes.length},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+  const callIds = Array.isArray(row.call_ids) ? row.call_ids.map(String) : [];
   return {
     id: row.id,
     orgId: row.org_id,
@@ -144,6 +154,20 @@ export function rowToOrder(row: OrderRow): Record<string, unknown> {
     specialName: decoded.specialName,
     notes: decoded.notes,
     etaMinutes: decoded.etaMinutes,
+    externalId: row.external_id ?? undefined,
+    source: row.source ?? 'sync2dine',
+    sourceStatus: row.source_status ?? undefined,
+    syncState: row.sync_state ?? 'local',
+    placedAt: row.placed_at ?? row.created_at,
+    dueAt: row.due_at ?? undefined,
+    providerMeta: (row.provider_meta && typeof row.provider_meta === 'object')
+      ? row.provider_meta as Record<string, unknown>
+      : {},
+    customerAllergies: row.customer_allergies ?? '',
+    allergyConfirmed: row.allergy_confirmed === true,
+    sourceCallId: row.source_call_id ?? undefined,
+    recordingUrl: row.recording_url ?? undefined,
+    callIds,
     reviewScore: row.review_score ?? undefined,
     reviewText: row.review_text ?? undefined,
     reviewCalledAt: row.review_called_at ?? undefined,
@@ -157,9 +181,9 @@ export function rowToOrder(row: OrderRow): Record<string, unknown> {
 export function orderToRow(order: Record<string, unknown>, orgId: string): Record<string, unknown> {
   const id = isOrderUuid(String(order.id ?? '')) ? String(order.id) : newOrderId();
   const notesEncoded = encodeOrderMeta(String(order.notes ?? ''), order);
-  // #region agent log
-  fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'61363c'},body:JSON.stringify({sessionId:'61363c',runId:'post-fix',hypothesisId:'B',location:'supabase-orders.ts:orderToRow',message:'order fields before supabase map',data:{hasDeliveryPostcode:order.deliveryPostcode!=null,hasSpecialName:order.specialName!=null,hasDeliveryAddress:order.deliveryAddress!=null,notesEncodedHasMeta:notesEncoded.includes('[[s2d:'),notesLen:notesEncoded.length},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+  const callIds = Array.isArray(order.callIds) ? order.callIds.map(String) : [];
+  const sourceCallId = order.sourceCallId != null ? String(order.sourceCallId) : null;
+  const mergedCallIds = [...new Set([...callIds, ...(sourceCallId ? [sourceCallId] : [])])];
   return {
     id,
     org_id: orgId,
@@ -188,6 +212,20 @@ export function orderToRow(order: Record<string, unknown>, orgId: string): Recor
     last_winback_call_at: order.lastWinbackCallAt != null
       ? String(order.lastWinbackCallAt)
       : null,
+    external_id: order.externalId != null ? String(order.externalId) : null,
+    source: String(order.source ?? 'sync2dine'),
+    source_status: order.sourceStatus != null ? String(order.sourceStatus) : null,
+    sync_state: String(order.syncState ?? 'local'),
+    placed_at: order.placedAt != null ? String(order.placedAt) : (order.createdAt != null ? String(order.createdAt) : new Date().toISOString()),
+    due_at: order.dueAt != null ? String(order.dueAt) : null,
+    provider_meta: order.providerMeta && typeof order.providerMeta === 'object'
+      ? order.providerMeta
+      : {},
+    customer_allergies: order.customerAllergies != null ? String(order.customerAllergies) : '',
+    allergy_confirmed: order.allergyConfirmed === true,
+    source_call_id: sourceCallId,
+    recording_url: order.recordingUrl != null ? String(order.recordingUrl) : null,
+    call_ids: mergedCallIds,
     created_at: String(order.createdAt ?? new Date().toISOString()),
     updated_at: String(order.updatedAt ?? new Date().toISOString()),
   };
@@ -382,6 +420,24 @@ export async function updateOrderInSupabase(
       ? String(patch.lastWinbackCallAt)
       : null;
   }
+  if (patch.externalId !== undefined) rowPatch.external_id = patch.externalId != null ? String(patch.externalId) : null;
+  if (patch.source !== undefined) rowPatch.source = String(patch.source);
+  if (patch.sourceStatus !== undefined) rowPatch.source_status = patch.sourceStatus != null ? String(patch.sourceStatus) : null;
+  if (patch.syncState !== undefined) rowPatch.sync_state = String(patch.syncState);
+  if (patch.placedAt !== undefined) rowPatch.placed_at = patch.placedAt != null ? String(patch.placedAt) : null;
+  if (patch.dueAt !== undefined) rowPatch.due_at = patch.dueAt != null ? String(patch.dueAt) : null;
+  if (patch.providerMeta !== undefined) {
+    rowPatch.provider_meta = patch.providerMeta && typeof patch.providerMeta === 'object' ? patch.providerMeta : {};
+  }
+  if (patch.customerAllergies !== undefined) {
+    rowPatch.customer_allergies = patch.customerAllergies != null ? String(patch.customerAllergies) : '';
+  }
+  if (patch.allergyConfirmed !== undefined) rowPatch.allergy_confirmed = patch.allergyConfirmed === true;
+  if (patch.sourceCallId !== undefined) rowPatch.source_call_id = patch.sourceCallId != null ? String(patch.sourceCallId) : null;
+  if (patch.recordingUrl !== undefined) rowPatch.recording_url = patch.recordingUrl != null ? String(patch.recordingUrl) : null;
+  if (patch.callIds !== undefined) {
+    rowPatch.call_ids = Array.isArray(patch.callIds) ? patch.callIds.map(String) : [];
+  }
 
   const { data, error } = await client
     .from('orders')
@@ -397,4 +453,52 @@ export async function updateOrderInSupabase(
   }
   if (!data) return { ok: false, error: 'not found' };
   return { ok: true, order: rowToOrder(data as OrderRow) };
+}
+
+export async function findOrderByExternalId(
+  provider: string,
+  externalId: string,
+  orgIdHint?: string | null,
+): Promise<Record<string, unknown> | null> {
+  const client = getAdmin();
+  const orgId = resolveOrdersOrgId(orgIdHint);
+  if (!client || !orgId || !externalId?.trim()) return null;
+  const { data } = await client
+    .from('orders')
+    .select('*')
+    .eq('org_id', orgId)
+    .eq('source', provider)
+    .eq('external_id', externalId.trim())
+    .maybeSingle();
+  return data ? rowToOrder(data as OrderRow) : null;
+}
+
+export async function backfillOrderRecordingInSupabase(
+  callId: string,
+  recordingUrl: string,
+  orgIdHint?: string | null,
+): Promise<{ updated: number }> {
+  const client = getAdmin();
+  const orgId = resolveOrdersOrgId(orgIdHint);
+  if (!client || !orgId || !callId?.trim()) return { updated: 0 };
+
+  const { data } = await client
+    .from('orders')
+    .select('*')
+    .eq('org_id', orgId)
+    .or(`source_call_id.eq.${callId},call_ids.cs.["${callId}"]`);
+
+  let updated = 0;
+  for (const row of (data as OrderRow[] | null) ?? []) {
+    const existingIds = Array.isArray(row.call_ids) ? row.call_ids.map(String) : [];
+    const nextIds = [...new Set([...existingIds, callId])];
+    const { error } = await client.from('orders').update({
+      recording_url: recordingUrl,
+      call_ids: nextIds,
+      source_call_id: row.source_call_id || callId,
+      updated_at: new Date().toISOString(),
+    }).eq('id', row.id);
+    if (!error) updated += 1;
+  }
+  return { updated };
 }

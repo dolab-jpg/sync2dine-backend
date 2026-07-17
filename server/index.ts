@@ -23,6 +23,8 @@ import { handleMailboxRoutes } from './mailbox-routes';
 import { handlePackageUpdatesRoute } from './mailbox/package-updates';
 import { handleLeadsRoutes } from './leads-routes';
 import { handleOrdersRoutes } from './orders-routes';
+import { handleReservationsRoutes } from './reservations-routes';
+import { handleConnectorRoutes } from './connectors/routes';
 import { handleOrgOpenAIKeyRoutes } from './org-openai-key-routes';
 import { handleCyrusRoutes } from './cyrus-routes';
 import { handleCynthiaRoutes } from './cynthia-routes';
@@ -99,6 +101,10 @@ const server = createServer(async (req, res) => {
     if (await handleLeadsRoutes(req, res, pathname, url)) return;
 
     if (await handleOrdersRoutes(req, res, pathname)) return;
+
+    if (await handleReservationsRoutes(req, res, pathname)) return;
+
+    if (await handleConnectorRoutes(req, res, pathname)) return;
 
     if (await handleCyrusRoutes(req, res, pathname)) return;
 
