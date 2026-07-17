@@ -32,6 +32,8 @@ import {
   updateReservation,
 } from './reservations-store';
 import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from './restaurant-ai-tools';
+import { getConnectorConfig } from './connectors/config-store';
+import { forwardOrderIfPosEnabled } from './connectors/pos-outbound';
 
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -1660,7 +1662,8 @@ export async function executePhoneTool(
       paymentStatus = 'paid';
     }
 
-    const record = await saveOrderRecord({
+    const orgIdForOrder = firstString(body.orgId) ?? getRequestOrgId();
+    let record = await saveOrderRecord({
       customerId: customerId || undefined,
       customerName: firstString(input.customerName, body.customerContext?.customerName) ?? 'Guest',
       customerPhone: phone,
@@ -1683,7 +1686,19 @@ export async function executePhoneTool(
       syncState: 'local',
       placedAt: new Date().toISOString(),
       etaMinutes: orderType === 'delivery' ? 40 : 20,
-    }, firstString(body.orgId) ?? getRequestOrgId());
+    }, orgIdForOrder);
+
+    try {
+      const connector = await getConnectorConfig(orgIdForOrder);
+      const forwarded = await forwardOrderIfPosEnabled(String(orgIdForOrder ?? ''), record, connector);
+      record = forwarded.order;
+    } catch (err) {
+      console.warn(
+        '[placeFoodOrder] POS forward failed:',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
     const spokenTotal = formatSpokenGbp(Number(record.total));
     const where =
       orderType === 'delivery' && deliveryAddress
@@ -1692,6 +1707,11 @@ export async function executePhoneTool(
           ? ' Collection.'
           : '';
     const specialSpeak = specialAppliedNote ? ` Special applied: ${appliedSpecialName}.` : '';
+    const syncHint = record.syncState === 'synced'
+      ? ' Sent to your till.'
+      : record.syncState === 'error'
+        ? ' (Till sync needs a retry.)'
+        : '';
     return {
       ok: true,
       orderId: record.id,
@@ -1702,7 +1722,9 @@ export async function executePhoneTool(
       deliveryAddress: record.deliveryAddress ?? deliveryAddress ?? null,
       deliveryPostcode: normalizedPostcode || null,
       customerId: record.customerId ?? customerId ?? null,
-      spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${specialSpeak} The kitchen has it.`,
+      syncState: record.syncState ?? 'local',
+      externalId: record.externalId ?? null,
+      spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${specialSpeak} The kitchen has it.${syncHint}`,
     };
   }
 

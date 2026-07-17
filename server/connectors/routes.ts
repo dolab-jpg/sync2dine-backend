@@ -1,12 +1,18 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import {
   DEFAULT_ORG_ID,
+  listOrderRecords,
   saveOrderRecord,
   setRequestOrgId,
   updateOrderRecord,
 } from '../data-store';
 import { resolveOrgIdForRequest } from '../auth';
-import { exportMenuForOrg } from '../menu-catalog';
+import {
+  exportMenuForOrg,
+  listMenuItemsForOrg,
+  setMenuItemExternalIds,
+  squareMenuCompleteness,
+} from '../menu-catalog';
 import { verifySignature, S2D_SIGNATURE_HEADER } from './hmac';
 import {
   getConnectorConfig,
@@ -29,6 +35,16 @@ import { mapInboundStatus, mapOutboundStatus } from './status-map';
 import { emitOrderUpdatedWebhook, processOutboundQueue } from './outbound-queue';
 import { forwardOrderToCommerceHub } from './commerce-outbound';
 import { findOrderByExternalId } from '../supabase-orders';
+import {
+  buildSquareOAuthAuthorizeUrl,
+  exchangeSquareOAuthCode,
+  squareAppCredentials,
+} from './square-api';
+import {
+  fetchSquareLocationsForConfig,
+  syncSquareCatalogSuggestions,
+} from './square-outbound';
+import { forwardOrderIfPosEnabled, pushOrderToPos } from './pos-outbound';
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
@@ -144,14 +160,24 @@ export async function handleConnectorRoutes(
 
   if (pathname === '/api/connectors/config' && req.method === 'GET') {
     const config = await getConnectorConfig(orgId);
-    sendJson(res, 200, { config: config ? maskConnectorConfig(config) : null });
+    const completeness = config?.provider === 'square'
+      ? await squareMenuCompleteness(orgId)
+      : undefined;
+    sendJson(res, 200, {
+      config: config
+        ? {
+            ...maskConnectorConfig(config),
+            ...(completeness ? { menuCompleteness: completeness } : {}),
+          }
+        : null,
+    });
     return true;
   }
 
   if (pathname === '/api/connectors/config' && (req.method === 'PUT' || req.method === 'POST')) {
-    const saved = await saveConnectorConfig(orgId, {
+    const patch: Parameters<typeof saveConnectorConfig>[1] = {
       provider: body.provider as import('./types').ConnectorProvider | undefined,
-      enabled: body.enabled === true,
+      enabled: body.enabled === true ? true : body.enabled === false ? false : undefined,
       direction: body.direction as import('./types').ConnectorDirection | undefined,
       outboundUrl: body.outboundUrl != null ? String(body.outboundUrl) : undefined,
       webhookSecret: body.webhookSecret != null ? String(body.webhookSecret) : undefined,
@@ -160,17 +186,47 @@ export async function handleConnectorRoutes(
         : undefined,
       deliverectAccountId: body.deliverectAccountId != null ? String(body.deliverectAccountId) : undefined,
       deliverectLocationId: body.deliverectLocationId != null ? String(body.deliverectLocationId) : undefined,
+      squareLocationId: body.squareLocationId != null ? String(body.squareLocationId) : undefined,
+      defaultPickupName: body.defaultPickupName != null ? String(body.defaultPickupName) : undefined,
+      defaultPickupPhone: body.defaultPickupPhone != null ? String(body.defaultPickupPhone) : undefined,
+      fulfillmentAddressLine1: body.fulfillmentAddressLine1 != null ? String(body.fulfillmentAddressLine1) : undefined,
+      fulfillmentAddressCity: body.fulfillmentAddressCity != null ? String(body.fulfillmentAddressCity) : undefined,
+      fulfillmentAddressPostcode: body.fulfillmentAddressPostcode != null ? String(body.fulfillmentAddressPostcode) : undefined,
+      fulfillmentAddressCountry: body.fulfillmentAddressCountry != null ? String(body.fulfillmentAddressCountry) : undefined,
+    };
+    // Sandbox / PAT: allow storing a personal access token via oauthAccessToken field
+    if (body.oauthAccessToken != null && String(body.oauthAccessToken).trim()) {
+      patch.oauthAccessToken = String(body.oauthAccessToken).trim();
+      patch.oauthExpiresAt = undefined;
+    }
+    if (body.enabled !== undefined) patch.enabled = body.enabled === true;
+    const saved = await saveConnectorConfig(orgId, patch);
+    const completeness = saved.provider === 'square'
+      ? await squareMenuCompleteness(orgId)
+      : undefined;
+    sendJson(res, 200, {
+      config: {
+        ...maskConnectorConfig(saved),
+        ...(completeness ? { menuCompleteness: completeness } : {}),
+      },
     });
-    sendJson(res, 200, { config: maskConnectorConfig(saved) });
     return true;
   }
 
   if (pathname === '/api/connectors/status' && req.method === 'GET') {
     const config = await getConnectorConfig(orgId);
+    const completeness = config?.provider === 'square'
+      ? await squareMenuCompleteness(orgId)
+      : undefined;
     sendJson(res, 200, {
       integrationReady: true,
       certified: false,
-      config: config ? maskConnectorConfig(config) : null,
+      config: config
+        ? {
+            ...maskConnectorConfig(config),
+            ...(completeness ? { menuCompleteness: completeness } : {}),
+          }
+        : null,
     });
     return true;
   }
@@ -194,12 +250,34 @@ export async function handleConnectorRoutes(
   }
 
   if (pathname === '/api/connectors/menu/sync' && req.method === 'POST') {
+    const config = await getConnectorConfig(orgId);
+    if (config?.provider === 'square') {
+      const sync = await syncSquareCatalogSuggestions(orgId, config);
+      if (!sync.ok) {
+        sendJson(res, 502, { error: sync.error || 'square_catalog_sync_failed' });
+        return true;
+      }
+      const menu = await exportMenuForOrg(orgId);
+      await saveConnectorConfig(orgId, {
+        lastMenuSyncAt: menu.generatedAt,
+        menuVersion: menu.version,
+        lastError: '',
+      });
+      const completeness = await squareMenuCompleteness(orgId);
+      sendJson(res, 200, {
+        ok: true,
+        ...menu,
+        variations: sync.variations,
+        suggestions: sync.suggestions,
+        menuCompleteness: completeness,
+      });
+      return true;
+    }
     const menu = await exportMenuForOrg(orgId);
     await saveConnectorConfig(orgId, {
       lastMenuSyncAt: menu.generatedAt,
       menuVersion: menu.version,
     });
-    const config = await getConnectorConfig(orgId);
     if (config?.enabled && config.outboundUrl) {
       await emitOrderUpdatedWebhook(orgId, { id: 'menu-sync', status: 'menu', externalId: menu.version });
     }
@@ -207,9 +285,246 @@ export async function handleConnectorRoutes(
     return true;
   }
 
+  if (pathname === '/api/connectors/menu/mapping' && req.method === 'GET') {
+    const config = await getConnectorConfig(orgId);
+    const items = await listMenuItemsForOrg(orgId);
+    let variations: unknown[] = [];
+    let suggestions: unknown[] = [];
+    if (config?.provider === 'square' && config.oauthAccessToken) {
+      const sync = await syncSquareCatalogSuggestions(orgId, config);
+      if (sync.ok) {
+        variations = sync.variations ?? [];
+        suggestions = sync.suggestions ?? [];
+      }
+    }
+    const completeness = await squareMenuCompleteness(orgId);
+    sendJson(res, 200, {
+      items: items.map((i) => ({
+        id: i.id,
+        name: i.name,
+        category: i.category,
+        squareVariationId: i.externalIds?.square ?? '',
+      })),
+      variations,
+      suggestions,
+      menuCompleteness: completeness,
+    });
+    return true;
+  }
+
+  if (pathname === '/api/connectors/menu/mapping' && (req.method === 'PUT' || req.method === 'POST')) {
+    const mappings = Array.isArray(body.mappings) ? body.mappings as Array<Record<string, unknown>> : [];
+    const applySuggested = body.applySuggested === true;
+    let updated = 0;
+    if (applySuggested) {
+      const config = await getConnectorConfig(orgId);
+      if (config?.provider === 'square') {
+        const sync = await syncSquareCatalogSuggestions(orgId, config);
+        for (const s of sync.suggestions ?? []) {
+          if (!s.variationId) continue;
+          const current = (await listMenuItemsForOrg(orgId)).find((m) => m.id === s.menuItemId);
+          if (current?.externalIds?.square) continue;
+          const r = await setMenuItemExternalIds(orgId, s.menuItemId, { square: s.variationId });
+          if (r.ok) updated += 1;
+        }
+      }
+    }
+    for (const row of mappings) {
+      const menuItemId = String(row.menuItemId ?? row.id ?? '').trim();
+      if (!menuItemId) continue;
+      const square = row.squareVariationId != null
+        ? String(row.squareVariationId).trim()
+        : row.square != null
+          ? String(row.square).trim()
+          : '';
+      const r = await setMenuItemExternalIds(orgId, menuItemId, {
+        square: square || null,
+      });
+      if (r.ok) updated += 1;
+    }
+    const completeness = await squareMenuCompleteness(orgId);
+    sendJson(res, 200, { ok: true, updated, menuCompleteness: completeness });
+    return true;
+  }
+
   if (pathname === '/api/connectors/queue/process' && req.method === 'POST') {
     const n = await processOutboundQueue(20);
     sendJson(res, 200, { processed: n });
+    return true;
+  }
+
+  // ——— Square POS ———
+  function squareRedirectUri(req: IncomingMessage): string {
+    if (process.env.SQUARE_OAUTH_REDIRECT_URI?.trim()) {
+      return process.env.SQUARE_OAUTH_REDIRECT_URI.trim();
+    }
+    const proto = header(req, 'x-forwarded-proto') || 'https';
+    const host = header(req, 'x-forwarded-host') || header(req, 'host') || 'localhost:3001';
+    return `${proto}://${host}/api/connectors/square/oauth/callback`;
+  }
+
+  function settingsReturnUrl(): string {
+    return (
+      process.env.SQUARE_OAUTH_SUCCESS_REDIRECT?.trim()
+      || process.env.PUBLIC_APP_URL?.trim()
+      || 'https://app.b-diddies.com/settings'
+    );
+  }
+
+  if (pathname === '/api/connectors/square/oauth/start' && req.method === 'GET') {
+    // #region agent log
+    fetch('http://127.0.0.1:7756/ingest/45011e36-ac12-4dbc-b7c1-e1827334fcf5',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6b4e46'},body:JSON.stringify({sessionId:'6b4e46',runId:'debug-square',hypothesisId:'D',location:'routes.ts:square-oauth-start',message:'square oauth start hit',data:{orgId,hasAppId:Boolean(squareAppCredentials().applicationId)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    const { applicationId } = squareAppCredentials();
+    if (!applicationId) {
+      sendJson(res, 503, { error: 'square_app_not_configured', hint: 'Set SQUARE_APPLICATION_ID and SQUARE_APPLICATION_SECRET' });
+      return true;
+    }
+    const state = Buffer.from(JSON.stringify({ orgId, t: Date.now() }), 'utf8').toString('base64url');
+    const url = buildSquareOAuthAuthorizeUrl({
+      redirectUri: squareRedirectUri(req),
+      state,
+    });
+    if (!url) {
+      sendJson(res, 503, { error: 'square_app_not_configured' });
+      return true;
+    }
+    res.statusCode = 302;
+    res.setHeader('Location', url);
+    res.end();
+    return true;
+  }
+
+  if (pathname === '/api/connectors/square/oauth/callback' && req.method === 'GET') {
+    const url = new URL(req.url || '', 'http://localhost');
+    const code = url.searchParams.get('code') || '';
+    const stateRaw = url.searchParams.get('state') || '';
+    let stateOrg = orgId;
+    try {
+      const parsed = JSON.parse(Buffer.from(stateRaw, 'base64url').toString('utf8')) as { orgId?: string };
+      if (parsed.orgId) stateOrg = parsed.orgId;
+    } catch {
+      /* keep orgId from header */
+    }
+    setRequestOrgId(stateOrg);
+    if (!code) {
+      res.statusCode = 302;
+      res.setHeader('Location', `${settingsReturnUrl()}?square=error&reason=missing_code`);
+      res.end();
+      return true;
+    }
+    const exchanged = await exchangeSquareOAuthCode({
+      code,
+      redirectUri: squareRedirectUri(req),
+    });
+    if (!exchanged.ok || !exchanged.accessToken) {
+      res.statusCode = 302;
+      res.setHeader('Location', `${settingsReturnUrl()}?square=error&reason=${encodeURIComponent(exchanged.error || 'oauth_failed')}`);
+      res.end();
+      return true;
+    }
+    await saveConnectorConfig(stateOrg, {
+      provider: 'square',
+      direction: 'outbound',
+      oauthAccessToken: exchanged.accessToken,
+      oauthRefreshToken: exchanged.refreshToken,
+      oauthExpiresAt: exchanged.expiresAt,
+      squareMerchantId: exchanged.merchantId,
+      lastError: '',
+    });
+    res.statusCode = 302;
+    res.setHeader('Location', `${settingsReturnUrl()}?square=connected`);
+    res.end();
+    return true;
+  }
+
+  if (pathname === '/api/connectors/square/locations' && req.method === 'GET') {
+    const config = await getConnectorConfig(orgId);
+    if (!config?.oauthAccessToken) {
+      sendJson(res, 400, { error: 'square_not_connected' });
+      return true;
+    }
+    const result = await fetchSquareLocationsForConfig(config);
+    sendJson(res, result.ok ? 200 : 502, result);
+    return true;
+  }
+
+  if (pathname === '/api/connectors/square/disconnect' && req.method === 'POST') {
+    await saveConnectorConfig(orgId, {
+      oauthAccessToken: '',
+      oauthRefreshToken: '',
+      oauthExpiresAt: undefined,
+      squareMerchantId: '',
+      enabled: false,
+      lastError: '',
+    });
+    const config = await getConnectorConfig(orgId);
+    sendJson(res, 200, { ok: true, config: config ? maskConnectorConfig(config) : null });
+    return true;
+  }
+
+  if (pathname === '/api/connectors/square/test-push' && req.method === 'POST') {
+    const config = await getConnectorConfig(orgId);
+    if (!config || config.provider !== 'square') {
+      sendJson(res, 400, { error: 'square_not_configured' });
+      return true;
+    }
+    const items = await listMenuItemsForOrg(orgId);
+    const mapped = items.find((i) => i.externalIds?.square);
+    if (!mapped) {
+      sendJson(res, 400, { error: 'no_mapped_menu_items', hint: 'Map at least one menu item to Square first' });
+      return true;
+    }
+    const testOrder = {
+      id: `test-${Date.now()}`,
+      orderNumber: 'TEST',
+      customerName: String(body.customerName ?? config.defaultPickupName ?? 'Sync2Dine Test'),
+      customerPhone: String(body.customerPhone ?? config.defaultPickupPhone ?? ''),
+      orderType: String(body.orderType ?? 'collection'),
+      paymentStatus: 'unpaid',
+      paymentMethod: 'cash',
+      items: [{ name: mapped.name, qty: 1, price: mapped.price, menuItemId: mapped.id }],
+      total: mapped.price,
+      notes: 'Sync2Dine Square test order — safe to void',
+      allergyConfirmed: true,
+    };
+    const push = await pushOrderToPos(orgId, testOrder, { ...config, enabled: true, direction: 'outbound' });
+    await saveConnectorConfig(orgId, {
+      lastTestPushAt: new Date().toISOString(),
+      lastTestPushOk: push.ok,
+      lastError: push.ok ? '' : (push.error || 'test_push_failed'),
+      lastOutboundAt: new Date().toISOString(),
+    });
+    await logConnectorEvent({
+      orgId,
+      provider: 'square',
+      direction: 'outbound',
+      eventType: 'order.created',
+      externalId: push.externalId,
+      status: push.ok ? 'ok' : 'error',
+      payload: { test: true, orderId: testOrder.id },
+      error: push.ok ? undefined : push.error,
+    });
+    sendJson(res, push.ok ? 200 : 502, { ...push, ok: push.ok });
+    return true;
+  }
+
+  const orderPush = pathname.match(/^\/api\/connectors\/orders\/([^/]+)\/push$/);
+  if (orderPush && req.method === 'POST') {
+    const orderId = decodeURIComponent(orderPush[1]);
+    const config = await getConnectorConfig(orgId);
+    const orders = await listOrderRecords(orgId);
+    const order = orders.find((o) => String(o.id) === orderId);
+    if (!order) {
+      sendJson(res, 404, { error: 'order_not_found' });
+      return true;
+    }
+    const result = await forwardOrderIfPosEnabled(orgId, order, config);
+    sendJson(res, result.push?.ok === false ? 502 : 200, {
+      ok: result.push?.ok !== false,
+      order: result.order,
+      push: result.push,
+    });
     return true;
   }
 

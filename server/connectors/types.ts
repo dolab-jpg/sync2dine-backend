@@ -1,6 +1,6 @@
-export type ConnectorProvider = 'mock' | 'deliverect' | 'otter' | 'custom';
+export type ConnectorProvider = 'mock' | 'deliverect' | 'otter' | 'custom' | 'square' | 'epos_now';
 export type ConnectorDirection = 'inbound' | 'outbound' | 'both';
-export type OrderSource = 'phone' | 'kiosk' | 'whatsapp' | 'sync2dine' | 'deliverect' | 'otter' | 'custom';
+export type OrderSource = 'phone' | 'kiosk' | 'whatsapp' | 'sync2dine' | 'deliverect' | 'otter' | 'custom' | 'square';
 export type SyncState = 'local' | 'pending_out' | 'synced' | 'error';
 
 export interface ConnectorConfig {
@@ -13,6 +13,21 @@ export interface ConnectorConfig {
   statusMap: Record<string, string>;
   deliverectAccountId?: string;
   deliverectLocationId?: string;
+  /** Square location selected in Settings */
+  squareLocationId?: string;
+  squareMerchantId?: string;
+  /** Server-only OAuth / PAT — never return raw to FE */
+  oauthAccessToken?: string;
+  oauthRefreshToken?: string;
+  oauthExpiresAt?: string;
+  defaultPickupName?: string;
+  defaultPickupPhone?: string;
+  fulfillmentAddressLine1?: string;
+  fulfillmentAddressCity?: string;
+  fulfillmentAddressPostcode?: string;
+  fulfillmentAddressCountry?: string;
+  lastTestPushAt?: string;
+  lastTestPushOk?: boolean;
   lastMenuSyncAt?: string;
   menuVersion?: string;
   lastInboundAt?: string;

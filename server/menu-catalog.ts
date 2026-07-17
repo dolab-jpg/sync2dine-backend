@@ -54,6 +54,8 @@ export interface MenuItem {
   allergenDeclared?: boolean;
   /** When set, this special expands into component kitchen lines on placeFoodOrder. */
   deal?: MealDeal;
+  /** POS catalog ids — e.g. Square item variation id */
+  externalIds?: { square?: string; epos_now?: string };
 }
 
 /** Connector / partner menu export shape (includes allergens). */
@@ -70,6 +72,7 @@ export interface MenuExportItem {
   allergenNotes?: string;
   allergenDeclared?: boolean;
   deal?: MealDeal;
+  externalIds?: { square?: string; epos_now?: string };
 }
 
 export type OrderLineInput = {
@@ -121,6 +124,17 @@ function rowToMenuItem(id: string, data: Record<string, unknown>): MenuItem | nu
   const category = FOOD_CATEGORIES.has(rawCategory) ? rawCategory : 'other';
   const deal = parseDeal(data.deal);
   const allergens = normalizeAllergenFields(data);
+  const externalIdsRaw = (data.externalIds && typeof data.externalIds === 'object')
+    ? data.externalIds as Record<string, unknown>
+    : {};
+  const squareId = typeof externalIdsRaw.square === 'string' ? externalIdsRaw.square.trim() : '';
+  const eposId = typeof externalIdsRaw.epos_now === 'string' ? externalIdsRaw.epos_now.trim() : '';
+  const externalIds = (squareId || eposId)
+    ? {
+        ...(squareId ? { square: squareId } : {}),
+        ...(eposId ? { epos_now: eposId } : {}),
+      }
+    : undefined;
   return {
     id,
     name,
@@ -135,6 +149,7 @@ function rowToMenuItem(id: string, data: Record<string, unknown>): MenuItem | nu
     ...(allergens.allergenNotes ? { allergenNotes: allergens.allergenNotes } : {}),
     ...(allergens.allergenDeclared ? { allergenDeclared: true } : {}),
     ...(deal ? { deal } : {}),
+    ...(externalIds ? { externalIds } : {}),
   };
 }
 
@@ -152,7 +167,51 @@ export function menuItemToExport(item: MenuItem): MenuExportItem {
     allergenNotes: item.allergenNotes,
     allergenDeclared: item.allergenDeclared,
     deal: item.deal,
+    externalIds: item.externalIds,
   };
+}
+
+/** Set or clear POS external ids on a menu product row. */
+export async function setMenuItemExternalIds(
+  orgId: string | null | undefined,
+  menuItemId: string,
+  externalIds: { square?: string | null; epos_now?: string | null },
+): Promise<{ ok: boolean; item?: MenuItem; error?: string }> {
+  const client = getAdmin();
+  const resolvedOrg = resolveOrdersOrgId(orgId);
+  if (!client || !resolvedOrg) return { ok: false, error: 'Supabase not configured' };
+  const id = menuItemId.trim();
+  if (!id) return { ok: false, error: 'id required' };
+  const { data, error } = await client.from('products').select('data').eq('org_id', resolvedOrg).eq('id', id).maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: 'not found' };
+  const existing = ((data as { data?: Record<string, unknown> }).data ?? {}) as Record<string, unknown>;
+  const prev = (existing.externalIds && typeof existing.externalIds === 'object')
+    ? { ...(existing.externalIds as Record<string, unknown>) }
+    : {};
+  if (externalIds.square === null) delete prev.square;
+  else if (externalIds.square !== undefined) prev.square = String(externalIds.square).trim();
+  if (externalIds.epos_now === null) delete prev.epos_now;
+  else if (externalIds.epos_now !== undefined) prev.epos_now = String(externalIds.epos_now).trim();
+  const nextData = { ...existing, externalIds: prev };
+  if (!Object.keys(prev).length) delete nextData.externalIds;
+  const { error: upErr } = await client.from('products').upsert(
+    { org_id: resolvedOrg, id, data: nextData },
+    { onConflict: 'org_id,id' },
+  );
+  if (upErr) return { ok: false, error: upErr.message };
+  const item = rowToMenuItem(id, nextData);
+  return item ? { ok: true, item } : { ok: false, error: 'saved but could not map item' };
+}
+
+export async function squareMenuCompleteness(orgId: string | null | undefined): Promise<{
+  declared: number;
+  total: number;
+}> {
+  const items = await listMenuItemsForOrg(orgId);
+  const total = items.length;
+  const declared = items.filter((i) => Boolean(i.externalIds?.square?.trim())).length;
+  return { declared, total };
 }
 
 export async function exportMenuForOrg(orgId: string | null | undefined): Promise<{

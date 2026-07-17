@@ -106,7 +106,69 @@ export async function processOutboundQueue(limit = 10): Promise<number> {
     .order('created_at', { ascending: true })
     .limit(limit);
   let delivered = 0;
+  const { isPosPushQueueRow } = await import('./pos-push-helpers');
+  const { pushOrderToPos } = await import('./pos-outbound');
+  const { listOrderRecords, updateOrderRecord } = await import('../data-store');
+  const { saveConnectorConfig } = await import('./config-store');
+
   for (const row of (data as Array<Record<string, unknown>> | null) ?? []) {
+    if (isPosPushQueueRow(row)) {
+      const body = (row.body && typeof row.body === 'object')
+        ? row.body as Record<string, unknown>
+        : {};
+      const orgId = String(body.orgId ?? row.org_id ?? '');
+      const orderId = String(body.orderId ?? '');
+      const config = await getConnectorConfig(orgId);
+      const orders = orgId ? await listOrderRecords(orgId) : [];
+      const order = orders.find((o) => String(o.id) === orderId);
+      if (!config || !order) {
+        await client.from('connector_outbound_queue').update({
+          delivered_at: new Date().toISOString(),
+          last_error: 'order_or_config_missing',
+        }).eq('id', row.id);
+        continue;
+      }
+      const push = await pushOrderToPos(orgId, order, config);
+      if (push.ok && push.externalId) {
+        await updateOrderRecord(orderId, {
+          syncState: 'synced',
+          externalId: push.externalId,
+          providerMeta: {
+            ...((order.providerMeta && typeof order.providerMeta === 'object')
+              ? order.providerMeta as Record<string, unknown>
+              : {}),
+            squareOrderId: push.externalId,
+            posProvider: config.provider,
+          },
+        }, orgId);
+        await saveConnectorConfig(orgId, { lastOutboundAt: new Date().toISOString(), lastError: '' });
+        await logConnectorEvent({
+          orgId,
+          provider: config.provider,
+          direction: 'outbound',
+          eventType: 'order.created',
+          externalId: push.externalId,
+          status: 'ok',
+          payload: { orderId, retry: true },
+        });
+        await client.from('connector_outbound_queue').update({
+          delivered_at: new Date().toISOString(),
+          last_error: '',
+        }).eq('id', row.id);
+        delivered += 1;
+      } else {
+        const attempts = Number(row.attempts ?? 0) + 1;
+        const max = Number(row.max_attempts ?? 5);
+        await client.from('connector_outbound_queue').update({
+          attempts,
+          next_attempt_at: new Date(Date.now() + attempts * 60_000).toISOString(),
+          last_error: (push.error || 'push_failed').slice(0, 500),
+          ...(attempts >= max ? { delivered_at: new Date().toISOString() } : {}),
+        }).eq('id', row.id);
+      }
+      continue;
+    }
+
     const url = String(row.target_url);
     const signature = String(row.signature);
     const body = JSON.stringify(row.body);
