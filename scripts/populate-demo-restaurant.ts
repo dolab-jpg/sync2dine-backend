@@ -15,13 +15,12 @@ type StaffSeed = {
   email: string;
   username: string;
   name: string;
-  role: 'staff' | 'manager' | 'kiosk';
+  role: 'staff' | 'manager';
 };
 
 const EXTRA_STAFF: StaffSeed[] = [
   { email: 'sam.wait@demo.sync2dine.io', username: 'sam.wait', name: 'Sam Wait', role: 'staff' },
   { email: 'jordan.till@demo.sync2dine.io', username: 'jordan.till', name: 'Jordan Till', role: 'staff' },
-  { email: 'riley.kiosk@demo.sync2dine.io', username: 'riley.kiosk', name: 'Riley Kiosk', role: 'kiosk' },
   { email: 'alex.floor@demo.sync2dine.io', username: 'alex.floor', name: 'Alex Floor', role: 'manager' },
 ];
 
@@ -438,11 +437,12 @@ async function main() {
   console.log('\n=== Demo restaurant populated ===');
   console.log(`Org: ${orgId}`);
   console.log(`Password (all demo users): ${SEED_PASSWORD}`);
-  console.log('Core: maya@ / leo@ / priya@ / kai@ / nina@ / guest@ demo.sync2dine.io');
+  console.log('Core staff: maya@ / leo@ / priya@ / kai@ / nina@ demo.sync2dine.io');
   console.log('Extra staff:');
   for (const s of EXTRA_STAFF) {
     console.log(`  ${s.role.padEnd(8)} ${s.email}`);
   }
+  console.log(`Kiosk (no login): https://app.sync2dine.io/front?org=${orgId}`);
   console.log('Open https://app.sync2dine.io/login as maya@demo.sync2dine.io');
 }
 

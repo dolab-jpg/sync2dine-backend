@@ -65,20 +65,16 @@ export type ProvisionOrgResult = {
   organization: Record<string, unknown>;
   mainUserEmail: string;
   mainUserCreated: true;
-  /** One-time kiosk credentials — shown once in Platform Clients, never logged. */
-  kioskEmail?: string;
-  kioskPasswordOnce?: string;
-  kioskError?: string;
+  /** Public diner ordering URL — no Auth account. */
+  kioskUrl: string;
 };
 
-function generateKioskPassword(): string {
-  // 14 chars, unambiguous set, always has a digit — good enough for a counter tablet.
-  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  let out = '';
-  for (let i = 0; i < 13; i += 1) {
-    out += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return `${out}${Math.floor(Math.random() * 10)}`;
+function appBaseUrl(): string {
+  return (process.env.APP_BASE_URL?.trim() || 'https://app.sync2dine.io').replace(/\/$/, '');
+}
+
+export function buildPublicKioskUrl(orgId: string): string {
+  return `${appBaseUrl()}/front?org=${encodeURIComponent(orgId)}`;
 }
 
 export function canProvisionViaSupabase(): boolean {
@@ -187,54 +183,12 @@ export async function provisionOrganizationInSupabase(
     );
   }
 
-  // Auto-provision the front-of-house kiosk login (Super Master C1/C8) so every
-  // tenant gets a working /front tablet without a manual Team invite.
-  // Best-effort: a kiosk failure must not roll back the org + admin user.
-  let kioskEmail: string | undefined;
-  let kioskPasswordOnce: string | undefined;
-  let kioskError: string | undefined;
-  try {
-    const orgSuffix = String(org.id).replace(/-/g, '').slice(0, 10);
-    const candidateEmail = `kiosk+${orgSuffix}@sync2dine.io`;
-    const candidatePassword = generateKioskPassword();
-    const { data: kioskAuth, error: kioskAuthError } = await supabase.auth.admin.createUser({
-      email: candidateEmail,
-      password: candidatePassword,
-      email_confirm: true,
-      user_metadata: {
-        name: 'Front Kiosk',
-        role: 'kiosk',
-        org_id: org.id,
-      },
-    });
-    if (kioskAuthError || !kioskAuth.user) {
-      throw new Error(kioskAuthError?.message ?? 'Failed to create kiosk user');
-    }
-    const { error: kioskProfileError } = await supabase.from('profiles').upsert({
-      id: kioskAuth.user.id,
-      email: candidateEmail,
-      name: 'Front Kiosk',
-      role: 'kiosk',
-      org_id: org.id,
-      updated_at: new Date().toISOString(),
-    });
-    if (kioskProfileError) {
-      await supabase.auth.admin.deleteUser(kioskAuth.user.id);
-      throw new Error(kioskProfileError.message);
-    }
-    kioskEmail = candidateEmail;
-    kioskPasswordOnce = candidatePassword;
-  } catch (err) {
-    kioskError = err instanceof Error ? err.message : 'Kiosk user provisioning failed';
-  }
-
+  // Public counter kiosk — no Auth user. Staff use /login; diners open /front?org=.
   return {
     organization: org as unknown as Record<string, unknown>,
     mainUserEmail: contactEmail,
     mainUserCreated: true,
-    kioskEmail,
-    kioskPasswordOnce,
-    kioskError,
+    kioskUrl: buildPublicKioskUrl(String(org.id)),
   };
 }
 

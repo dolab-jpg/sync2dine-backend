@@ -17,8 +17,7 @@ type Role =
   | 'manager'
   | 'staff'
   | 'builder'
-  | 'recruitment'
-  | 'customer';
+  | 'recruitment';
 
 const USERS: Array<{
   username: string;
@@ -33,7 +32,6 @@ const USERS: Array<{
   { username: 'priya.patel', email: 'priya@demo.sync2dine.io', name: 'Priya Patel', role: 'staff', attachOrg: true },
   { username: 'kai.brooks', email: 'kai@demo.sync2dine.io', name: 'Kai Brooks', role: 'builder', attachOrg: true },
   { username: 'nina.ross', email: 'nina@demo.sync2dine.io', name: 'Nina Ross', role: 'recruitment', attachOrg: true },
-  { username: 'guest.chen', email: 'guest@demo.sync2dine.io', name: 'Guest Chen', role: 'customer', attachOrg: true },
 ];
 
 function admin() {
@@ -197,6 +195,7 @@ async function main() {
     console.log(`  ${u.role.padEnd(16)} username=${u.username.padEnd(18)} email=${u.email}`);
   }
   console.log(`Org id: ${orgId}`);
+  console.log(`Public kiosk: https://app.sync2dine.io/front?org=${orgId}`);
   console.log('API keys / integrations on the org were not deleted.');
 }
 
