@@ -12,6 +12,7 @@
     "gen:types": "tsx scripts/gen-types.ts",
     "migrate": "tsx scripts/migrate-to-supabase.ts",
     "seed:accounts": "tsx --env-file=.env scripts/seed-real-accounts.ts",
+    "seed:demo": "tsx --env-file=.env scripts/populate-demo-restaurant.ts",
     "supabase:start": "npx supabase start",
     "supabase:stop": "npx supabase stop",
     "supabase:push": "npx supabase db push",
