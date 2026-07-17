@@ -373,14 +373,14 @@ function finalizeVapiCall(
   }
 }
 
-function buildTransientAssistant(message: Record<string, unknown>) {
+async function buildTransientAssistant(message: Record<string, unknown>) {
   const call = ensureCallFromVapi(message);
   const partyPhone = String((call.metadata as Record<string, unknown> | undefined)?.partyPhone
     || partyPhoneFromCall(message.call as Record<string, unknown>)
     || '');
   const direction = (call.direction as 'inbound' | 'outbound') || 'outbound';
   const identity = resolvePhoneCallerIdentity(partyPhone);
-  const { assistant } = buildVapiAssistantForParty({
+  const { assistant } = await buildVapiAssistantForParty({
     partyPhone,
     direction,
     campaignTemplate: call.campaignTemplate ? String(call.campaignTemplate) : undefined,
@@ -697,7 +697,7 @@ async function handleVapiMessage(
   const type = String(message.type || body.type || '');
 
   if (type === 'assistant-request') {
-    const assistant = buildTransientAssistant(message);
+    const assistant = await buildTransientAssistant(message);
     sendJson(res, 200, { assistant });
     return;
   }
@@ -893,7 +893,7 @@ export async function handleVapiWebSession(
     },
   });
 
-  const { assistant, identity, verified } = buildVapiAssistantForParty({
+  const { assistant, identity, verified } = await buildVapiAssistantForParty({
     partyPhone: toE164Uk(partyPhone),
     direction: 'inbound',
     callId,

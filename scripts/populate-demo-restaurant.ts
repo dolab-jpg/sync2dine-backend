@@ -35,6 +35,22 @@ const MENU = [
   { id: 'food-butter-chicken', name: 'Butter chicken', sellPrice: 11.0, category: 'mains' },
   { id: 'food-paneer-tikka', name: 'Paneer tikka', sellPrice: 9.0, category: 'mains' },
   { id: 'food-gulab-jamun', name: 'Gulab jamun', sellPrice: 3.5, category: 'desserts' },
+  { id: 'food-chips', name: 'Chips', sellPrice: 2.5, category: 'sides' },
+  { id: 'food-coke', name: 'Coke', sellPrice: 1.8, category: 'drinks' },
+  {
+    id: 'food-mile-a-meal',
+    name: 'Mile a Meal',
+    sellPrice: 12.5,
+    category: 'specials',
+    description: '1 main + 1 side + 1 drink',
+    deal: {
+      roles: [
+        { role: 'main', qtyPerDeal: 1, choices: ['Chicken biryani', 'Butter chicken', 'Lamb curry', 'Paneer tikka'] },
+        { role: 'side', qtyPerDeal: 1, choices: ['Pilau rice', 'Chips', 'Garlic naan'] },
+        { role: 'drink', qtyPerDeal: 1, choices: ['Coke', 'Mango lassi'] },
+      ],
+    },
+  },
 ];
 
 const CUSTOMERS = [
@@ -110,6 +126,15 @@ const CUSTOMERS = [
     status: 'active',
     notes: 'Large party orders',
   },
+  {
+    id: 'C-DEMO-009',
+    name: 'Huge Party Delivery',
+    email: 'huge.party@example.test',
+    phone: '07700900109',
+    address: '100 Festival Road, London E1 6AN',
+    status: 'active',
+    notes: 'QA: multi-item delivery (~15 lines) + meal deals',
+  },
 ];
 
 function admin() {
@@ -135,21 +160,31 @@ async function resolveOrgId(supabase: ReturnType<typeof admin>): Promise<string>
 
 async function upsertMenu(supabase: ReturnType<typeof admin>, orgId: string) {
   const now = new Date().toISOString();
-  const rows = MENU.map((item) => ({
-    id: item.id,
-    org_id: orgId,
-    data: {
-      name: item.name,
-      image: '',
-      basePrice: item.sellPrice,
-      margin: 0,
-      sellPrice: item.sellPrice,
-      source: 'restaurant',
-      category: item.category,
-      tradeId: null,
-    },
-    updated_at: now,
-  }));
+  const rows = MENU.map((item) => {
+    const extra = item as {
+      description?: string;
+      deal?: { roles: Array<{ role: string; qtyPerDeal: number; choices: string[] }> };
+    };
+    return {
+      id: item.id,
+      org_id: orgId,
+      data: {
+        name: item.name,
+        image: '',
+        basePrice: item.sellPrice,
+        margin: 0,
+        sellPrice: item.sellPrice,
+        price: item.sellPrice,
+        source: 'restaurant',
+        category: item.category,
+        tradeId: null,
+        available: true,
+        ...(extra.description ? { description: extra.description } : {}),
+        ...(extra.deal ? { deal: extra.deal } : {}),
+      },
+      updated_at: now,
+    };
+  });
   const { error } = await supabase.from('products').upsert(rows, { onConflict: 'org_id,id' });
   if (error) throw new Error(`products: ${error.message}`);
   console.log(`[populate] Menu items: ${rows.length}`);
@@ -266,22 +301,32 @@ async function seedOrders(supabase: ReturnType<typeof admin>, orgId: string) {
     .ilike('notes', '%[demo-seed]%')
     .limit(20);
   if ((existing?.length ?? 0) >= 8) {
-    console.log(`[populate] Demo orders already present (${existing!.length}) — skipping create`);
+    console.log(`[populate] Demo orders already present (${existing!.length}) — ensuring huge-party tickets`);
+    await seedHugePartyOrdersIfMissing(supabase, orgId);
     return;
   }
 
   let n = await nextOrderNumber(supabase, orgId);
   const now = Date.now();
+  type SeedItem = {
+    name: string;
+    qty: number;
+    price: number;
+    dealName?: string;
+    dealIndex?: number;
+    role?: string;
+  };
   const templates: Array<{
     customer: (typeof CUSTOMERS)[number];
     status: string;
     paymentStatus: string;
     channel: string;
     orderType: string;
-    items: Array<{ name: string; qty: number; price: number }>;
+    items: SeedItem[];
     minutesAgo: number;
     notes: string;
     deliveryAddress?: string;
+    specialName?: string;
   }> = [
     {
       customer: CUSTOMERS[0],
@@ -393,6 +438,55 @@ async function seedOrders(supabase: ReturnType<typeof admin>, orgId: string) {
       minutesAgo: 12,
       notes: '[demo-seed] Halal — no cross-contam notes',
     },
+    {
+      customer: CUSTOMERS[8],
+      status: 'new',
+      paymentStatus: 'unpaid',
+      channel: 'phone',
+      orderType: 'delivery',
+      items: [
+        { name: 'Onion bhaji', qty: 4, price: 3.5 },
+        { name: 'Veg samosa (2)', qty: 3, price: 3.2 },
+        { name: 'Chicken biryani', qty: 2, price: 9.5 },
+        { name: 'Butter chicken', qty: 2, price: 11 },
+        { name: 'Lamb curry', qty: 2, price: 10.5 },
+        { name: 'Paneer tikka', qty: 1, price: 9 },
+        { name: 'Pilau rice', qty: 4, price: 2.8 },
+        { name: 'Garlic naan', qty: 6, price: 2.5 },
+        { name: 'Chips', qty: 3, price: 2.5 },
+        { name: 'Mango lassi', qty: 4, price: 3 },
+        { name: 'Coke', qty: 6, price: 1.8 },
+        { name: 'Gulab jamun', qty: 8, price: 3.5 },
+        { name: 'Chicken biryani', qty: 1, price: 9.5, dealName: 'extra tray' },
+        { name: 'Butter chicken', qty: 1, price: 11 },
+        { name: 'Pilau rice', qty: 2, price: 2.8 },
+      ],
+      minutesAgo: 3,
+      notes: '[demo-seed] Huge party — ~15 lines for delivery board QA',
+      deliveryAddress: CUSTOMERS[8].address,
+    },
+    {
+      customer: CUSTOMERS[8],
+      status: 'coming',
+      paymentStatus: 'card',
+      channel: 'phone',
+      orderType: 'delivery',
+      items: [
+        { name: 'Chicken biryani', qty: 1, price: 9.5, dealName: 'Mile a Meal', dealIndex: 1, role: 'main' },
+        { name: 'Pilau rice', qty: 1, price: 2.8, dealName: 'Mile a Meal', dealIndex: 1, role: 'side' },
+        { name: 'Coke', qty: 1, price: 1.8, dealName: 'Mile a Meal', dealIndex: 1, role: 'drink' },
+        { name: 'Butter chicken', qty: 1, price: 11, dealName: 'Mile a Meal', dealIndex: 2, role: 'main' },
+        { name: 'Chips', qty: 1, price: 2.5, dealName: 'Mile a Meal', dealIndex: 2, role: 'side' },
+        { name: 'Mango lassi', qty: 1, price: 3, dealName: 'Mile a Meal', dealIndex: 2, role: 'drink' },
+        { name: 'Lamb curry', qty: 1, price: 10.5, dealName: 'Mile a Meal', dealIndex: 3, role: 'main' },
+        { name: 'Garlic naan', qty: 1, price: 2.5, dealName: 'Mile a Meal', dealIndex: 3, role: 'side' },
+        { name: 'Coke', qty: 1, price: 1.8, dealName: 'Mile a Meal', dealIndex: 3, role: 'drink' },
+      ],
+      minutesAgo: 5,
+      notes: '[demo-seed] 3× Mile a Meal expanded to 9 kitchen lines',
+      deliveryAddress: CUSTOMERS[8].address,
+      specialName: 'Mile a Meal',
+    },
   ];
 
   const rows = templates.map((t) => {
@@ -400,6 +494,12 @@ async function seedOrders(supabase: ReturnType<typeof admin>, orgId: string) {
     const created = new Date(now - t.minutesAgo * 60_000).toISOString();
     const id = randomUUID();
     const orderNumber = n++;
+    let notes = t.notes;
+    if (t.specialName) {
+      notes = `${notes} [[s2d:special=${encodeURIComponent(t.specialName)}|eta=40]]`;
+    } else if (t.orderType === 'delivery') {
+      notes = `${notes} [[s2d:eta=40]]`;
+    }
     return {
       id,
       org_id: orgId,
@@ -415,7 +515,7 @@ async function seedOrders(supabase: ReturnType<typeof admin>, orgId: string) {
       items: t.items,
       total,
       delivery_address: t.deliveryAddress ?? null,
-      notes: t.notes,
+      notes,
       created_at: created,
       updated_at: created,
     };
@@ -424,6 +524,93 @@ async function seedOrders(supabase: ReturnType<typeof admin>, orgId: string) {
   const { error } = await supabase.from('orders').insert(rows);
   if (error) throw new Error(`orders: ${error.message}`);
   console.log(`[populate] Orders created: ${rows.length} (numbers ${rows[0].order_number}–${rows[rows.length - 1].order_number})`);
+}
+
+async function seedHugePartyOrdersIfMissing(supabase: ReturnType<typeof admin>, orgId: string) {
+  const { data: existing } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('org_id', orgId)
+    .ilike('notes', '%Huge party%')
+    .limit(1);
+  if (existing?.length) {
+    console.log('[populate] Huge party orders already present — skipping');
+    return;
+  }
+  const customer = CUSTOMERS[8];
+  let n = await nextOrderNumber(supabase, orgId);
+  const now = Date.now();
+  const hugeItems = [
+    { name: 'Onion bhaji', qty: 4, price: 3.5 },
+    { name: 'Veg samosa (2)', qty: 3, price: 3.2 },
+    { name: 'Chicken biryani', qty: 2, price: 9.5 },
+    { name: 'Butter chicken', qty: 2, price: 11 },
+    { name: 'Lamb curry', qty: 2, price: 10.5 },
+    { name: 'Paneer tikka', qty: 1, price: 9 },
+    { name: 'Pilau rice', qty: 4, price: 2.8 },
+    { name: 'Garlic naan', qty: 6, price: 2.5 },
+    { name: 'Chips', qty: 3, price: 2.5 },
+    { name: 'Mango lassi', qty: 4, price: 3 },
+    { name: 'Coke', qty: 6, price: 1.8 },
+    { name: 'Gulab jamun', qty: 8, price: 3.5 },
+    { name: 'Chicken biryani', qty: 1, price: 9.5 },
+    { name: 'Butter chicken', qty: 1, price: 11 },
+    { name: 'Pilau rice', qty: 2, price: 2.8 },
+  ];
+  const dealItems = [
+    { name: 'Chicken biryani', qty: 1, price: 9.5, dealName: 'Mile a Meal', dealIndex: 1, role: 'main' },
+    { name: 'Pilau rice', qty: 1, price: 2.8, dealName: 'Mile a Meal', dealIndex: 1, role: 'side' },
+    { name: 'Coke', qty: 1, price: 1.8, dealName: 'Mile a Meal', dealIndex: 1, role: 'drink' },
+    { name: 'Butter chicken', qty: 1, price: 11, dealName: 'Mile a Meal', dealIndex: 2, role: 'main' },
+    { name: 'Chips', qty: 1, price: 2.5, dealName: 'Mile a Meal', dealIndex: 2, role: 'side' },
+    { name: 'Mango lassi', qty: 1, price: 3, dealName: 'Mile a Meal', dealIndex: 2, role: 'drink' },
+    { name: 'Lamb curry', qty: 1, price: 10.5, dealName: 'Mile a Meal', dealIndex: 3, role: 'main' },
+    { name: 'Garlic naan', qty: 1, price: 2.5, dealName: 'Mile a Meal', dealIndex: 3, role: 'side' },
+    { name: 'Coke', qty: 1, price: 1.8, dealName: 'Mile a Meal', dealIndex: 3, role: 'drink' },
+  ];
+  const rows = [
+    {
+      id: randomUUID(),
+      org_id: orgId,
+      customer_id: customer.id,
+      customer_name: customer.name,
+      customer_phone: customer.phone,
+      channel: 'phone',
+      order_type: 'delivery',
+      status: 'new',
+      payment_status: 'unpaid',
+      payment_method: null,
+      order_number: n++,
+      items: hugeItems,
+      total: hugeItems.reduce((s, i) => s + i.qty * i.price, 0),
+      delivery_address: customer.address,
+      notes: '[demo-seed] Huge party — ~15 lines for delivery board QA [[s2d:eta=40]]',
+      created_at: new Date(now - 3 * 60_000).toISOString(),
+      updated_at: new Date(now - 3 * 60_000).toISOString(),
+    },
+    {
+      id: randomUUID(),
+      org_id: orgId,
+      customer_id: customer.id,
+      customer_name: customer.name,
+      customer_phone: customer.phone,
+      channel: 'phone',
+      order_type: 'delivery',
+      status: 'coming',
+      payment_status: 'card',
+      payment_method: 'card',
+      order_number: n++,
+      items: dealItems,
+      total: 12.5 * 3,
+      delivery_address: customer.address,
+      notes: `[demo-seed] 3× Mile a Meal expanded to 9 kitchen lines [[s2d:special=${encodeURIComponent('Mile a Meal')}|eta=40]]`,
+      created_at: new Date(now - 5 * 60_000).toISOString(),
+      updated_at: new Date(now - 5 * 60_000).toISOString(),
+    },
+  ];
+  const { error } = await supabase.from('orders').insert(rows);
+  if (error) throw new Error(`huge orders: ${error.message}`);
+  console.log(`[populate] Huge party orders created: ${rows.length}`);
 }
 
 async function main() {

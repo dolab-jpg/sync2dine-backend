@@ -307,9 +307,6 @@ export function buildAccountBrainContext(
   if (customer?.notes) lines.push(`Notes: ${String(customer.notes).slice(0, 400)}`);
   const specialName = customer?.specialName != null ? String(customer.specialName).trim() : '';
   const specialDealNote = customer?.specialDealNote != null ? String(customer.specialDealNote).trim() : '';
-  // #region agent log
-  fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'342d7b'},body:JSON.stringify({sessionId:'342d7b',runId:'post-fix',hypothesisId:'A',location:'phone-brain.ts:buildAccountBrainContext',message:'account context specials',data:{hasCustomer:Boolean(customer),customerId:resolved.customerId??null,hasSpecialName:Boolean(specialName),hasSpecialDealNote:Boolean(specialDealNote),specialNameLen:specialName.length,dealNoteLen:specialDealNote.length,customerCount:store.customers.length},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   if (specialName || specialDealNote) {
     lines.push('CUSTOMER SPECIAL (offer / honour this — do not invent a different deal):');
     if (specialName) lines.push(`- Special name (they may ask for this): ${specialName}`);
@@ -508,10 +505,11 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
       '2. Intent — collection or delivery? Never invent dishes.',
       '3. Menu — call getMenu before offering items; only offer what the tool returns.',
       '4. Basket — take items; confirm quantities; never invent prices.',
+      '4b. Meal deals — if getMenu returns an item with a deal object (e.g. Mile a Meal: 1 main + 1 side + 1 drink), for EACH unit ask which main, side, and drink. When placing, pass qty and dealChoices (one object per unit with those roles). Do not place a deal as a single blank line.',
       '5. Confirm — read back items and total in spoken words (prefer tool spokenTotal / spokenHint).',
       '5b. Customer special — if Account memory lists a named special, ask once: “Want your {special name} special tonight?” If yes, apply the deal note exactly (discount / free item) before placing; never invent a different promo.',
       '6. Delivery gate — for delivery: ask name, street, and postcode; call checkDeliveryArea before placing. If out of area, be kind and funny and offer collection instead.',
-      '7. Place — call placeFoodOrder once they confirm (include specialName when used); celebrate briefly ("lovely jubbly, kitchen\'s got it").',
+      '7. Place — call placeFoodOrder once they confirm (include specialName when used; include dealChoices for meal deals); celebrate briefly ("lovely jubbly, kitchen\'s got it").',
       '8. If they ask where you deliver: call getDeliveryAreas — do not guess.',
       '',
       'Live phone call:',

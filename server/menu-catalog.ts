@@ -6,6 +6,11 @@
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
+import {
+  type AllergenCode,
+  type DietaryCode,
+  normalizeAllergenFields,
+} from './allergens';
 import { resolveOrdersOrgId } from './supabase-orders';
 
 let admin: SupabaseClient | null | undefined;
@@ -24,6 +29,16 @@ function getAdmin(): SupabaseClient | null {
   return admin;
 }
 
+export interface MealDealRole {
+  role: string;
+  qtyPerDeal: number;
+  choices: string[];
+}
+
+export interface MealDeal {
+  roles: MealDealRole[];
+}
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -31,13 +46,68 @@ export interface MenuItem {
   price: number;
   description?: string;
   image?: string;
+  available?: boolean;
+  allergensContains: AllergenCode[];
+  allergensMayContain: AllergenCode[];
+  dietary?: DietaryCode[];
+  allergenNotes?: string;
+  allergenDeclared?: boolean;
+  /** When set, this special expands into component kitchen lines on placeFoodOrder. */
+  deal?: MealDeal;
 }
+
+/** Connector / partner menu export shape (includes allergens). */
+export interface MenuExportItem {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  description?: string;
+  available: boolean;
+  allergensContains: AllergenCode[];
+  allergensMayContain: AllergenCode[];
+  dietary?: DietaryCode[];
+  allergenNotes?: string;
+  allergenDeclared?: boolean;
+  deal?: MealDeal;
+}
+
+export type OrderLineInput = {
+  name: string;
+  qty?: number;
+  price?: number;
+  /** Per-unit role → dish name, length === qty for meal deals. */
+  dealChoices?: Array<Record<string, string>>;
+  dealName?: string;
+  dealIndex?: number;
+  role?: string;
+};
 
 const FOOD_CATEGORIES = new Set(['starters', 'mains', 'sides', 'drinks', 'desserts', 'specials', 'other']);
 // BD legacy bathroom catalog categories — never read these as food. We filter by
 // category (not tradeId) because the FE product migration historically stamped
 // tradeId:'bathroom' onto every synced row, including food.
 const BATHROOM_CATEGORIES = new Set(['toilet', 'basin', 'shower', 'bath', 'tap', 'accessory', 'tile']);
+
+function parseDeal(raw: unknown): MealDeal | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const rolesRaw = (raw as { roles?: unknown }).roles;
+  if (!Array.isArray(rolesRaw) || !rolesRaw.length) return undefined;
+  const roles: MealDealRole[] = [];
+  for (const row of rolesRaw) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const role = String(r.role ?? '').trim().toLowerCase();
+    if (!role) continue;
+    const choices = Array.isArray(r.choices)
+      ? r.choices.map((c) => String(c ?? '').trim()).filter(Boolean)
+      : [];
+    if (!choices.length) continue;
+    const qtyPerDeal = Math.max(1, Number(r.qtyPerDeal ?? 1) || 1);
+    roles.push({ role, qtyPerDeal, choices });
+  }
+  return roles.length ? { roles } : undefined;
+}
 
 function rowToMenuItem(id: string, data: Record<string, unknown>): MenuItem | null {
   const name = typeof data.name === 'string' ? data.name.trim() : '';
@@ -49,13 +119,54 @@ function rowToMenuItem(id: string, data: Record<string, unknown>): MenuItem | nu
   if (!Number.isFinite(price) || price < 0) return null;
   const rawCategory = typeof data.category === 'string' ? data.category.trim().toLowerCase() : '';
   const category = FOOD_CATEGORIES.has(rawCategory) ? rawCategory : 'other';
+  const deal = parseDeal(data.deal);
+  const allergens = normalizeAllergenFields(data);
   return {
     id,
     name,
     category,
     price,
+    available: data.available !== false,
     description: typeof data.description === 'string' && data.description.trim() ? data.description.trim() : undefined,
     image: typeof data.image === 'string' && data.image.trim() ? data.image.trim() : undefined,
+    allergensContains: allergens.allergensContains,
+    allergensMayContain: allergens.allergensMayContain,
+    ...(allergens.dietary.length ? { dietary: allergens.dietary } : {}),
+    ...(allergens.allergenNotes ? { allergenNotes: allergens.allergenNotes } : {}),
+    ...(allergens.allergenDeclared ? { allergenDeclared: true } : {}),
+    ...(deal ? { deal } : {}),
+  };
+}
+
+export function menuItemToExport(item: MenuItem): MenuExportItem {
+  return {
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    price: item.price,
+    description: item.description,
+    available: item.available !== false,
+    allergensContains: item.allergensContains ?? [],
+    allergensMayContain: item.allergensMayContain ?? [],
+    dietary: item.dietary,
+    allergenNotes: item.allergenNotes,
+    allergenDeclared: item.allergenDeclared,
+    deal: item.deal,
+  };
+}
+
+export async function exportMenuForOrg(orgId: string | null | undefined): Promise<{
+  version: string;
+  generatedAt: string;
+  items: MenuExportItem[];
+}> {
+  const items = await listMenuItemsForOrg(orgId);
+  const generatedAt = new Date().toISOString();
+  const version = `${generatedAt.slice(0, 10)}-${items.length}`;
+  return {
+    version,
+    generatedAt,
+    items: items.map(menuItemToExport),
   };
 }
 
@@ -104,6 +215,12 @@ export async function upsertMenuItemForOrg(
     description?: string;
     available?: boolean;
     image?: string;
+    deal?: MealDeal | null;
+    allergensContains?: AllergenCode[];
+    allergensMayContain?: AllergenCode[];
+    dietary?: DietaryCode[];
+    allergenNotes?: string;
+    allergenDeclared?: boolean;
   },
 ): Promise<{ ok: boolean; item?: MenuItem; error?: string }> {
   const client = getAdmin();
@@ -124,6 +241,8 @@ export async function upsertMenuItemForOrg(
     existingData = ((data as { data?: Record<string, unknown> } | null)?.data ?? {}) as Record<string, unknown>;
   }
 
+  const parsedDeal = input.deal === null ? undefined : input.deal !== undefined ? parseDeal(input.deal) : parseDeal(existingData.deal);
+
   const data: Record<string, unknown> = {
     ...existingData,
     name,
@@ -138,6 +257,26 @@ export async function upsertMenuItemForOrg(
     margin: typeof existingData.margin === 'number' ? existingData.margin : 0,
   };
   if (input.image != null) data.image = String(input.image);
+  if (input.deal === null) {
+    delete data.deal;
+  } else if (parsedDeal) {
+    data.deal = parsedDeal;
+  }
+
+  const allergenInput: Record<string, unknown> = { ...existingData };
+  if (input.allergensContains !== undefined) allergenInput.allergensContains = input.allergensContains;
+  if (input.allergensMayContain !== undefined) allergenInput.allergensMayContain = input.allergensMayContain;
+  if (input.dietary !== undefined) allergenInput.dietary = input.dietary;
+  if (input.allergenNotes !== undefined) allergenInput.allergenNotes = input.allergenNotes;
+  if (input.allergenDeclared !== undefined) allergenInput.allergenDeclared = input.allergenDeclared;
+  const normalizedAllergens = normalizeAllergenFields(allergenInput);
+  data.allergensContains = normalizedAllergens.allergensContains;
+  data.allergensMayContain = normalizedAllergens.allergensMayContain;
+  data.dietary = normalizedAllergens.dietary;
+  if (normalizedAllergens.allergenNotes) data.allergenNotes = normalizedAllergens.allergenNotes;
+  else delete data.allergenNotes;
+  if (normalizedAllergens.allergenDeclared) data.allergenDeclared = true;
+  else delete data.allergenDeclared;
 
   const { error } = await client.from('products').upsert(
     { org_id: resolvedOrg, id, data },
@@ -159,4 +298,102 @@ export async function deleteMenuItemForOrg(
   const { error } = await client.from('products').delete().eq('org_id', resolvedOrg).eq('id', id.trim());
   if (error) return { ok: false, error: error.message };
   return { ok: true };
+}
+
+function findCatalogByName(catalog: MenuItem[], name: string): MenuItem | undefined {
+  const needle = name.trim().toLowerCase();
+  return catalog.find((c) => c.name.toLowerCase() === needle);
+}
+
+/**
+ * Expand meal-deal basket lines into flat kitchen lines.
+ * Non-deal rows pass through. Incomplete dealChoices returns an error.
+ */
+export function expandMealDealOrderItems(
+  rawItems: OrderLineInput[],
+  catalog: MenuItem[],
+): { ok: true; items: OrderLineInput[] } | { ok: false; error: string; spokenHint: string } {
+  const out: OrderLineInput[] = [];
+
+  for (const row of rawItems) {
+    const name = String(row.name ?? '').trim();
+    if (!name) continue;
+    const qty = Math.max(1, Number(row.qty ?? 1) || 1);
+    const catalogItem = findCatalogByName(catalog, name);
+    const deal = catalogItem?.deal;
+
+    // Already expanded component lines (have role/dealName) — keep as-is.
+    if (row.role || (row.dealName && !deal)) {
+      out.push({
+        name,
+        qty,
+        price: row.price != null ? Number(row.price) : catalogItem?.price,
+        dealName: row.dealName,
+        dealIndex: row.dealIndex,
+        role: row.role,
+      });
+      continue;
+    }
+
+    if (!deal) {
+      out.push({
+        name,
+        qty,
+        price: row.price != null && Number(row.price) > 0 ? Number(row.price) : catalogItem?.price,
+      });
+      continue;
+    }
+
+    const units = Array.isArray(row.dealChoices) ? row.dealChoices : [];
+    if (units.length < qty) {
+      const needed = deal.roles.map((r) => r.role).join(', ');
+      return {
+        ok: false,
+        error: 'deal_choices_required',
+        spokenHint: `${name} is a meal deal — for each of the ${qty}, I need ${needed}. Tell me the choices for every set.`,
+      };
+    }
+
+    for (let i = 0; i < qty; i++) {
+      const unit = units[i] ?? {};
+      for (const roleDef of deal.roles) {
+        const roleKey = roleDef.role;
+        const chosenRaw = String(
+          unit[roleKey]
+          ?? unit[roleKey.charAt(0).toUpperCase() + roleKey.slice(1)]
+          ?? '',
+        ).trim();
+        if (!chosenRaw) {
+          return {
+            ok: false,
+            error: 'deal_choice_missing',
+            spokenHint: `For ${name} number ${i + 1}, which ${roleKey} would you like? Options: ${roleDef.choices.join(', ')}.`,
+          };
+        }
+        const matchChoice = roleDef.choices.find((c) => c.toLowerCase() === chosenRaw.toLowerCase());
+        if (!matchChoice) {
+          return {
+            ok: false,
+            error: 'deal_choice_invalid',
+            spokenHint: `For ${name}, ${chosenRaw} is not a ${roleKey} option. Choose from: ${roleDef.choices.join(', ')}.`,
+          };
+        }
+        const component = findCatalogByName(catalog, matchChoice);
+        const perDeal = Math.max(1, roleDef.qtyPerDeal || 1);
+        out.push({
+          name: matchChoice,
+          qty: perDeal,
+          price: component?.price ?? 0,
+          dealName: catalogItem!.name,
+          dealIndex: i + 1,
+          role: roleKey,
+        });
+      }
+    }
+  }
+
+  if (!out.length) {
+    return { ok: false, error: 'items_required', spokenHint: 'Tell me what you would like to order first.' };
+  }
+  return { ok: true, items: out };
 }

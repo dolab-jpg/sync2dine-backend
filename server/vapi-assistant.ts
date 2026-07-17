@@ -1,7 +1,7 @@
 /**
  * Shared builders for Vapi assistant payloads (outbound + assistant-request).
  */
-import { DEFAULT_ORG_ID, getCallById } from './data-store';
+import { DEFAULT_ORG_ID, getCallById, hydrateCallerFromCloud } from './data-store';
 import {
   buildPhoneBrainPrompt,
   getPhoneSessionChatTools,
@@ -18,17 +18,18 @@ import { getVapiWebhookBaseUrl } from './vapi-client';
 export { resolveTransferNumber, transferDestinationsFromEnv } from './transfer-numbers';
 import { transferDestinationsFromEnv } from './transfer-numbers';
 
-export function buildVapiAssistantForParty(opts: {
+export async function buildVapiAssistantForParty(opts: {
   partyPhone: string;
   direction: 'inbound' | 'outbound';
   campaignTemplate?: string;
   callId?: string;
   contactName?: string;
-}): {
+}): Promise<{
   assistant: Record<string, unknown>;
   identity: PhoneCallerIdentity;
   verified: boolean;
-} {
+}> {
+  await hydrateCallerFromCloud(opts.partyPhone);
   const identity = resolvePhoneCallerIdentity(opts.partyPhone, DEFAULT_ORG_ID);
   const verified = opts.callId ? isPhoneAuthVerified(opts.callId) : false;
   const existingCall = opts.callId ? getCallById(opts.callId) : undefined;

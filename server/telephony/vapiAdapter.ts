@@ -91,7 +91,7 @@ export const vapiAdapter: TelephonyProvider = {
 
     // Shared builder resolves staff/builder/customer identity + PIN gating + tools + transfer/hangup.
     const { buildVapiAssistantForParty } = await import('../vapi-assistant');
-    const { assistant, identity } = buildVapiAssistantForParty({
+    const { assistant, identity } = await buildVapiAssistantForParty({
       partyPhone: customerNumber,
       direction: 'outbound',
       campaignTemplate: context.campaignTemplate,

@@ -138,6 +138,11 @@ export async function executeRestaurantTool(
       price: Number(input.price),
       description: firstString(input.description),
       available: input.available !== false,
+      deal: input.deal === null
+        ? null
+        : input.deal && typeof input.deal === 'object'
+          ? (input.deal as { roles: Array<{ role: string; qtyPerDeal?: number; choices: string[] }> })
+          : undefined,
     });
     return result;
   }

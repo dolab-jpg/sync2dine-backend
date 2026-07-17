@@ -8,6 +8,7 @@ import {
   listPhoneLines,
   lookupContactByPhone,
   maskPhoneLine,
+  saveCustomerRecord,
   savePhoneLine,
   updateAgentSettings,
   type PhoneLinePurpose,
@@ -561,6 +562,20 @@ export async function handleAgentRoutes(
       await handleDeleteLine(req, res, lineId);
       return true;
     }
+  }
+
+  if (pathname === '/api/customers/upsert' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+    const customer = (body.customer && typeof body.customer === 'object')
+      ? (body.customer as Record<string, unknown>)
+      : body;
+    if (!customer.name && !customer.phone && !customer.id) {
+      sendJson(res, 400, { error: 'customer required' });
+      return true;
+    }
+    const saved = saveCustomerRecord(customer);
+    sendJson(res, 200, { ok: true, customer: saved });
+    return true;
   }
 
   if (pathname === '/api/campaigns/templates' && req.method === 'GET') {

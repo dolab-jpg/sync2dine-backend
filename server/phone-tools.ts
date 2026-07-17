@@ -22,7 +22,7 @@ import { formatSpokenGbp } from './spoken-money';
 import { resolvePhoneCallerIdentity } from './phone-auth';
 import { ensureEnglishForCustomerSend } from './outbound-english-guard';
 import { resolveTransferDestination, resolveTransferNumber } from './transfer-numbers';
-import { listMenuItemsForOrg } from './menu-catalog';
+import { expandMealDealOrderItems, listMenuItemsForOrg, type OrderLineInput } from './menu-catalog';
 import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from './restaurant-ai-tools';
 
 function firstString(...values: unknown[]): string | undefined {
@@ -504,7 +504,7 @@ export const PHONE_TOOLS = [
     function: {
       name: 'placeFoodOrder',
       description:
-        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. For delivery, pass postcode (and address) after checkDeliveryArea succeeds.',
+        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. For delivery, pass postcode (and address) after checkDeliveryArea succeeds. For meal deals (getMenu items with a deal object), pass qty plus dealChoices — one object per unit with main/side/drink (or whatever roles the deal lists). The kitchen receives expanded component lines.',
       parameters: {
         type: 'object',
         properties: {
@@ -519,6 +519,15 @@ export const PHONE_TOOLS = [
                 name: { type: 'string' },
                 qty: { type: 'number' },
                 price: { type: 'number' },
+                dealChoices: {
+                  type: 'array',
+                  description:
+                    'Required for meal deals: one entry per qty unit. Each entry maps role → chosen dish name (e.g. {main, side, drink}).',
+                  items: {
+                    type: 'object',
+                    additionalProperties: { type: 'string' },
+                  },
+                },
               },
               required: ['name'],
             },
@@ -1217,11 +1226,22 @@ export async function executePhoneTool(
     }
     return {
       ok: true,
-      menu: menu.map(({ category: cat, name: itemName, price, description }) => ({
+      menu: menu.map(({ category: cat, name: itemName, price, description, deal }) => ({
         category: cat,
         name: itemName,
         price,
         ...(description ? { description } : {}),
+        ...(deal
+          ? {
+              deal: {
+                roles: deal.roles.map((r) => ({
+                  role: r.role,
+                  qtyPerDeal: r.qtyPerDeal,
+                  choices: r.choices,
+                })),
+              },
+            }
+          : {}),
       })),
       aboutUs: aboutUs || undefined,
       sayToday: sayToday || undefined,
@@ -1351,19 +1371,71 @@ export async function executePhoneTool(
     } catch {
       catalog = [];
     }
-    const items = rawItems.map((row) => {
-      const r = { ...(row as Record<string, unknown>) };
-      const price = Number(r.price ?? 0);
-      if ((!Number.isFinite(price) || price <= 0) && typeof r.name === 'string') {
-        const match = catalog.find((c) => c.name.toLowerCase() === String(r.name).trim().toLowerCase());
-        if (match) r.price = match.price;
-      }
-      return r;
-    });
-    const totalBeforeSpecial = Number(input.total ?? items.reduce((sum, row) => {
+
+    const rawLines: OrderLineInput[] = rawItems.map((row) => {
       const r = row as Record<string, unknown>;
-      return sum + Number(r.price ?? 0) * Number(r.qty ?? 1);
-    }, 0));
+      const dealChoices = Array.isArray(r.dealChoices)
+        ? (r.dealChoices as Array<Record<string, unknown>>).map((unit) => {
+            const mapped: Record<string, string> = {};
+            for (const [k, v] of Object.entries(unit ?? {})) {
+              if (v != null && String(v).trim()) mapped[String(k).toLowerCase()] = String(v).trim();
+            }
+            return mapped;
+          })
+        : undefined;
+      return {
+        name: String(r.name ?? '').trim(),
+        qty: Number(r.qty ?? 1) || 1,
+        price: r.price != null ? Number(r.price) : undefined,
+        dealChoices,
+        dealName: r.dealName != null ? String(r.dealName) : undefined,
+        role: r.role != null ? String(r.role) : undefined,
+        dealIndex: r.dealIndex != null ? Number(r.dealIndex) : undefined,
+      };
+    });
+
+    const expanded = expandMealDealOrderItems(rawLines, catalog);
+    if (!expanded.ok) {
+      return {
+        ok: false,
+        error: expanded.error,
+        spokenHint: expanded.spokenHint,
+      };
+    }
+
+    // Price: meal deals charge the deal price × qty; components are kitchen lines.
+    let pricedTotal = 0;
+    for (const line of rawLines) {
+      if (!line.name) continue;
+      const qty = Math.max(1, Number(line.qty ?? 1) || 1);
+      const match = catalog.find((c) => c.name.toLowerCase() === line.name.toLowerCase());
+      if (match?.deal) {
+        pricedTotal += match.price * qty;
+      } else {
+        const unit = Number(line.price ?? match?.price ?? 0);
+        pricedTotal += (Number.isFinite(unit) ? unit : 0) * qty;
+      }
+    }
+    pricedTotal = Math.round(pricedTotal * 100) / 100;
+
+    const items = expanded.items.map((row) => {
+      const price = Number(row.price ?? 0);
+      const filled =
+        (!Number.isFinite(price) || price < 0) && row.name
+          ? catalog.find((c) => c.name.toLowerCase() === row.name.toLowerCase())?.price
+          : price;
+      return {
+        name: row.name,
+        qty: Math.max(1, Number(row.qty ?? 1) || 1),
+        price: Number.isFinite(Number(filled)) ? Number(filled) : 0,
+        ...(row.dealName ? { dealName: row.dealName } : {}),
+        ...(row.dealIndex != null ? { dealIndex: row.dealIndex } : {}),
+        ...(row.role ? { role: row.role } : {}),
+      };
+    });
+    const totalBeforeSpecial = Number.isFinite(Number(input.total)) && Number(input.total) > 0
+      ? Number(input.total)
+      : pricedTotal;
     const phone = firstString(input.customerPhone, callerPhone) ?? '';
     let customerId = firstString(input.customerId, body.customerContext?.customerId);
     if (!customerId && phone) {
