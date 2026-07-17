@@ -5,18 +5,60 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKS_PATH = join(__dirname, 'data', 'language-packs.json');
 
-export const SUPPORTED_LANGS = ['en', 'sq', 'uk', 'ru', 'zh', 'es', 'pl', 'fa'] as const;
+/** Phone + CRM spoken languages (Lizzie-first; preferredLanguage unlocks non-en dial). */
+export const SUPPORTED_LANGS = [
+  'en',
+  'es',
+  'pl',
+  'ru',
+  'uk',
+  'zh',
+  'hi',
+  'tr',
+  'ar',
+  'ro',
+  'pt',
+  'it',
+  'sq',
+  'fa',
+] as const;
 export type SupportedLang = (typeof SUPPORTED_LANGS)[number];
 
 export const LANG_LABELS: Record<SupportedLang, string> = {
   en: 'English',
-  sq: 'Albanian',
-  uk: 'Ukrainian',
-  ru: 'Russian',
-  zh: 'Chinese',
   es: 'Spanish',
   pl: 'Polish',
+  ru: 'Russian',
+  uk: 'Ukrainian',
+  zh: 'Chinese',
+  hi: 'Hindi',
+  tr: 'Turkish',
+  ar: 'Arabic',
+  ro: 'Romanian',
+  pt: 'Portuguese',
+  it: 'Italian',
+  sq: 'Albanian',
   fa: 'Farsi / Persian',
+};
+
+const ALIAS_TO_LANG: Record<string, SupportedLang> = {
+  hindi: 'hi',
+  indian: 'hi',
+  turkish: 'tr',
+  arabic: 'ar',
+  romanian: 'ro',
+  portuguese: 'pt',
+  italian: 'it',
+  spanish: 'es',
+  polish: 'pl',
+  russian: 'ru',
+  ukrainian: 'uk',
+  chinese: 'zh',
+  mandarin: 'zh',
+  albanian: 'sq',
+  farsi: 'fa',
+  persian: 'fa',
+  dari: 'fa',
 };
 
 export interface LanguagePack {
@@ -38,18 +80,22 @@ const EMPTY_PACK: LanguagePack = {
     confirm_yes_no: 'Reply YES to confirm or NO to cancel.',
     done: 'Done.',
     error_generic: 'Sorry, something went wrong. Please try again.',
-    unknown_contact: 'Thanks for getting in touch. How can we help with your project?',
+    unknown_contact: 'Thanks for getting in touch. How can I help with your order?',
     need_more_info: 'Could you share a bit more detail so I can help?',
   },
 };
 
 export function normalizeLang(code: string | null | undefined): SupportedLang {
-  const c = (code ?? 'en').toLowerCase().split('-')[0];
-  return (SUPPORTED_LANGS as readonly string[]).includes(c) ? (c as SupportedLang) : 'en';
+  const raw = (code ?? 'en').toLowerCase().trim();
+  const base = raw.split('-')[0];
+  if (ALIAS_TO_LANG[raw]) return ALIAS_TO_LANG[raw];
+  if (ALIAS_TO_LANG[base]) return ALIAS_TO_LANG[base];
+  return (SUPPORTED_LANGS as readonly string[]).includes(base) ? (base as SupportedLang) : 'en';
 }
 
 export function isRtlLang(lang?: string | null): boolean {
-  return normalizeLang(lang) === 'fa';
+  const n = normalizeLang(lang);
+  return n === 'fa' || n === 'ar';
 }
 
 function ensureFile(): void {
@@ -107,8 +153,6 @@ export function getSystemInstruction(lang?: string | null): string {
 
 /**
  * Deepgram STT for Vapi phone: always multilingual so callers can flip mid-call.
- * Per-pack single codes are unused for phone — spoken reply language is driven by
- * prompt + setCallLanguage metadata / preferredLanguage.
  */
 export function deepgramLanguageForPack(_lang?: string | null): string {
   return 'multi';

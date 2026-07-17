@@ -44,7 +44,8 @@ export type Database = {
           name: string
           email: string
           username: string | null
-          preferred_language: 'en' | 'sq' | 'uk' | 'ru' | 'zh' | 'es' | 'pl' | 'fa'
+          preferred_language:
+            | 'en' | 'es' | 'pl' | 'ru' | 'uk' | 'zh' | 'hi' | 'tr' | 'ar' | 'ro' | 'pt' | 'it' | 'sq' | 'fa'
           role: 'platform_owner' | 'super_admin' | 'manager' | 'staff' | 'builder' | 'recruitment' | 'customer'
           created_at: string
           updated_at: string

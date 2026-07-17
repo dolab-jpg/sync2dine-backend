@@ -148,7 +148,9 @@ function resolveOrgIdForProfile(
     : null;
 }
 
-const ALLOWED_PROFILE_LANGS = new Set(['en', 'sq', 'uk', 'ru', 'zh', 'es', 'pl', 'fa']);
+const ALLOWED_PROFILE_LANGS = new Set([
+  'en', 'es', 'pl', 'ru', 'uk', 'zh', 'hi', 'tr', 'ar', 'ro', 'pt', 'it', 'sq', 'fa',
+]);
 
 function normalizePreferredLanguage(raw: unknown): string {
   const code = String(raw ?? 'en').toLowerCase().split('-')[0];

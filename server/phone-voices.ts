@@ -9,18 +9,24 @@ import { getVapiVoiceConfig } from './vapi-client';
 export const LIZZIE_VOICE_ID = 'EQx6HGDYjkDpcli6vorJ';
 
 /**
- * Default female funny/sassy voices for non-English. Env overrides:
- * VAPI_ELEVENLABS_VOICE_ID_ES, …_PL, …_RU, …_UK, …_ZH, …_FA, …_SQ
+ * Default female voices for non-English. Env overrides:
+ * VAPI_ELEVENLABS_VOICE_ID_ES, …_HI, …_TR, etc.
  * or JSON VAPI_ELEVENLABS_VOICE_MAP={"es":"…"} (must not override en).
  */
 const DEFAULT_VOICE_BY_LANG: Record<Exclude<SupportedLang, 'en'>, string> = {
-  es: '03vEurziQfq3V8WZhQvn', // Aerisita — Sassy and Comedic
-  pl: 'NOWYzprzTwfZQqU76pBX', // Aleksandra — dynamic Polish
-  ru: 'bi0tSQTrp58MDdPUkrEl', // Klava — energetic / loud
-  uk: '2HWb7sZSrZqPB8HOI0KI', // Kira — strong Ukrainian female
-  zh: 'DVE92KG0Yd4X7RoMqy8J', // Zicai — sitcom / comedic Mandarin
-  fa: 'FGY2WhTYpPnrIDTdsKH5', // Laura — Enthusiast, Quirky Attitude
-  sq: 'ejl43bbp2vjkAFGSmAMa', // Veronica — Sassy & Energetic
+  es: '03vEurziQfq3V8WZhQvn', // Lucía
+  pl: 'NOWYzprzTwfZQqU76pBX', // Ania
+  ru: 'bi0tSQTrp58MDdPUkrEl', // Nastya
+  uk: '2HWb7sZSrZqPB8HOI0KI', // Oksana
+  zh: 'DVE92KG0Yd4X7RoMqy8J', // Xiao Mei
+  hi: 'ThT5KcBeYPX3keUQqHPh', // Priya
+  tr: 'MF3mGyEYCl7XYWbV9V6O', // Elif
+  ar: 'EXAVITQu4vr4xnSDxMaL', // Layla
+  ro: 'jsCqWAovK2LkecY7zXl4', // Andreea
+  pt: 'XB0fDUnXU5powFXDhCwa', // Sofia
+  it: 'cgSgspJ2msm6clMCkdW9', // Giulia
+  fa: 'FGY2WhTYpPnrIDTdsKH5', // Elham
+  sq: 'ejl43bbp2vjkAFGSmAMa', // Elira
 };
 
 const ENV_SUFFIX: Record<Exclude<SupportedLang, 'en'>, string> = {
@@ -29,6 +35,12 @@ const ENV_SUFFIX: Record<Exclude<SupportedLang, 'en'>, string> = {
   ru: 'RU',
   uk: 'UK',
   zh: 'ZH',
+  hi: 'HI',
+  tr: 'TR',
+  ar: 'AR',
+  ro: 'RO',
+  pt: 'PT',
+  it: 'IT',
   fa: 'FA',
   sq: 'SQ',
 };
@@ -40,7 +52,7 @@ function parseVoiceMapEnv(): Partial<Record<SupportedLang, string>> {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const out: Partial<Record<SupportedLang, string>> = {};
     for (const [key, value] of Object.entries(parsed)) {
-      if (key === 'en') continue; // never override Lizzie via JSON map
+      if (key === 'en') continue;
       const lang = normalizeLang(key);
       if (lang === 'en') continue;
       const id = String(value || '').trim();
@@ -65,11 +77,11 @@ export function voiceIdForLang(lang: SupportedLang | string | null | undefined):
   const fromJson = parseVoiceMapEnv()[normalized];
   if (fromJson) return fromJson;
 
-  const suffix = ENV_SUFFIX[normalized];
-  const fromEnv = process.env[`VAPI_ELEVENLABS_VOICE_ID_${suffix}`]?.trim();
+  const suffix = ENV_SUFFIX[normalized as Exclude<SupportedLang, 'en'>];
+  const fromEnv = suffix ? process.env[`VAPI_ELEVENLABS_VOICE_ID_${suffix}`]?.trim() : undefined;
   if (fromEnv) return fromEnv;
 
-  return DEFAULT_VOICE_BY_LANG[normalized] || englishId;
+  return DEFAULT_VOICE_BY_LANG[normalized as Exclude<SupportedLang, 'en'>] || englishId;
 }
 
 /** Vapi voice config for a language — English uses getVapiVoiceConfig() unchanged. */

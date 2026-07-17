@@ -53,6 +53,7 @@ import { listTeamMembers } from './conversation-store';
 import { persistCallLanguagePreference, spokenLanguageNudge } from './phone-language';
 import { normalizeLang } from './language-packs';
 import { getVapiVoiceConfigForLang, voiceIdForLang } from './phone-voices';
+import { languageFriendName } from './phone-language-friends';
 
 const CUSTOMER_TOOL_NAMES = new Set([
   'lookupCustomerByPhone',
@@ -571,6 +572,7 @@ async function executeTool(
       voiceId,
       voiceUpdated,
       remembered: persisted,
+      spokenName: languageFriendName(language),
       instruction: spokenLanguageNudge(language),
       sayFirst: spokenLanguageNudge(language),
       normalized: normalizeLang(language),

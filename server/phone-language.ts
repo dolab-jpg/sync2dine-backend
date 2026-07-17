@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { saveCustomerRecord, resolveContactByPhone, getDataStore, syncData } from './data-store';
 import { upsertTeamMember, type TeamMember } from './conversation-store';
 import { LANG_LABELS, normalizeLang, type SupportedLang } from './language-packs';
+import { languageFriendName } from './phone-language-friends';
 import type { PhoneCallerIdentity } from './phone-auth';
 
 function trySupabaseAdmin() {
@@ -18,9 +19,16 @@ function trySupabaseAdmin() {
 
 export function spokenLanguageNudge(lang: SupportedLang): string {
   const label = LANG_LABELS[lang] ?? lang;
+  const friend = languageFriendName(lang);
+  const identity = lang === 'en'
+    ? 'You are Lizzie / Cynthia again in British English.'
+    : friend
+      ? `Continue speaking as ${friend} in ${label} — same Sync2Dine assistant, same tools.`
+      : `Continue speaking in ${label}.`;
   return [
     `Speak your next reply aloud in ${label} immediately — do not list languages and stop.`,
-    'Your name is still Lizzie in every language; never introduce yourself as an ElevenLabs voice label.',
+    identity,
+    'Never introduce yourself as an ElevenLabs voice label.',
     'Keep using the same tools as before. Tool calls, CRM writes, emails, contracts, quotes, and any text that reaches a customer stay formal UK English.',
   ].join(' ');
 }

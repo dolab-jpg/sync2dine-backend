@@ -12,82 +12,225 @@
       "need_more_info": "Could you share a bit more detail so I can help?"
     }
   },
-  "sq": {
-    "label": "Albanian",
-    "systemInstruction": "Reply only in Albanian (Shqip). Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
-    "phrases": {
-      "greeting": "Përshëndetje! Si mund t'ju ndihmoj sot?",
-      "thanks": "Faleminderit.",
-      "confirm_yes_no": "Përgjigjuni PO për të konfirmuar ose JO për të anuluar.",
-      "done": "U krye.",
-      "error_generic": "Na vjen keq, ndodhi një gabim. Ju lutem provoni përsëri.",
-      "unknown_contact": "Faleminderit që na kontaktoni. Si mund t'ju ndihmojmë me projektin tuaj?",
-      "need_more_info": "A mund të jepni më shumë detaje që t'ju ndihmoj?"
-    }
-  },
-  "uk": {
-    "label": "Ukrainian",
-    "systemInstruction": "Reply only in Ukrainian. Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
-    "phrases": {
-      "greeting": "Вітаю! Чим можу допомогти сьогодні?",
-      "thanks": "Дякую.",
-      "confirm_yes_no": "Відповіть ТАК, щоб підтвердити, або НІ, щоб скасувати.",
-      "done": "Готово.",
-      "error_generic": "Вибачте, сталася помилка. Спробуйте ще раз.",
-      "unknown_contact": "Дякуємо, що зв’язалися з нами. Чим можемо допомогти з вашим проєктом?",
-      "need_more_info": "Чи могли б ви додати трохи більше деталей, щоб я міг допомогти?"
-    }
-  },
-  "zh": {
-    "label": "Chinese",
-    "systemInstruction": "Reply only in Simplified Chinese. Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
-    "phrases": {
-      "greeting": "您好！今天有什么可以帮您？",
-      "thanks": "谢谢。",
-      "confirm_yes_no": "回复“是”确认，或回复“否”取消。",
-      "done": "已完成。",
-      "error_generic": "抱歉，出了点问题。请再试一次。",
-      "unknown_contact": "感谢联系我们。关于您的项目，我们能怎么帮忙？",
-      "need_more_info": "能否再提供一点细节，方便我帮您？"
-    }
-  },
   "es": {
     "label": "Spanish",
-    "systemInstruction": "Reply only in Spanish. Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
+    "systemInstruction": "Reply only in Spanish. Cheeky, warm, short spoken lines.",
     "phrases": {
-      "greeting": "¡Hola! ¿Cómo puedo ayudarle hoy?",
+      "greeting": "Hola! Como puedo ayudarle hoy?",
       "thanks": "Gracias.",
-      "confirm_yes_no": "Responda SÍ para confirmar o NO para cancelar.",
+      "confirm_yes_no": "Responda SI para confirmar o NO para cancelar.",
       "done": "Hecho.",
-      "error_generic": "Lo sentimos, algo salió mal. Inténtelo de nuevo.",
-      "unknown_contact": "Gracias por contactarnos. ¿Cómo podemos ayudarle con su proyecto?",
-      "need_more_info": "¿Podría darme un poco más de detalle para poder ayudarle?"
+      "error_generic": "Lo sentimos, algo salio mal.",
+      "unknown_contact": "Gracias por contactarnos.",
+      "need_more_info": "Podria darme un poco mas de detalle?"
     }
   },
   "pl": {
     "label": "Polish",
-    "systemInstruction": "Reply only in Polish. Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
+    "systemInstruction": "Reply only in Polish. Cheeky, warm, short spoken lines.",
     "phrases": {
-      "greeting": "Dzień dobry! W czym mogę dziś pomóc?",
-      "thanks": "Dziękuję.",
-      "confirm_yes_no": "Odpowiedz TAK, aby potwierdzić, lub NIE, aby anulować.",
+      "greeting": "Dzien dobry! W czym moge dzis pomoc?",
+      "thanks": "Dziekuje.",
+      "confirm_yes_no": "Odpowiedz TAK lub NIE.",
       "done": "Gotowe.",
-      "error_generic": "Przepraszamy, coś poszło nie tak. Spróbuj ponownie.",
-      "unknown_contact": "Dziękujemy za kontakt. Jak możemy pomóc w Państwa projekcie?",
-      "need_more_info": "Czy może Pan/Pani podać nieco więcej szczegółów, abym mógł pomóc?"
+      "error_generic": "Przepraszamy, cos poszlo nie tak.",
+      "unknown_contact": "Dziekujemy za kontakt.",
+      "need_more_info": "Czy moze Pan/Pani podac wiecej szczegolow?"
+    }
+  },
+  "ru": {
+    "label": "Russian",
+    "systemInstruction": "Reply only in Russian. Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Zdravstvuyte! Chem mogu pomoch?",
+      "thanks": "Spasibo.",
+      "confirm_yes_no": "Otvetite DA ili NET.",
+      "done": "Gotovo.",
+      "error_generic": "Izvinite, chto-to poshlo ne tak.",
+      "unknown_contact": "Spasibo, chto svyazalis.",
+      "need_more_info": "Mozhete chut podrobnee?"
+    }
+  },
+  "uk": {
+    "label": "Ukrainian",
+    "systemInstruction": "Reply only in Ukrainian. Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Vitayu! Chym mozhu dopomohty?",
+      "thanks": "Dyakuyu.",
+      "confirm_yes_no": "Vidpovid TAK abo NI.",
+      "done": "Gotovo.",
+      "error_generic": "Vybachte, pomylka.",
+      "unknown_contact": "Dyakuyemo za zvyazok.",
+      "need_more_info": "Bilshe detaley?"
+    }
+  },
+  "zh": {
+    "label": "Chinese",
+    "systemInstruction": "Reply only in Simplified Chinese. Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Nin hao! Jin tian you shen me ke yi bang nin?",
+      "thanks": "Xie xie.",
+      "confirm_yes_no": "Reply yes or no.",
+      "done": "Done.",
+      "error_generic": "Sorry, try again.",
+      "unknown_contact": "Thanks for contacting us.",
+      "need_more_info": "More detail please?"
     }
   },
   "fa": {
-    "label": "Farsi",
-    "systemInstruction": "Reply only in Farsi (Persian). Keep replies short and clear for WhatsApp/phone. Do not reply in English unless the user writes in English.",
+    "label": "Afghanistan (Pashto)",
+    "systemInstruction": "Reply only in Afghanistan Pashto. Not Iranian Farsi. Cheeky, warm, short spoken lines.",
     "phrases": {
-      "greeting": "سلام! امروز چطور می‌توانم کمکتان کنم؟",
-      "thanks": "متشکرم.",
-      "confirm_yes_no": "برای تأیید بله و برای لغو خیر پاسخ دهید.",
-      "done": "انجام شد.",
-      "error_generic": "متأسفیم، مشکلی پیش آمد. لطفاً دوباره تلاش کنید.",
-      "unknown_contact": "از تماس شما سپاسگزاریم. چگونه می‌توانیم در پروژه‌تان کمک کنیم؟",
-      "need_more_info": "ممکن است کمی جزئیات بیشتر بگویید تا بتوانم کمک کنم؟"
+      "greeting": "Salam! Nanga tsoonga komak?",
+      "thanks": "Manana.",
+      "confirm_yes_no": "Ho or na.",
+      "done": "Wsho.",
+      "error_generic": "Bakhshana.",
+      "unknown_contact": "Manana for contact.",
+      "need_more_info": "More detail?"
+    }
+  },
+  "sq": {
+    "label": "Albanian",
+    "systemInstruction": "Reply only in Albanian. Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Pershendetje! Si mund tju ndihmoj?",
+      "thanks": "Faleminderit.",
+      "confirm_yes_no": "PO ose JO.",
+      "done": "U krye.",
+      "error_generic": "Ndodhi nje gabim.",
+      "unknown_contact": "Faleminderit qe na kontaktoni.",
+      "need_more_info": "Me shume detaje?"
+    }
+  },
+  "hi": {
+    "label": "Hindi (Indian)",
+    "systemInstruction": "Reply only in Hindi. Natural Indian Hindi, cheeky and warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Namaste! Aaj main aapki kaise madad kar sakti hoon?",
+      "thanks": "Dhanyavaad.",
+      "confirm_yes_no": "Haan or nahi.",
+      "done": "Ho gaya.",
+      "error_generic": "Maaf kijiye, kuch galat ho gaya.",
+      "unknown_contact": "Sampark ke liye dhanyavaad.",
+      "need_more_info": "Thoda aur detail?"
+    }
+  },
+  "ur": {
+    "label": "Urdu (Pakistani)",
+    "systemInstruction": "Reply only in Pakistani Urdu. Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Assalam o alaikum! Aaj main aap ki kaise madad kar sakti hoon?",
+      "thanks": "Shukriya.",
+      "confirm_yes_no": "Haan or nahi.",
+      "done": "Ho gaya.",
+      "error_generic": "Maazrat, kuch ghalat ho gaya.",
+      "unknown_contact": "Rabta ka shukriya.",
+      "need_more_info": "Zara aur tafseel?"
+    }
+  },
+  "pa": {
+    "label": "Punjabi",
+    "systemInstruction": "Reply only in Punjabi. Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Sat sri akal! Ajj main tuhadi kivin madad kar sakdi haan?",
+      "thanks": "Dhanvaad.",
+      "confirm_yes_no": "Haan or nahi.",
+      "done": "Ho gaya.",
+      "error_generic": "Maaf karna, kujh galat ho gaya.",
+      "unknown_contact": "Sampark layi dhanvaad.",
+      "need_more_info": "Thora hor detail?"
+    }
+  },
+  "tr": {
+    "label": "Turkish",
+    "systemInstruction": "Reply only in Turkish. Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Merhaba! Bugun size nasil yardimci olabilirim?",
+      "thanks": "Tesekkurler.",
+      "confirm_yes_no": "EVET veya HAYIR.",
+      "done": "Tamam.",
+      "error_generic": "Uzgunum, bir sorun olustu.",
+      "unknown_contact": "Iletisiminiz icin tesekkurler.",
+      "need_more_info": "Biraz daha detay?"
+    }
+  },
+  "ku": {
+    "label": "Kurdish",
+    "systemInstruction": "Reply only in Kurdish (Sorani or Kurmanji as natural). Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Slav! Emro chon dikarim alikari bikim?",
+      "thanks": "Spas.",
+      "confirm_yes_no": "Bele or na.",
+      "done": "Temam.",
+      "error_generic": "Bibure, kisheshek rubida.",
+      "unknown_contact": "Spas for contact.",
+      "need_more_info": "More detail?"
+    }
+  },
+  "ar": {
+    "label": "Arabic",
+    "systemInstruction": "Reply only in clear Arabic. Cheeky, warm, short spoken lines for UK callers.",
+    "phrases": {
+      "greeting": "Marhaba! Kayfa yumkinuni musaadatuk alyawm?",
+      "thanks": "Shukran.",
+      "confirm_yes_no": "Naam or la.",
+      "done": "Tamm.",
+      "error_generic": "Afwan, hadatha khata.",
+      "unknown_contact": "Shukran litawasulik.",
+      "need_more_info": "Mazid min altafasil?"
+    }
+  },
+  "ro": {
+    "label": "Romanian",
+    "systemInstruction": "Reply only in Romanian. Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Buna! Cum te pot ajuta azi?",
+      "thanks": "Multumesc.",
+      "confirm_yes_no": "DA sau NU.",
+      "done": "Gata.",
+      "error_generic": "Scuze, ceva n-a mers.",
+      "unknown_contact": "Multumim ca ne-ai contactat.",
+      "need_more_info": "Putin mai multe detalii?"
+    }
+  },
+  "pt": {
+    "label": "Portuguese",
+    "systemInstruction": "Reply only in Portuguese (European preferred). Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Ola! Como posso ajudar hoje?",
+      "thanks": "Obrigada.",
+      "confirm_yes_no": "SIM ou NAO.",
+      "done": "Feito.",
+      "error_generic": "Desculpe, algo correu mal.",
+      "unknown_contact": "Obrigada pelo contacto.",
+      "need_more_info": "Mais detalhe?"
+    }
+  },
+  "bn": {
+    "label": "Bengali",
+    "systemInstruction": "Reply only in Bengali. Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Nomoshkar! Aj ami kivabe shahajjo korte pari?",
+      "thanks": "Dhonnobad.",
+      "confirm_yes_no": "Hya or na.",
+      "done": "Hoye geche.",
+      "error_generic": "Dukkhito, kichu vul hoyeche.",
+      "unknown_contact": "Jogajoger jonno dhonnobad.",
+      "need_more_info": "Aro detail?"
+    }
+  },
+  "it": {
+    "label": "Italian",
+    "systemInstruction": "Reply only in Italian. Cheeky, warm, short spoken lines.",
+    "phrases": {
+      "greeting": "Ciao! Come posso aiutarti oggi?",
+      "thanks": "Grazie.",
+      "confirm_yes_no": "SI o NO.",
+      "done": "Fatto.",
+      "error_generic": "Scusa, qualcosa e andato storto.",
+      "unknown_contact": "Grazie per averci contattato.",
+      "need_more_info": "Qualche dettaglio in piu?"
     }
   }
 }
