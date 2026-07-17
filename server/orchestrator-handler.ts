@@ -20,6 +20,11 @@ import {
   SERVER_READ_TOOLS,
 } from './orchestrator-tool-exec';
 import { PHONE_TOOLS, executePhoneTool, PHONE_AUTO_ACTIONS } from './phone-tools';
+import {
+  RESTAURANT_TOOL_DEFS,
+  RESTAURANT_TOOL_NAMES,
+  executeRestaurantTool,
+} from './restaurant-ai-tools';
 import type {
   OrchestratorAction,
   OrchestratorMessage,
@@ -98,7 +103,8 @@ const GENERIC_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'navigate',
-      description: 'Navigate the user to any app route. Examples: /, /crm, /quotes, /projects, /recruitment, /team, /quote/bathroom/C001',
+      description:
+        'Navigate the user to any app route. Restaurant: /, /orders/kitchen, /orders/delivery, /menu, /customers, /calls, /accounts, /settings. Sales: /crm, /quotes, /projects, etc.',
       parameters: {
         type: 'object',
         properties: {
@@ -110,6 +116,8 @@ const GENERIC_TOOLS = [
     },
   },
 ];
+
+const RESTAURANT_TOOLS = RESTAURANT_TOOL_DEFS;
 
 const STAFF_TOOLS = [
   {
@@ -1616,19 +1624,24 @@ export function getToolsForMode(mode: OrchestratorMode, body?: OrchestratorReque
 
   let tools;
   if (mode === 'planning') {
-    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...NAVIGATION_TOOLS, ...PLANNING_TOOLS, ...GAP_CLOSING_TOOLS];
+    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...RESTAURANT_TOOLS, ...NAVIGATION_TOOLS, ...PLANNING_TOOLS, ...GAP_CLOSING_TOOLS];
   } else if (mode === 'staff') {
     tools = hasProject
-      ? [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS]
-      : [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS];
+      ? [...GENERIC_TOOLS, ...STAFF_TOOLS, ...RESTAURANT_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS]
+      : [...GENERIC_TOOLS, ...STAFF_TOOLS, ...RESTAURANT_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS];
   } else if (mode === 'project' || mode === 'foreman') {
-    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS];
+    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...RESTAURANT_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS];
   } else if (mode === 'customer' || mode === 'cyrus') {
     tools = [...GENERIC_TOOLS, ...CUSTOMER_TOOLS];
   } else if (mode === 'phone') {
-    tools = [...GENERIC_TOOLS, ...CUSTOMER_TOOLS, ...PHONE_TOOLS];
+    tools = [
+      ...GENERIC_TOOLS,
+      ...CUSTOMER_TOOLS,
+      ...PHONE_TOOLS,
+      ...RESTAURANT_TOOLS.filter((t) => t.function.name !== 'getMenu'),
+    ];
   } else {
-    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS];
+    tools = [...GENERIC_TOOLS, ...STAFF_TOOLS, ...RESTAURANT_TOOLS, ...EMAIL_TOOLS, ...CONTRACT_TOOLS, ...PROJECT_TOOLS, ...FOREMAN_TOOLS, ...COSTING_TOOLS, ...ACCOUNTS_TOOLS, ...LEAD_CYCLE_TOOLS, ...NAVIGATION_TOOLS, ...GAP_CLOSING_TOOLS];
   }
 
   if (planning && mode !== 'planning') {
@@ -1689,6 +1702,12 @@ export const AUTO_ACTION_NAMES = new Set([
   ...PHONE_AUTO_ACTIONS,
   ...PLANNING_ACTION_NAMES,
   ...GAP_AUTO_ACTIONS,
+  'getMenu',
+  'upsertMenuItem',
+  'deleteMenuItem',
+  'listOrders',
+  'markOrderPaid',
+  'updateOrderStatus',
 ]);
 
 function applyRoleGate(body: OrchestratorRequest, result: OrchestratorResult): OrchestratorResult {
@@ -2884,6 +2903,8 @@ async function runPhoneOrchestrator(
 
       if (SERVER_READ_TOOLS.has(toolName)) {
         output = await executeServerReadTool(toolName, parsedInput, body);
+      } else if (RESTAURANT_TOOL_NAMES.has(toolName)) {
+        output = await executeRestaurantTool(toolName, parsedInput, body);
       } else if (['lookupQuote', 'lookupProjectStatus', 'getPortalLink', 'escalateToStaff'].includes(toolName)) {
         output = executeCustomerTool(toolName, parsedInput, body);
       } else {
@@ -3068,6 +3089,13 @@ async function runStaffOrchestrator(
 
       if (SERVER_READ_TOOLS.has(toolName)) {
         output = await executeServerReadTool(toolName, parsedInput, body);
+      } else if (RESTAURANT_TOOL_NAMES.has(toolName)) {
+        output = await executeRestaurantTool(toolName, parsedInput, { ...body, orgId });
+        proposedActions.push({
+          action: toolName,
+          input: parsedInput,
+          output: requestedAs ? { ...output, requestedAs } : output,
+        });
       } else if (toolName === 'sendToStaffCynthia') {
         // Persist the Cynthia card server-side so phone/WhatsApp/channel paths land
         // even when no browser client is online to run toolRuntime.

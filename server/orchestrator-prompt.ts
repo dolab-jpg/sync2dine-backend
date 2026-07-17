@@ -4,7 +4,7 @@ import { DATA_COLLECTIONS } from './dataPolicy';
 import { buildCynthiaPhoneSystemPrompt } from './phone-prompt';
 import { FACADE_WEB_STAFF_MODES, isFacadeEnabled } from './tool-facade';
 
-const ROUTE_HINTS = `/ (dashboard), /crm, /quotes, /projects, /planning, /price-job, /approvals, /contracts, /recruitment, /team, /settings, /booking, /site-survey (surveys), /quote/{tradeId}/{customerId}, /portal/{token}, /contract/{token}, /builder, /costing, /portfolio, /changes — you may navigate to any valid route, not only these.`;
+const ROUTE_HINTS = `/ (Live), /orders/kitchen, /orders/delivery, /menu, /customers, /calls, /accounts, /settings, /crm, /quotes, /projects, /team (sales only) — restaurant staff should prefer Live/Kitchen/Delivery/Menu/Calls/Accounts/Settings.`;
 
 const COLLECTION_LIST = DATA_COLLECTIONS.join(', ');
 

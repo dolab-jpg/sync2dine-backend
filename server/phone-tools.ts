@@ -23,6 +23,7 @@ import { resolvePhoneCallerIdentity } from './phone-auth';
 import { ensureEnglishForCustomerSend } from './outbound-english-guard';
 import { resolveTransferDestination, resolveTransferNumber } from './transfer-numbers';
 import { listMenuItemsForOrg } from './menu-catalog';
+import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from './restaurant-ai-tools';
 
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -560,6 +561,11 @@ export const PHONE_AUTO_ACTIONS = new Set([
   'placeFoodOrder',
   'checkDeliveryArea',
   'getDeliveryAreas',
+  'upsertMenuItem',
+  'deleteMenuItem',
+  'listOrders',
+  'markOrderPaid',
+  'updateOrderStatus',
 ]);
 
 export async function executePhoneTool(
@@ -567,6 +573,9 @@ export async function executePhoneTool(
   input: Record<string, unknown>,
   body: OrchestratorRequest,
 ): Promise<Record<string, unknown>> {
+  if (RESTAURANT_TOOL_NAMES.has(name) && name !== 'getMenu') {
+    return executeRestaurantTool(name, input, body);
+  }
   const callId = firstString(body.callContext?.callId);
   const callerPhone = firstString(input.phone, body.callContext?.from, body.customerContext?.phone);
 
@@ -1253,9 +1262,6 @@ export async function executePhoneTool(
     const settings = getDataStore().agentSettings;
     const prefixes = normalizeDeliveryPrefixes(settings?.deliveryPostcodePrefixes);
     const postcode = firstString(input.postcode) ?? '';
-    // #region agent log
-    fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'342d7b'},body:JSON.stringify({sessionId:'342d7b',runId:'pre-fix',hypothesisId:'D',location:'phone-tools.ts:checkDeliveryArea',message:'delivery area check',data:{prefixCount:prefixes.length,prefixes:prefixes.slice(0,8),hasPostcode:Boolean(postcode),postcodeLen:postcode.length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (!postcode) {
       return {
         ok: false,
@@ -1374,9 +1380,6 @@ export async function executePhoneTool(
     const appliedSpecialName = firstString(input.specialName) || undefined;
     let total = totalBeforeSpecial;
     let specialAppliedNote = '';
-    // #region agent log
-    fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'342d7b'},body:JSON.stringify({sessionId:'342d7b',runId:'pre-fix',hypothesisId:'C',location:'phone-tools.ts:placeFoodOrder',message:'special before apply',data:{customerId:customerId??null,hasCrmSpecial:Boolean(crmSpecialName),hasCrmDeal:Boolean(crmSpecialNote),inputSpecialName:Boolean(appliedSpecialName),totalBefore:totalBeforeSpecial,orderType},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (appliedSpecialName && crmSpecialNote) {
       const pctMatch = crmSpecialNote.match(/(\d+(?:\.\d+)?)\s*%/);
       if (pctMatch) {
@@ -1411,6 +1414,16 @@ export async function executePhoneTool(
     const baseNotes = firstString(input.notes) ?? '';
     const notes = [baseNotes, specialAppliedNote].filter(Boolean).join(' | ');
 
+    const payRaw = (firstString(input.paymentStatus) ?? 'unpaid').toLowerCase();
+    let paymentStatus = 'unpaid';
+    let paymentMethod: string | undefined;
+    if (payRaw === 'cash' || payRaw === 'card') {
+      paymentStatus = 'unpaid';
+      paymentMethod = payRaw;
+    } else if (payRaw === 'paid') {
+      paymentStatus = 'paid';
+    }
+
     const record = await saveOrderRecord({
       customerId: customerId || undefined,
       customerName: firstString(input.customerName, body.customerContext?.name) ?? 'Guest',
@@ -1418,7 +1431,8 @@ export async function executePhoneTool(
       channel: 'phone',
       orderType,
       status: 'new',
-      paymentStatus: firstString(input.paymentStatus) ?? 'unpaid',
+      paymentStatus,
+      paymentMethod,
       items,
       total,
       deliveryAddress,

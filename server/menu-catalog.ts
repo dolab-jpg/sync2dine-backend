@@ -5,6 +5,7 @@
  * /menu changes what Lizzie offers on the next call.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { randomUUID } from 'crypto';
 import { resolveOrdersOrgId } from './supabase-orders';
 
 let admin: SupabaseClient | null | undefined;
@@ -87,4 +88,75 @@ export async function listMenuItemsForOrg(
   return filtered.sort(
     (a, b) => order.indexOf(a.category) - order.indexOf(b.category) || a.name.localeCompare(b.name),
   );
+}
+
+function newProductId(): string {
+  return randomUUID();
+}
+
+export async function upsertMenuItemForOrg(
+  orgId: string | null | undefined,
+  input: {
+    id?: string;
+    name: string;
+    category?: string;
+    price: number;
+    description?: string;
+    available?: boolean;
+    image?: string;
+  },
+): Promise<{ ok: boolean; item?: MenuItem; error?: string }> {
+  const client = getAdmin();
+  const resolvedOrg = resolveOrdersOrgId(orgId);
+  if (!client || !resolvedOrg) return { ok: false, error: 'Supabase not configured' };
+  const name = String(input.name ?? '').trim();
+  if (!name) return { ok: false, error: 'name required' };
+  const price = Number(input.price);
+  if (!Number.isFinite(price) || price < 0) return { ok: false, error: 'valid price required' };
+  const catRaw = String(input.category ?? 'other').trim().toLowerCase();
+  if (BATHROOM_CATEGORIES.has(catRaw)) return { ok: false, error: 'invalid food category' };
+  const category = FOOD_CATEGORIES.has(catRaw) ? catRaw : 'other';
+  const id = input.id?.trim() || newProductId();
+
+  let existingData: Record<string, unknown> = {};
+  if (input.id?.trim()) {
+    const { data } = await client.from('products').select('data').eq('org_id', resolvedOrg).eq('id', id).maybeSingle();
+    existingData = ((data as { data?: Record<string, unknown> } | null)?.data ?? {}) as Record<string, unknown>;
+  }
+
+  const data: Record<string, unknown> = {
+    ...existingData,
+    name,
+    category,
+    price,
+    basePrice: price,
+    sellPrice: price,
+    description: input.description != null ? String(input.description).trim() : (existingData.description ?? ''),
+    available: input.available !== false,
+    source: 'restaurant',
+    tradeId: null,
+    margin: typeof existingData.margin === 'number' ? existingData.margin : 0,
+  };
+  if (input.image != null) data.image = String(input.image);
+
+  const { error } = await client.from('products').upsert(
+    { org_id: resolvedOrg, id, data },
+    { onConflict: 'org_id,id' },
+  );
+  if (error) return { ok: false, error: error.message };
+  const item = rowToMenuItem(id, data);
+  return item ? { ok: true, item } : { ok: false, error: 'saved but could not map item' };
+}
+
+export async function deleteMenuItemForOrg(
+  orgId: string | null | undefined,
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const client = getAdmin();
+  const resolvedOrg = resolveOrdersOrgId(orgId);
+  if (!client || !resolvedOrg) return { ok: false, error: 'Supabase not configured' };
+  if (!id?.trim()) return { ok: false, error: 'id required' };
+  const { error } = await client.from('products').delete().eq('org_id', resolvedOrg).eq('id', id.trim());
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
 }

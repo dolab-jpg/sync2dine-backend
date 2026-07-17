@@ -468,9 +468,34 @@ export async function initDataFromSupabase(orgId?: string): Promise<void> {
       const l = local ?? [];
       return l.length >= c.length ? l : c;
     };
+    /** Merge by id so UI specials in cloud are not dropped when disk has a longer list. */
+    const mergeById = (
+      cloud: Array<Record<string, unknown>> | undefined,
+      local: Array<Record<string, unknown>> | undefined,
+    ): Array<Record<string, unknown>> => {
+      const map = new Map<string, Record<string, unknown>>();
+      for (const row of local ?? []) {
+        const id = row?.id != null ? String(row.id) : '';
+        if (id) map.set(id, row);
+      }
+      for (const row of cloud ?? []) {
+        const id = row?.id != null ? String(row.id) : '';
+        if (!id) continue;
+        const prev = map.get(id);
+        // Cloud wins overlapping fields (Customers tab / specials); keep local-only keys.
+        map.set(id, prev ? { ...prev, ...row } : row);
+      }
+      return Array.from(map.values());
+    };
     data.phoneLines = richer(data.phoneLines, disk.phoneLines);
-    data.customers = richer(data.customers, disk.customers);
-    data.contacts = richer(data.contacts, disk.contacts);
+    data.customers = mergeById(
+      data.customers as Array<Record<string, unknown>> | undefined,
+      disk.customers as Array<Record<string, unknown>> | undefined,
+    );
+    data.contacts = mergeById(
+      data.contacts as Array<Record<string, unknown>> | undefined,
+      disk.contacts as Array<Record<string, unknown>> | undefined,
+    );
     data.projects = richer(data.projects, disk.projects);
     data.quotes = richer(data.quotes, disk.quotes);
     memoryStores.set(id, data);
@@ -530,9 +555,6 @@ export function resolveContactByPhone(phone: string): {
     );
     if (customerFromPhone?.id) customerId = String(customerFromPhone.id);
   }
-  // #region agent log
-  fetch('http://127.0.0.1:7261/ingest/6cf14313-b666-4982-884a-814f1f19f4c6',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'342d7b'},body:JSON.stringify({sessionId:'342d7b',runId:'post-fix',hypothesisId:'B',location:'data-store.ts:resolveContactByPhone',message:'resolve phone',data:{hasContact:Boolean(contact),hasCustomerFallback:Boolean(customerFromPhone),customerId:customerId??null,normalizedLen:normalized.length},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   const primaryContact = customerId
     ? store.contacts.find(c => String(c.customerId) === customerId && c.isPrimary)
     : null;
@@ -557,6 +579,21 @@ export function resolveContactByPhone(phone: string): {
     projectId: project ? String(project.id) : null,
     activeQuotes: getActiveQuotes(customerId),
   };
+}
+
+/**
+ * Ensure phone Lizzie sees Customers-tab rows (specials live in Supabase when UI saves there).
+ * Call before building the inbound prompt.
+ */
+export async function hydrateCallerFromCloud(phone: string): Promise<ReturnType<typeof resolveContactByPhone>> {
+  try {
+    const { findCustomerByPhoneFromSupabase } = await import('./supabase-crm');
+    const cloud = await findCustomerByPhoneFromSupabase(phone, getRequestOrgId());
+    if (cloud) saveCustomerRecord(cloud);
+  } catch {
+    // ignore — fall through to in-memory resolve
+  }
+  return resolveContactByPhone(phone);
 }
 
 // Local copy (quote-lookup.ts imports this module, so importing it back would be a cycle).
@@ -708,6 +745,7 @@ export async function saveOrderRecord(
     orderNumber: Number(order.orderNumber ?? maxNumber + 1),
     status: String(order.status ?? 'new'),
     paymentStatus: String(order.paymentStatus ?? 'unpaid'),
+    paymentMethod: order.paymentMethod != null ? String(order.paymentMethod) : undefined,
     orderType: String(order.orderType ?? 'collection'),
     items: Array.isArray(order.items) ? order.items : [],
     total: Number(order.total ?? 0),

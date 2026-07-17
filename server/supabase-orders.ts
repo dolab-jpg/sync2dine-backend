@@ -77,17 +77,26 @@ function encodeOrderMeta(notes: string, order: Record<string, unknown>): string 
   if (order.deliveryPostcode != null && String(order.deliveryPostcode).trim()) {
     parts.push(`pc=${encodeURIComponent(String(order.deliveryPostcode).trim())}`);
   }
+  if (order.etaMinutes != null && Number.isFinite(Number(order.etaMinutes))) {
+    parts.push(`eta=${encodeURIComponent(String(Number(order.etaMinutes)))}`);
+  }
   if (!parts.length) return base;
   return base ? `${base} [[s2d:${parts.join('|')}]]` : `[[s2d:${parts.join('|')}]]`;
 }
 
-function decodeOrderMeta(notes: string): { notes: string; specialName?: string; deliveryPostcode?: string } {
+function decodeOrderMeta(notes: string): {
+  notes: string;
+  specialName?: string;
+  deliveryPostcode?: string;
+  etaMinutes?: number;
+} {
   const raw = String(notes ?? '');
   const m = raw.match(S2D_META_RE);
   if (!m) return { notes: raw };
   const cleaned = raw.replace(S2D_META_RE, '').trim();
   let specialName: string | undefined;
   let deliveryPostcode: string | undefined;
+  let etaMinutes: number | undefined;
   for (const part of m[1].split('|')) {
     const eq = part.indexOf('=');
     if (eq < 0) continue;
@@ -95,8 +104,12 @@ function decodeOrderMeta(notes: string): { notes: string; specialName?: string; 
     const val = decodeURIComponent(part.slice(eq + 1));
     if (key === 'special' && val) specialName = val;
     if (key === 'pc' && val) deliveryPostcode = val;
+    if (key === 'eta' && val) {
+      const n = Number(val);
+      if (Number.isFinite(n)) etaMinutes = n;
+    }
   }
-  return { notes: cleaned, specialName, deliveryPostcode };
+  return { notes: cleaned, specialName, deliveryPostcode, etaMinutes };
 }
 
 function extractPostcodeFromAddress(address: string | null | undefined): string | undefined {
@@ -130,6 +143,7 @@ export function rowToOrder(row: OrderRow): Record<string, unknown> {
     deliveryPostcode,
     specialName: decoded.specialName,
     notes: decoded.notes,
+    etaMinutes: decoded.etaMinutes,
     reviewScore: row.review_score ?? undefined,
     reviewText: row.review_text ?? undefined,
     reviewCalledAt: row.review_called_at ?? undefined,
@@ -321,9 +335,32 @@ export async function updateOrderInSupabase(
   if (patch.channel !== undefined) rowPatch.channel = String(patch.channel);
   if (patch.orderType !== undefined) rowPatch.order_type = String(patch.orderType);
   if (patch.status !== undefined) rowPatch.status = String(patch.status);
-  if (patch.paymentStatus !== undefined) rowPatch.payment_status = String(patch.paymentStatus);
+  if (patch.paymentStatus !== undefined) {
+    const s = String(patch.paymentStatus).toLowerCase();
+    if (s === 'cash' || s === 'card') {
+      rowPatch.payment_status = 'paid';
+      rowPatch.payment_method = s;
+    } else {
+      rowPatch.payment_status = s === 'paid' ? 'paid' : 'unpaid';
+    }
+  }
   if (patch.paymentMethod !== undefined) {
     rowPatch.payment_method = patch.paymentMethod != null ? String(patch.paymentMethod) : null;
+  }
+  // Persist eta / special / postcode into notes meta when patched
+  if (patch.etaMinutes !== undefined || patch.specialName !== undefined || patch.deliveryPostcode !== undefined || patch.notes !== undefined) {
+    const existing = await client.from('orders').select('notes').eq('id', id).eq('org_id', orgId).maybeSingle();
+    const currentNotes = String((existing.data as { notes?: string } | null)?.notes ?? '');
+    const decoded = decodeOrderMeta(currentNotes);
+    const merged = {
+      specialName: patch.specialName !== undefined ? patch.specialName : decoded.specialName,
+      deliveryPostcode: patch.deliveryPostcode !== undefined ? patch.deliveryPostcode : decoded.deliveryPostcode,
+      etaMinutes: patch.etaMinutes !== undefined ? patch.etaMinutes : decoded.etaMinutes,
+    };
+    const baseNotes = patch.notes !== undefined ? String(patch.notes) : decoded.notes;
+    rowPatch.notes = encodeOrderMeta(baseNotes, merged);
+  } else if (patch.notes !== undefined) {
+    rowPatch.notes = String(patch.notes);
   }
   if (patch.orderNumber !== undefined) rowPatch.order_number = Number(patch.orderNumber);
   if (patch.items !== undefined) rowPatch.items = Array.isArray(patch.items) ? patch.items : [];
@@ -331,7 +368,6 @@ export async function updateOrderInSupabase(
   if (patch.deliveryAddress !== undefined) {
     rowPatch.delivery_address = patch.deliveryAddress != null ? String(patch.deliveryAddress) : null;
   }
-  if (patch.notes !== undefined) rowPatch.notes = String(patch.notes);
   if (patch.reviewScore !== undefined) {
     rowPatch.review_score = patch.reviewScore != null ? Number(patch.reviewScore) : null;
   }
