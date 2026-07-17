@@ -22,6 +22,7 @@ import { formatSpokenGbp } from './spoken-money';
 import { resolvePhoneCallerIdentity } from './phone-auth';
 import { ensureEnglishForCustomerSend } from './outbound-english-guard';
 import { resolveTransferDestination, resolveTransferNumber } from './transfer-numbers';
+import { listMenuItemsForOrg } from './menu-catalog';
 
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -1159,17 +1160,26 @@ export async function executePhoneTool(
     const aboutUs = store.agentSettings?.aboutUs?.trim();
     const sayToday = store.agentSettings?.sayToday?.trim();
     const category = firstString(input.category)?.toLowerCase();
-    const menu = [
-      { category: 'mains', name: 'Chicken biryani', price: 9.5 },
-      { category: 'mains', name: 'Lamb curry', price: 10.5 },
-      { category: 'sides', name: 'Garlic naan', price: 2.5 },
-      { category: 'sides', name: 'Pilau rice', price: 2.8 },
-      { category: 'sides', name: 'Onion bhaji', price: 3.2 },
-      { category: 'drinks', name: 'Mango lassi', price: 2.8 },
-    ].filter((item) => !category || item.category === category || item.name.toLowerCase().includes(category));
+    const menu = await listMenuItemsForOrg(firstString(body.orgId) ?? getRequestOrgId(), category);
+    if (!menu.length) {
+      return {
+        ok: true,
+        menu: [],
+        aboutUs: aboutUs || undefined,
+        sayToday: sayToday || undefined,
+        spokenHint: category
+          ? `We don't have anything under ${category} on the menu right now.`
+          : 'The menu is not set up yet — the team can add dishes from the Menu tab. I can still take a message or a callback.',
+      };
+    }
     return {
       ok: true,
-      menu,
+      menu: menu.map(({ category: cat, name: itemName, price, description }) => ({
+        category: cat,
+        name: itemName,
+        price,
+        ...(description ? { description } : {}),
+      })),
       aboutUs: aboutUs || undefined,
       sayToday: sayToday || undefined,
       spokenHint: sayToday
@@ -1179,10 +1189,26 @@ export async function executePhoneTool(
   }
 
   if (name === 'placeFoodOrder') {
-    const items = Array.isArray(input.items) ? input.items : [];
-    if (!items.length) {
+    const rawItems = Array.isArray(input.items) ? input.items : [];
+    if (!rawItems.length) {
       return { ok: false, error: 'items_required', spokenHint: 'Tell me what you would like to order first.' };
     }
+    // Fill missing/zero prices from the live catalog so phone orders never total £0.
+    let catalog: Awaited<ReturnType<typeof listMenuItemsForOrg>> = [];
+    try {
+      catalog = await listMenuItemsForOrg(firstString(body.orgId) ?? getRequestOrgId());
+    } catch {
+      catalog = [];
+    }
+    const items = rawItems.map((row) => {
+      const r = { ...(row as Record<string, unknown>) };
+      const price = Number(r.price ?? 0);
+      if ((!Number.isFinite(price) || price <= 0) && typeof r.name === 'string') {
+        const match = catalog.find((c) => c.name.toLowerCase() === String(r.name).trim().toLowerCase());
+        if (match) r.price = match.price;
+      }
+      return r;
+    });
     const total = Number(input.total ?? items.reduce((sum, row) => {
       const r = row as Record<string, unknown>;
       return sum + Number(r.price ?? 0) * Number(r.qty ?? 1);

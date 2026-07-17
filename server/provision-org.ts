@@ -65,7 +65,21 @@ export type ProvisionOrgResult = {
   organization: Record<string, unknown>;
   mainUserEmail: string;
   mainUserCreated: true;
+  /** One-time kiosk credentials — shown once in Platform Clients, never logged. */
+  kioskEmail?: string;
+  kioskPasswordOnce?: string;
+  kioskError?: string;
 };
+
+function generateKioskPassword(): string {
+  // 14 chars, unambiguous set, always has a digit — good enough for a counter tablet.
+  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let out = '';
+  for (let i = 0; i < 13; i += 1) {
+    out += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return `${out}${Math.floor(Math.random() * 10)}`;
+}
 
 export function canProvisionViaSupabase(): boolean {
   return Boolean(
@@ -158,20 +172,69 @@ export async function provisionOrganizationInSupabase(
     data: { updatedAt: new Date().toISOString() },
   }, { onConflict: 'org_id' });
 
-  const today = new Date().toISOString().slice(0, 10);
-  await supabase.from('recruitment_jobs').upsert(
-    DEFAULT_RECRUITMENT_JOBS.map((job) => ({
-      id: job.id,
+  // Bathroom recruitment seed is Builder Diddies legacy — never seed it into
+  // Sync2Dine restaurant tenants.
+  const isSync2DinePlan = plan.startsWith('sync2dine');
+  if (!isSync2DinePlan) {
+    const today = new Date().toISOString().slice(0, 10);
+    await supabase.from('recruitment_jobs').upsert(
+      DEFAULT_RECRUITMENT_JOBS.map((job) => ({
+        id: job.id,
+        org_id: org.id,
+        data: { ...job.data, createdAt: today },
+      })),
+      { onConflict: 'org_id,id' },
+    );
+  }
+
+  // Auto-provision the front-of-house kiosk login (Super Master C1/C8) so every
+  // tenant gets a working /front tablet without a manual Team invite.
+  // Best-effort: a kiosk failure must not roll back the org + admin user.
+  let kioskEmail: string | undefined;
+  let kioskPasswordOnce: string | undefined;
+  let kioskError: string | undefined;
+  try {
+    const orgSuffix = String(org.id).replace(/-/g, '').slice(0, 10);
+    const candidateEmail = `kiosk+${orgSuffix}@sync2dine.io`;
+    const candidatePassword = generateKioskPassword();
+    const { data: kioskAuth, error: kioskAuthError } = await supabase.auth.admin.createUser({
+      email: candidateEmail,
+      password: candidatePassword,
+      email_confirm: true,
+      user_metadata: {
+        name: 'Front Kiosk',
+        role: 'kiosk',
+        org_id: org.id,
+      },
+    });
+    if (kioskAuthError || !kioskAuth.user) {
+      throw new Error(kioskAuthError?.message ?? 'Failed to create kiosk user');
+    }
+    const { error: kioskProfileError } = await supabase.from('profiles').upsert({
+      id: kioskAuth.user.id,
+      email: candidateEmail,
+      name: 'Front Kiosk',
+      role: 'kiosk',
       org_id: org.id,
-      data: { ...job.data, createdAt: today },
-    })),
-    { onConflict: 'org_id,id' },
-  );
+      updated_at: new Date().toISOString(),
+    });
+    if (kioskProfileError) {
+      await supabase.auth.admin.deleteUser(kioskAuth.user.id);
+      throw new Error(kioskProfileError.message);
+    }
+    kioskEmail = candidateEmail;
+    kioskPasswordOnce = candidatePassword;
+  } catch (err) {
+    kioskError = err instanceof Error ? err.message : 'Kiosk user provisioning failed';
+  }
 
   return {
     organization: org as unknown as Record<string, unknown>,
     mainUserEmail: contactEmail,
     mainUserCreated: true,
+    kioskEmail,
+    kioskPasswordOnce,
+    kioskError,
   };
 }
 

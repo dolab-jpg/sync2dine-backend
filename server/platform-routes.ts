@@ -181,6 +181,9 @@ export async function handlePlatformRoutes(
           organization,
           mainUserEmail: provisioned.mainUserEmail,
           mainUserCreated: true,
+          kioskEmail: provisioned.kioskEmail,
+          kioskPasswordOnce: provisioned.kioskPasswordOnce,
+          kioskWarning: provisioned.kioskError,
           stripeCheckoutUrl,
           stripeWarning,
         });
