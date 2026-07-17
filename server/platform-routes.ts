@@ -12,6 +12,8 @@ import {
   type OrgStatus,
 } from './organizations';
 import { getGlobalUsageThisMonth, getTokensUsedThisMonth, getUsageSummaryForOrg } from './usage';
+import { getPhoneUsageSummary } from './phone-billing';
+import { getOrgElevenLabsStatus } from './org-elevenlabs';
 import { isAuthEnforced, requireAuth } from './auth';
 
 function assertPlatformAccess(req: IncomingMessage, res: ServerResponse): boolean {
@@ -43,11 +45,20 @@ function enrichOrg(org: ReturnType<typeof getOrganizationById>) {
   if (!org) return null;
   const tokensUsedThisMonth = getTokensUsedThisMonth(org.id);
   const usage = getUsageSummaryForOrg(org.id);
+  const phone = getPhoneUsageSummary(org.id);
+  const elevenlabs = getOrgElevenLabsStatus(org.id);
   const planCfg = PLAN_CONFIG[org.plan];
   return {
     ...maskOrganization(org, tokensUsedThisMonth),
     tokensUsedThisMonth,
     usageCostUsd: usage.costUsd,
+    elevenlabsCharactersThisMonth: usage.elevenlabsCharacters ?? 0,
+    elevenlabsConfigured: elevenlabs.configured,
+    phoneOutboundMinutes: phone.outboundMinutes,
+    phoneFreeMinutesRemaining: phone.freeMinutesRemaining,
+    phoneEstimatedCostGbp: phone.estimatedCostGbp,
+    phoneMobileMinutes: phone.mobileMinutes,
+    phoneLandlineMinutes: phone.landlineMinutes,
     monthlyPriceGbp: planCfg.monthlyPriceGbp,
     planLabel: planCfg.label,
   };
@@ -304,7 +315,14 @@ export async function handlePlatformRoutes(
       sendJson(res, 404, { error: 'Organization not found' });
       return true;
     }
-    sendJson(res, 200, getUsageSummaryForOrg(orgId));
+    sendJson(res, 200, {
+      ...getUsageSummaryForOrg(orgId),
+      phone: getPhoneUsageSummary(orgId),
+      elevenlabs: {
+        ...getOrgElevenLabsStatus(orgId),
+        charactersThisMonth: getUsageSummaryForOrg(orgId).elevenlabsCharacters ?? 0,
+      },
+    });
     return true;
   }
 

@@ -26,6 +26,7 @@ import { handleOrdersRoutes } from './orders-routes';
 import { handleReservationsRoutes } from './reservations-routes';
 import { handleConnectorRoutes } from './connectors/routes';
 import { handleOrgOpenAIKeyRoutes } from './org-openai-key-routes';
+import { handleOrgPhoneBillingRoutes } from './org-phone-billing-routes';
 import { handleCyrusRoutes } from './cyrus-routes';
 import { handleCynthiaRoutes } from './cynthia-routes';
 import { handleChannelRoutes } from './channel-routes';
@@ -95,6 +96,8 @@ const server = createServer(async (req, res) => {
     if (await handleAuthRoutes(req, res, pathname)) return;
 
     if (await handleOrgOpenAIKeyRoutes(req, res, pathname)) return;
+
+    if (await handleOrgPhoneBillingRoutes(req, res, pathname)) return;
 
     if (await handlePlatformRoutes(req, res, pathname)) return;
 

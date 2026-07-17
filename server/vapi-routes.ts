@@ -130,133 +130,38 @@ function partyPhoneFromCall(call: Record<string, unknown> | undefined): string {
   return toE164Uk(from || customerNumber || to);
 }
 
-function extractMonitorUrls(callOrMessage: Record<string, unknown>): {
-  listenUrl?: string;
-  controlUrl?: string;
-} {
-  const call = (callOrMessage.call || callOrMessage) as Record<string, unknown>;
-  const monitor = (call.monitor || callOrMessage.monitor || {}) as Record<string, unknown>;
-  const listenUrl = String(monitor.listenUrl || call.listenUrl || '').trim();
-  const controlUrl = String(monitor.controlUrl || call.controlUrl || '').trim();
-  return {
-    ...(listenUrl ? { listenUrl } : {}),
-    ...(controlUrl ? { controlUrl } : {}),
-  };
-}
-
-async function enrichMonitorUrlsFromVapi(
-  callId: string,
-  vapiCallId: string,
-  existing?: { listenUrl?: string; controlUrl?: string },
-): Promise<{ listenUrl?: string; controlUrl?: string }> {
-  if (existing?.listenUrl) return existing;
-  try {
-    const { ok, json } = await vapiFetch(`/call/${encodeURIComponent(vapiCallId)}`);
-    if (!ok) return existing ?? {};
-    const monitor = (json.monitor || {}) as Record<string, unknown>;
-    const listenUrl = String(monitor.listenUrl || '').trim();
-    const controlUrl = String(monitor.controlUrl || '').trim();
-    if (listenUrl || controlUrl) {
-      saveCall({
-        id: callId,
-        ...(listenUrl ? { listenUrl } : {}),
-        ...(controlUrl ? { controlUrl } : {}),
-        metadata: {
-          ...(((getCallById(callId)?.metadata as Record<string, unknown> | undefined) || {})),
-          ...(listenUrl ? { listenUrl } : {}),
-          ...(controlUrl ? { controlUrl } : {}),
-        },
-      });
-    }
-    return {
-      ...(listenUrl ? { listenUrl } : {}),
-      ...(controlUrl ? { controlUrl } : {}),
-    };
-  } catch {
-    return existing ?? {};
-  }
-}
-
 function ensureCallFromVapi(message: Record<string, unknown>): Record<string, unknown> {
   setRequestOrgId(DEFAULT_ORG_ID);
   const call = (message.call || message) as Record<string, unknown>;
   const vapiId = String(call.id || message.callId || `vapi-${Date.now()}`);
   const metaIn = (call.metadata || message.metadata || {}) as Record<string, unknown>;
   const tradeproCallId = String(metaIn.tradeproCallId || '').trim();
-  const monitor = extractMonitorUrls(message);
 
   const byProvider = getCallByProviderId(vapiId);
   if (byProvider) {
-    const merged = mergeOrphanVapiCall(String(byProvider.id), vapiId, metaIn);
-    if (monitor.listenUrl || monitor.controlUrl) {
-      return saveCall({
-        id: String(merged.id),
-        ...monitor,
-        metadata: {
-          ...((merged.metadata as Record<string, unknown> | undefined) || {}),
-          ...monitor,
-        },
-      });
-    }
-    return merged;
+    // Link provider id + merge any orphan UUID-as-id twin transcripts
+    return mergeOrphanVapiCall(String(byProvider.id), vapiId, metaIn);
   }
   if (tradeproCallId) {
     const byTrade = getCallById(tradeproCallId);
     if (byTrade) {
-      const merged = mergeOrphanVapiCall(tradeproCallId, vapiId, {
+      return mergeOrphanVapiCall(tradeproCallId, vapiId, {
         ...((byTrade.metadata as Record<string, unknown> | undefined) || {}),
         ...metaIn,
       });
-      if (monitor.listenUrl || monitor.controlUrl) {
-        return saveCall({
-          id: String(merged.id),
-          ...monitor,
-          metadata: {
-            ...((merged.metadata as Record<string, unknown> | undefined) || {}),
-            ...monitor,
-          },
-        });
-      }
-      return merged;
     }
   }
   const existing = getCallById(vapiId);
-  if (existing) {
-    if (monitor.listenUrl || monitor.controlUrl) {
-      return saveCall({
-        id: String(existing.id),
-        ...monitor,
-        metadata: {
-          ...((existing.metadata as Record<string, unknown> | undefined) || {}),
-          ...monitor,
-        },
-      });
-    }
-    return existing;
-  }
+  if (existing) return existing;
 
   const partyPhone = partyPhoneFromCall(call) || toE164Uk(String(metaIn.partyPhone || ''));
   const identity = resolvePhoneCallerIdentity(partyPhone);
+  const resolved = resolveContactByPhone(partyPhone);
   const directionRaw = String(call.type || '').toLowerCase();
   const direction = directionRaw.includes('outbound') ? 'outbound' : 'inbound';
-  const callId = tradeproCallId || vapiId;
-
-  let customerId: string | null = null;
-  let contactName = identity.kind !== 'customer' ? identity.name : 'Guest';
-  if (identity.kind === 'customer' && partyPhone) {
-    const guest = ensureGuestCustomerForCall(partyPhone, callId);
-    customerId = guest.customerId;
-    contactName = guest.contactName;
-  } else {
-    const resolved = resolveContactByPhone(partyPhone);
-    customerId = resolved.customerId;
-    contactName = identity.kind !== 'customer'
-      ? identity.name
-      : (resolved.customerName || resolved.contactName);
-  }
 
   return saveCall({
-    id: callId,
+    id: tradeproCallId || vapiId,
     providerCallId: vapiId,
     provider: 'vapi',
     direction,
@@ -267,12 +172,12 @@ function ensureCallFromVapi(message: Record<string, unknown>): Record<string, un
     status: 'in_progress',
     transcript: [],
     startedAt: new Date().toISOString(),
-    contactName,
-    customerId,
-    ...monitor,
+    contactName: identity.kind !== 'customer'
+      ? identity.name
+      : (resolved.customerName || resolved.contactName),
+    customerId: resolved.customerId,
     metadata: {
       ...metaIn,
-      ...monitor,
       vapiCallId: vapiId,
       tradeproCallId: tradeproCallId || undefined,
       partyPhone,
@@ -421,6 +326,8 @@ function finalizeVapiCall(
     return 'Outbound call completed (no summary from provider).';
   })();
 
+  const durationSec = after ? computeCallDurationSec(after) : undefined;
+
   saveCall({
     id: callId,
     status: 'completed',
@@ -429,7 +336,7 @@ function finalizeVapiCall(
     outcome: disposition || endedReason || (after?.outcome as string | undefined),
     transferredTo,
     sentiment: after ? computeCallSentiment(after) : undefined,
-    durationSec: after ? computeCallDurationSec(after) : undefined,
+    durationSec,
     metadata: {
       ...afterMeta,
       vapiEndedReason: endedReason || undefined,
@@ -439,7 +346,37 @@ function finalizeVapiCall(
     },
   });
 
+  // Outbound phone-minute metering (mobile vs landline rates applied at summary time)
+  try {
+    const dir = String(after?.direction || '').toLowerCase();
+    if (dir === 'outbound' && durationSec && durationSec > 0) {
+      const toNumber = String(after?.to || partyPhone || '');
+      void import('./phone-billing').then(({ recordOutboundPhoneUsage }) => {
+        recordOutboundPhoneUsage({
+          orgId: DEFAULT_ORG_ID,
+          seconds: durationSec,
+          toNumber,
+          fromNumber: after?.from ? String(after.from) : undefined,
+          callId,
+        });
+      }).catch(() => {});
+    }
+  } catch {
+    /* metering must not break finalize */
+  }
+
   void backfillCallRecordingOnFinalize(callId, recordingUrl, DEFAULT_ORG_ID);
+
+  void import('./analytics-routes').then(({ pushAnalyticsEvent }) => {
+    pushAnalyticsEvent({
+      type: 'call.ended',
+      callId,
+      direction: after?.direction ?? 'inbound',
+      durationSec: after ? computeCallDurationSec(after) : undefined,
+      outcome: disposition || endedReason || undefined,
+      recordingUrl: recordingUrl || undefined,
+    });
+  }).catch(() => {});
 
   completeOutboundJobsForCall(callId, { disposition, endedReason: endedReason || undefined });
 
@@ -775,6 +712,72 @@ function persistTranscriptTurn(
       callId,
       summary: `Caller: ${trimmed.slice(0, 200)}`,
     });
+  }
+}
+
+function extractMonitorUrls(callOrMessage: Record<string, unknown>): {
+  listenUrl?: string;
+  controlUrl?: string;
+} {
+  const call = (callOrMessage.call || callOrMessage) as Record<string, unknown>;
+  const monitor = (call.monitor || callOrMessage.monitor || {}) as Record<string, unknown>;
+  const listenUrl = String(monitor.listenUrl || call.listenUrl || '').trim();
+  const controlUrl = String(monitor.controlUrl || call.controlUrl || '').trim();
+  return {
+    ...(listenUrl ? { listenUrl } : {}),
+    ...(controlUrl ? { controlUrl } : {}),
+  };
+}
+
+async function enrichMonitorUrlsFromVapi(
+  callId: string,
+  vapiCallId: string,
+  existing?: { listenUrl?: string; controlUrl?: string },
+): Promise<{ listenUrl?: string; controlUrl?: string }> {
+  if (existing?.listenUrl) return existing;
+  try {
+    const { ok, json } = await vapiFetch(`/call/${encodeURIComponent(vapiCallId)}`);
+    if (!ok) return existing ?? {};
+    const monitor = (json.monitor || {}) as Record<string, unknown>;
+    const listenUrl = String(monitor.listenUrl || '').trim();
+    const controlUrl = String(monitor.controlUrl || '').trim();
+    if (listenUrl || controlUrl) {
+      saveCall({
+        id: callId,
+        ...(listenUrl ? { listenUrl } : {}),
+        ...(controlUrl ? { controlUrl } : {}),
+        metadata: {
+          ...(((getCallById(callId)?.metadata as Record<string, unknown> | undefined) || {})),
+          ...(listenUrl ? { listenUrl } : {}),
+          ...(controlUrl ? { controlUrl } : {}),
+        },
+      });
+      if (listenUrl) stampListenUrlOnOrders(callId, listenUrl);
+    }
+    return {
+      ...(listenUrl ? { listenUrl } : {}),
+      ...(controlUrl ? { controlUrl } : {}),
+    };
+  } catch {
+    return existing ?? {};
+  }
+}
+
+/** Stamp listenUrl onto any orders linked to an active call (9D). */
+function stampListenUrlOnOrders(callId: string, listenUrl: string): void {
+  if (!callId || !listenUrl) return;
+  try {
+    const store = getDataStore();
+    const orders = Array.isArray(store.orders) ? store.orders : [];
+    for (const order of orders) {
+      const sourceCall = String(order.sourceCallId ?? '');
+      const callIds = Array.isArray(order.callIds) ? order.callIds.map(String) : [];
+      if (sourceCall !== callId && !callIds.includes(callId)) continue;
+      if (order.listenUrl === listenUrl) continue;
+      order.listenUrl = listenUrl;
+    }
+  } catch {
+    // ignore
   }
 }
 

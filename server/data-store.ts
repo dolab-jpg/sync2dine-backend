@@ -64,6 +64,8 @@ export interface SyncedData {
   recruitmentJobs: Array<Record<string, unknown>>;
   recruitmentCandidates: Array<Record<string, unknown>>;
   recruitmentInterviews: Array<Record<string, unknown>>;
+  recruitmentApplications: Array<Record<string, unknown>>;
+  recruitmentOnboardingTasks: Array<Record<string, unknown>>;
   quotes: Array<Record<string, unknown>>;
   customers: Array<Record<string, unknown>>;
   bankAccounts: Array<Record<string, unknown>>;
@@ -231,6 +233,8 @@ const defaultData: SyncedData = {
   recruitmentJobs: defaultRecruitmentJobs,
   recruitmentCandidates: [],
   recruitmentInterviews: [],
+  recruitmentApplications: [],
+  recruitmentOnboardingTasks: [],
   customers: [],
   quotes: [],
   bankAccounts: [],
@@ -275,6 +279,8 @@ function loadFromDisk(orgId: string): SyncedData {
           : defaultRecruitmentJobs,
         recruitmentCandidates: Array.isArray(parsed.recruitmentCandidates) ? parsed.recruitmentCandidates : [],
         recruitmentInterviews: Array.isArray(parsed.recruitmentInterviews) ? parsed.recruitmentInterviews : [],
+        recruitmentApplications: Array.isArray(parsed.recruitmentApplications) ? parsed.recruitmentApplications : [],
+        recruitmentOnboardingTasks: Array.isArray(parsed.recruitmentOnboardingTasks) ? parsed.recruitmentOnboardingTasks : [],
         customers: Array.isArray(parsed.customers) ? parsed.customers : [],
         quotes: Array.isArray(parsed.quotes) ? parsed.quotes : [],
         bankAccounts: Array.isArray(parsed.bankAccounts) ? parsed.bankAccounts : [],
@@ -1828,4 +1834,110 @@ export function isAfterHours(
   const day = now.getDay();
   if (day === 0 || day === 6) return true;
   return minutes < startMinutes || minutes >= endMinutes;
+}
+
+// ── Recruitment: applications ────────────────────────────────────────
+
+export function saveRecruitmentApplication(app: Record<string, unknown>): Record<string, unknown> {
+  const store = getDataStore();
+  const id = String(app.id ?? `APP${Date.now()}`);
+  const existing = store.recruitmentApplications.findIndex(a => String(a.id) === id);
+  const record = { ...app, id, updatedAt: new Date().toISOString(), createdAt: app.createdAt ?? new Date().toISOString() };
+  if (existing >= 0) {
+    store.recruitmentApplications[existing] = { ...store.recruitmentApplications[existing], ...record };
+  } else {
+    store.recruitmentApplications.unshift(record);
+  }
+  syncData(store);
+  return record;
+}
+
+export function updateRecruitmentApplication(id: string, patch: Record<string, unknown>): Record<string, unknown> | null {
+  const store = getDataStore();
+  const idx = store.recruitmentApplications.findIndex(a => String(a.id) === id);
+  if (idx < 0) return null;
+  store.recruitmentApplications[idx] = { ...store.recruitmentApplications[idx], ...patch, updatedAt: new Date().toISOString() };
+  syncData(store);
+  return store.recruitmentApplications[idx];
+}
+
+// ── Recruitment: onboarding tasks ────────────────────────────────────
+
+export function saveRecruitmentOnboardingTask(task: Record<string, unknown>): Record<string, unknown> {
+  const store = getDataStore();
+  const id = String(task.id ?? `OB${Date.now()}`);
+  const existing = store.recruitmentOnboardingTasks.findIndex(t => String(t.id) === id);
+  const record = { ...task, id, updatedAt: new Date().toISOString() };
+  if (existing >= 0) {
+    store.recruitmentOnboardingTasks[existing] = { ...store.recruitmentOnboardingTasks[existing], ...record };
+  } else {
+    store.recruitmentOnboardingTasks.unshift(record);
+  }
+  syncData(store);
+  return record;
+}
+
+export function updateRecruitmentOnboardingTask(id: string, patch: Record<string, unknown>): Record<string, unknown> | null {
+  const store = getDataStore();
+  const idx = store.recruitmentOnboardingTasks.findIndex(t => String(t.id) === id);
+  if (idx < 0) return null;
+  store.recruitmentOnboardingTasks[idx] = { ...store.recruitmentOnboardingTasks[idx], ...patch, updatedAt: new Date().toISOString() };
+  syncData(store);
+  return store.recruitmentOnboardingTasks[idx];
+}
+
+export function completeOnboardingTaskByCategory(candidateId: string, category: string): Record<string, unknown> | null {
+  const store = getDataStore();
+  const task = store.recruitmentOnboardingTasks.find(
+    t => String(t.candidateId) === candidateId && String(t.category) === category && String(t.status) !== 'completed',
+  );
+  if (!task) return null;
+  return updateRecruitmentOnboardingTask(String(task.id), { status: 'completed' });
+}
+
+const DEFAULT_ONBOARDING_CHECKLIST = [
+  { task: 'Complete right to work documentation', category: 'documentation', assignedTo: 'HR Team' },
+  { task: 'Provide bank details for payroll', category: 'documentation', assignedTo: 'HR Team' },
+  { task: 'Complete health & safety induction', category: 'training', assignedTo: 'H&S Officer' },
+  { task: 'Issue company van and equipment', category: 'equipment', assignedTo: 'Operations' },
+  { task: 'Set up email and system access', category: 'access', assignedTo: 'IT Team' },
+  { task: 'First day orientation with team', category: 'orientation', assignedTo: 'Line Manager' },
+];
+
+export function seedOnboardingForCandidate(candidateId: string): Record<string, unknown>[] {
+  const store = getDataStore();
+  const existing = store.recruitmentOnboardingTasks.filter(t => String(t.candidateId) === candidateId);
+  if (existing.length > 0) return existing;
+  const now = new Date();
+  const seeded: Record<string, unknown>[] = [];
+  for (let i = 0; i < DEFAULT_ONBOARDING_CHECKLIST.length; i++) {
+    const tmpl = DEFAULT_ONBOARDING_CHECKLIST[i];
+    const due = new Date(now.getTime() + (i + 1) * 86400000).toISOString().slice(0, 10);
+    const task = saveRecruitmentOnboardingTask({
+      candidateId,
+      task: tmpl.task,
+      category: tmpl.category,
+      status: 'pending',
+      dueDate: due,
+      assignedTo: tmpl.assignedTo,
+    });
+    seeded.push(task);
+  }
+  return seeded;
+}
+
+// ── Recruitment: job postings ────────────────────────────────────────
+
+export function saveRecruitmentJob(job: Record<string, unknown>): Record<string, unknown> {
+  const store = getDataStore();
+  const id = String(job.id ?? `J${Date.now()}`);
+  const existing = store.recruitmentJobs.findIndex(j => String(j.id) === id);
+  const record = { ...job, id, updatedAt: new Date().toISOString(), createdAt: job.createdAt ?? new Date().toISOString() };
+  if (existing >= 0) {
+    store.recruitmentJobs[existing] = { ...store.recruitmentJobs[existing], ...record };
+  } else {
+    store.recruitmentJobs.unshift(record);
+  }
+  syncData(store);
+  return record;
 }

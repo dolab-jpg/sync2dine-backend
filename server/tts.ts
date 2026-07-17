@@ -1,6 +1,8 @@
 import { getAgentSettings, getCallById, getRequestOrgId } from './data-store';
 import { getOrgOpenAIApiKey, listOrganizations } from './organizations';
 import { requireOpenAIApiKeyAsync, resolveOpenAIApiKeyAsync } from './openai-connection';
+import { resolveElevenLabsApiKey } from './org-elevenlabs';
+import { recordProviderUsage } from './usage';
 
 export const OPENAI_TTS_VOICE_IDS = new Set(['fable', 'alloy', 'nova', 'shimmer', 'echo', 'onyx']);
 
@@ -71,8 +73,8 @@ function resolveVoiceId(override?: string | null): string | null {
   );
 }
 
-function getElevenLabsConfig(): { apiKey: string; voiceId: string; modelId: string } | null {
-  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+function getElevenLabsConfig(orgId?: string | null): { apiKey: string; voiceId: string; modelId: string } | null {
+  const apiKey = resolveElevenLabsApiKey(orgId ?? getRequestOrgId());
   if (!apiKey) return null;
   const voiceId = (
     process.env.ELEVENLABS_VOICE_ID?.trim()
@@ -88,7 +90,8 @@ async function synthesizeWithElevenLabs(
   voiceId: string,
   format: 'mp3' | 'pcm' | 'mulaw' = 'mp3',
 ): Promise<TtsResult> {
-  const cfg = getElevenLabsConfig();
+  const orgId = getRequestOrgId();
+  const cfg = getElevenLabsConfig(orgId);
   if (!cfg) throw new Error('ELEVENLABS_API_KEY not configured');
   const outputFormat = format === 'mulaw'
     ? 'ulaw_8000'
@@ -125,6 +128,22 @@ async function synthesizeWithElevenLabs(
     : format === 'pcm'
       ? 'audio/L16; rate=24000; channels=1'
       : 'audio/mpeg';
+  const meterOrg = orgId && orgId !== 'default' ? orgId : resolveTtsOrgId();
+  if (meterOrg && text) {
+    try {
+      recordProviderUsage({
+        orgId: meterOrg,
+        provider: 'elevenlabs',
+        unit: 'characters',
+        quantity: text.length,
+        endpoint: 'tts.elevenlabs',
+        model: cfg.modelId,
+        metadata: { voiceId, format },
+      });
+    } catch {
+      /* metering must not break TTS */
+    }
+  }
   return { buffer, contentType, provider: 'elevenlabs' };
 }
 
