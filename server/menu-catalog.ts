@@ -33,12 +33,16 @@ export interface MenuItem {
 }
 
 const FOOD_CATEGORIES = new Set(['starters', 'mains', 'sides', 'drinks', 'desserts', 'specials', 'other']);
+// BD legacy bathroom catalog categories — never read these as food. We filter by
+// category (not tradeId) because the FE product migration historically stamped
+// tradeId:'bathroom' onto every synced row, including food.
+const BATHROOM_CATEGORIES = new Set(['toilet', 'basin', 'shower', 'bath', 'tap', 'accessory', 'tile']);
 
 function rowToMenuItem(id: string, data: Record<string, unknown>): MenuItem | null {
   const name = typeof data.name === 'string' ? data.name.trim() : '';
   if (!name) return null;
-  // Bathroom/trade catalog rows carry a tradeId — never read them as food.
-  if (data.tradeId) return null;
+  const catRaw = typeof data.category === 'string' ? data.category.trim().toLowerCase() : '';
+  if (BATHROOM_CATEGORIES.has(catRaw)) return null;
   if (data.available === false) return null;
   const price = Number(data.price ?? data.sellPrice ?? data.basePrice ?? NaN);
   if (!Number.isFinite(price) || price < 0) return null;
