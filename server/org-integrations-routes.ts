@@ -10,6 +10,7 @@ import {
 import { isMaskedOrPlaceholder } from './integration-secret-fields';
 import { syncOrgOpenAIKeyToSupabase, setOrgAIBrainConfig } from './organizations';
 import { encryptSecret } from './crypto';
+import { buildOrgIntegrationsStatus } from './org-integrations-status';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -135,6 +136,21 @@ export async function handleOrgIntegrationsRoutes(
     fetch('http://127.0.0.1:7756/ingest/45011e36-ac12-4dbc-b7c1-e1827334fcf5',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'73adb0'},body:JSON.stringify({sessionId:'73adb0',runId:'pre-deploy',hypothesisId:'H1',location:'org-integrations-routes.ts:GET:done',message:'list complete',data:{orgId,summary,count:integrations.length},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
     sendJson(res, 200, { orgId, integrations, summary });
+    return true;
+  }
+
+  // GET /api/org/integrations/status — Supabase + env + runtime merge for hub hydrate
+  if (pathname === '/api/org/integrations/status' && req.method === 'GET') {
+    const orgId = resolveOrgIdForRequest(req);
+    if (!assertHasOrg(req, res, orgId)) return true;
+    try {
+      const payload = await buildOrgIntegrationsStatus(orgId!);
+      sendJson(res, 200, payload);
+    } catch (err) {
+      sendJson(res, 500, {
+        error: err instanceof Error ? err.message : 'Failed to build integrations status',
+      });
+    }
     return true;
   }
 
