@@ -53,6 +53,10 @@ export interface CallSession {
   projectId?: string | null;
   transcript: CallTurn[];
   recordingUrl?: string;
+  stereoRecordingUrl?: string;
+  recordingStoragePath?: string;
+  stereoStoragePath?: string;
+  recordingStoredAt?: string;
   escalated?: boolean;
   transferredTo?: string;
   campaignTemplate?: OutboundCampaignTemplate;

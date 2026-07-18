@@ -9,7 +9,6 @@ import {
   completeOutboundJobsForCall,
   computeCallDurationSec,
   computeCallSentiment,
-  DEFAULT_ORG_ID,
   ensureGuestCustomerForCall,
   getAgentCapacitySnapshot,
   getAgentSettings,
@@ -20,6 +19,7 @@ import {
   resolveContactByPhone,
   saveCall,
   setRequestOrgId,
+  stampCustomerLastRecording,
 } from './data-store';
 import { mapEndedReasonToDisposition } from './lead-call-disposition';
 import { appendConversationMessage } from './conversation-store';
@@ -30,7 +30,14 @@ import {
 } from './orchestrator-tool-exec';
 import { executePhoneTool, PHONE_AUTO_ACTIONS } from './phone-tools';
 import { backfillCallRecordingOnFinalize } from './call-recording-backfill';
+import {
+  extractRecordingUrls,
+  lineDidForDirection,
+  preferredRecordingUrl,
+} from './call-recording-artifacts';
+import { ingestCallRecording } from './call-recording-store';
 import type { OrchestratorRequest } from './orchestrator-types';
+import { getDemoKitchenOrgId } from './home-org';
 import {
   getVapiServerSecret,
   getVapiPublicKey,
@@ -130,8 +137,72 @@ function partyPhoneFromCall(call: Record<string, unknown> | undefined): string {
   return toE164Uk(from || customerNumber || to);
 }
 
+function phoneOrgId(): string {
+  return getDemoKitchenOrgId();
+}
+
+/** Fill empty from/to/partyPhone/lineDid on an existing call when later webhooks carry CLI. */
+function backfillCallIdentity(
+  callId: string,
+  vapiCall: Record<string, unknown>,
+  metaIn: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const existing = getCallById(callId);
+  if (!existing) return existing as unknown as Record<string, unknown>;
+  const existingMeta = (existing.metadata as Record<string, unknown> | undefined) || {};
+  const directionRaw = String(vapiCall.type || existing.direction || '').toLowerCase();
+  const direction = directionRaw.includes('outbound') ? 'outbound' : String(existing.direction || 'inbound');
+  const partyPhone = partyPhoneFromCall(vapiCall)
+    || toE164Uk(String(metaIn.partyPhone || existingMeta.partyPhone || ''));
+  const lineDid = lineDidForDirection(
+    direction,
+    vapiCall,
+    String(process.env.SOHO66_FROM_NUMBER || existingMeta.lineDid || ''),
+  );
+  const fromEmpty = !String(existing.from || '').trim();
+  const toEmpty = !String(existing.to || '').trim();
+  const partyEmpty = !String(existingMeta.partyPhone || '').trim();
+  const lineEmpty = !String(existingMeta.lineDid || '').trim();
+  if (!partyPhone && !lineDid && !fromEmpty && !toEmpty) {
+    return existing;
+  }
+  const from = direction === 'outbound'
+    ? (String(existing.from || '').trim() || lineDid)
+    : (String(existing.from || '').trim() || partyPhone);
+  const to = direction === 'outbound'
+    ? (String(existing.to || '').trim() || partyPhone)
+    : (String(existing.to || '').trim() || lineDid);
+
+  let contactName = existing.contactName;
+  let customerId = existing.customerId;
+  if (partyPhone && partyEmpty) {
+    const identity = resolvePhoneCallerIdentity(partyPhone);
+    const resolved = resolveContactByPhone(partyPhone);
+    contactName = identity.kind !== 'customer'
+      ? identity.name
+      : (resolved.customerName || resolved.contactName || contactName);
+    customerId = resolved.customerId ?? customerId;
+  }
+
+  return saveCall({
+    id: callId,
+    providerCallId: String(existing.providerCallId || vapiCall.id || ''),
+    ...(fromEmpty || partyPhone ? { from } : {}),
+    ...(toEmpty || lineDid ? { to } : {}),
+    ...(contactName ? { contactName } : {}),
+    ...(customerId != null ? { customerId } : {}),
+    metadata: {
+      ...existingMeta,
+      ...metaIn,
+      vapiCallId: String(existingMeta.vapiCallId || vapiCall.id || ''),
+      ...(partyPhone ? { partyPhone } : {}),
+      ...(lineDid ? { lineDid } : {}),
+    },
+  });
+}
+
 function ensureCallFromVapi(message: Record<string, unknown>): Record<string, unknown> {
-  setRequestOrgId(DEFAULT_ORG_ID);
+  setRequestOrgId(phoneOrgId());
   const call = (message.call || message) as Record<string, unknown>;
   const vapiId = String(call.id || message.callId || `vapi-${Date.now()}`);
   const metaIn = (call.metadata || message.metadata || {}) as Record<string, unknown>;
@@ -139,36 +210,38 @@ function ensureCallFromVapi(message: Record<string, unknown>): Record<string, un
 
   const byProvider = getCallByProviderId(vapiId);
   if (byProvider) {
-    // Link provider id + merge any orphan UUID-as-id twin transcripts
-    return mergeOrphanVapiCall(String(byProvider.id), vapiId, metaIn);
+    const merged = mergeOrphanVapiCall(String(byProvider.id), vapiId, metaIn);
+    return backfillCallIdentity(String(merged.id), call, metaIn);
   }
   if (tradeproCallId) {
     const byTrade = getCallById(tradeproCallId);
     if (byTrade) {
-      return mergeOrphanVapiCall(tradeproCallId, vapiId, {
+      const merged = mergeOrphanVapiCall(tradeproCallId, vapiId, {
         ...((byTrade.metadata as Record<string, unknown> | undefined) || {}),
         ...metaIn,
       });
+      return backfillCallIdentity(String(merged.id), call, metaIn);
     }
   }
   const existing = getCallById(vapiId);
-  if (existing) return existing;
+  if (existing) {
+    return backfillCallIdentity(String(existing.id), call, metaIn);
+  }
 
   const partyPhone = partyPhoneFromCall(call) || toE164Uk(String(metaIn.partyPhone || ''));
   const identity = resolvePhoneCallerIdentity(partyPhone);
   const resolved = resolveContactByPhone(partyPhone);
   const directionRaw = String(call.type || '').toLowerCase();
   const direction = directionRaw.includes('outbound') ? 'outbound' : 'inbound';
+  const lineDid = lineDidForDirection(direction, call, String(process.env.SOHO66_FROM_NUMBER || ''));
 
   return saveCall({
     id: tradeproCallId || vapiId,
     providerCallId: vapiId,
     provider: 'vapi',
     direction,
-    from: direction === 'outbound'
-      ? String(process.env.SOHO66_FROM_NUMBER || '')
-      : partyPhone,
-    to: direction === 'outbound' ? partyPhone : String(process.env.SOHO66_FROM_NUMBER || ''),
+    from: direction === 'outbound' ? lineDid : partyPhone,
+    to: direction === 'outbound' ? partyPhone : lineDid,
     status: 'in_progress',
     transcript: [],
     startedAt: new Date().toISOString(),
@@ -181,6 +254,7 @@ function ensureCallFromVapi(message: Record<string, unknown>): Record<string, un
       vapiCallId: vapiId,
       tradeproCallId: tradeproCallId || undefined,
       partyPhone,
+      lineDid,
       callerKind: identity.kind,
       callerRole: identity.role,
       phoneAuth: identity.needsPin ? 'pending' : 'n/a',
@@ -214,6 +288,14 @@ function mergeOrphanVapiCall(
     providerCallId: vapiId,
     provider: 'vapi',
     ...(orphan?.recordingUrl && !primary?.recordingUrl ? { recordingUrl: orphan.recordingUrl } : {}),
+    ...(orphan?.stereoRecordingUrl && !primary?.stereoRecordingUrl
+      ? { stereoRecordingUrl: orphan.stereoRecordingUrl }
+      : {}),
+    ...(orphan?.recordingStoragePath && !primary?.recordingStoragePath
+      ? { recordingStoragePath: orphan.recordingStoragePath }
+      : {}),
+    ...(orphan?.from && !primary?.from ? { from: orphan.from } : {}),
+    ...(orphan?.to && !primary?.to ? { to: orphan.to } : {}),
     ...(orphan?.contactName && !primary?.contactName ? { contactName: orphan.contactName } : {}),
     ...(orphan?.customerId && !primary?.customerId ? { customerId: orphan.customerId } : {}),
     transcript: mergedTranscript,
@@ -221,6 +303,19 @@ function mergeOrphanVapiCall(
       ...primaryMeta,
       vapiCallId: vapiId,
       tradeproCallId: tradeproId,
+      ...(primaryMeta.partyPhone || orphan?.metadata
+        ? {
+            partyPhone: primaryMeta.partyPhone
+              || ((orphan?.metadata as Record<string, unknown> | undefined)?.partyPhone),
+          }
+        : {}),
+      ...(primaryMeta.lineDid
+        || ((orphan?.metadata as Record<string, unknown> | undefined)?.lineDid)
+        ? {
+            lineDid: primaryMeta.lineDid
+              || ((orphan?.metadata as Record<string, unknown> | undefined)?.lineDid),
+          }
+        : {}),
     },
   });
 
@@ -291,12 +386,14 @@ function finalizeVapiCall(
     || (message.analysis as Record<string, unknown> | undefined)?.summary
     || '',
   ).trim();
-  const recordingUrl = String(
-    artifact?.recordingUrl
-    || message.recordingUrl
-    || '',
-  ).trim() || undefined;
+  const extracted = extractRecordingUrls(message);
+  const recordingUrl = preferredRecordingUrl(extracted)
+    || String(artifact?.recordingUrl || message.recordingUrl || '').trim()
+    || undefined;
+  const stereoRecordingUrl = extracted.stereoRecordingUrl;
+  const monoRecordingUrl = extracted.recordingUrl;
   const endedReason = String(message.endedReason || message.ended_reason || message.reason || '');
+  const cost = message.cost ?? (message.costBreakdown as Record<string, unknown> | undefined)?.total;
 
   const after = getCallById(callId);
   const afterMeta = (after?.metadata as Record<string, unknown> | undefined) || {};
@@ -327,20 +424,26 @@ function finalizeVapiCall(
   })();
 
   const durationSec = after ? computeCallDurationSec(after) : undefined;
+  const lineDid = String(afterMeta.lineDid || '').trim()
+    || lineDidForDirection(String(after?.direction || 'inbound'), message.call as Record<string, unknown> | undefined);
 
   saveCall({
     id: callId,
     status: 'completed',
     endedAt: new Date().toISOString(),
-    recordingUrl: recordingUrl || (after?.recordingUrl as string | undefined),
+    recordingUrl: monoRecordingUrl || recordingUrl || (after?.recordingUrl as string | undefined),
+    ...(stereoRecordingUrl ? { stereoRecordingUrl } : {}),
     outcome: disposition || endedReason || (after?.outcome as string | undefined),
     transferredTo,
     sentiment: after ? computeCallSentiment(after) : undefined,
     durationSec,
     metadata: {
       ...afterMeta,
+      partyPhone: afterMeta.partyPhone || partyPhone || undefined,
+      lineDid: lineDid || afterMeta.lineDid,
       vapiEndedReason: endedReason || undefined,
       vapiSummary: summary || undefined,
+      ...(cost != null ? { vapiCost: cost } : {}),
       disposition,
       brief: afterMeta.brief ?? afterMeta.aim,
     },
@@ -353,7 +456,7 @@ function finalizeVapiCall(
       const toNumber = String(after?.to || partyPhone || '');
       void import('./phone-billing').then(({ recordOutboundPhoneUsage }) => {
         recordOutboundPhoneUsage({
-          orgId: DEFAULT_ORG_ID,
+          orgId: phoneOrgId(),
           seconds: durationSec,
           toNumber,
           fromNumber: after?.from ? String(after.from) : undefined,
@@ -365,7 +468,17 @@ function finalizeVapiCall(
     /* metering must not break finalize */
   }
 
-  void backfillCallRecordingOnFinalize(callId, recordingUrl, DEFAULT_ORG_ID);
+  const finalProviderUrl = monoRecordingUrl || stereoRecordingUrl || recordingUrl;
+  void backfillCallRecordingOnFinalize(callId, finalProviderUrl, phoneOrgId());
+  void ingestCallRecording({
+    callId,
+    orgId: phoneOrgId(),
+    urls: {
+      recordingUrl: monoRecordingUrl || recordingUrl,
+      stereoRecordingUrl,
+    },
+    messageOrCall: message,
+  });
 
   void import('./analytics-routes').then(({ pushAnalyticsEvent }) => {
     pushAnalyticsEvent({
@@ -374,7 +487,7 @@ function finalizeVapiCall(
       direction: after?.direction ?? 'inbound',
       durationSec: after ? computeCallDurationSec(after) : undefined,
       outcome: disposition || endedReason || undefined,
-      recordingUrl: recordingUrl || undefined,
+      recordingUrl: finalProviderUrl || undefined,
     });
   }).catch(() => {});
 
@@ -395,6 +508,7 @@ function finalizeVapiCall(
       transferredTo ? `Transferred to: ${transferredTo}` : '',
       afterMeta.brief ? `Staff brief was: ${String(afterMeta.brief).slice(0, 200)}` : '',
     ].filter(Boolean);
+    const finalRecordingUrl = recordingUrl || (after?.recordingUrl as string | undefined);
     appendCustomerCallActivity({
       customerId,
       callId,
@@ -406,7 +520,9 @@ function finalizeVapiCall(
       type: 'call',
       updateCallQueue: true,
       transferredTo,
+      recordingUrl: finalRecordingUrl,
     });
+    stampCustomerLastRecording(customerId, finalRecordingUrl, callId);
   }
 }
 
@@ -502,7 +618,7 @@ function buildStaffOrchBodyFromCall(
   partyPhone: string,
   identity: ReturnType<typeof resolvePhoneCallerIdentity>,
 ): OrchestratorRequest {
-  return buildStaffOrchBody({ call, callId, partyPhone, identity, orgId: DEFAULT_ORG_ID });
+  return buildStaffOrchBody({ call, callId, partyPhone, identity, orgId: phoneOrgId() });
 }
 
 async function executeTool(
@@ -666,6 +782,30 @@ async function executeTool(
   return executePhoneTool(name, args, orchBody);
 }
 
+function summarizeToolResult(toolName: string, output: unknown, error?: string): string {
+  if (error) return `tool:${toolName} → error: ${error.slice(0, 160)}`;
+  if (output == null) return `tool:${toolName} → ok`;
+  if (typeof output === 'string') {
+    const t = output.trim();
+    return `tool:${toolName} → ${t.slice(0, 180) || 'ok'}`;
+  }
+  if (typeof output === 'object') {
+    const o = output as Record<string, unknown>;
+    if (o.error != null) return `tool:${toolName} → error: ${String(o.error).slice(0, 160)}`;
+    const bits = [
+      o.ok === false ? 'failed' : 'ok',
+      o.customerId != null ? `customer ${String(o.customerId)}` : '',
+      o.orderId != null ? `order ${String(o.orderId)}` : '',
+      o.bookingId != null ? `booking ${String(o.bookingId)}` : '',
+      o.summary != null ? String(o.summary) : '',
+      o.message != null ? String(o.message) : '',
+      o.spoken != null ? String(o.spoken) : '',
+    ].filter(Boolean);
+    return `tool:${toolName} → ${bits.join(' · ').slice(0, 220)}`;
+  }
+  return `tool:${toolName} → ok`;
+}
+
 function persistTranscriptTurn(
   callId: string,
   partyPhone: string,
@@ -682,7 +822,7 @@ function persistTranscriptTurn(
   const turnRole = role === 'user' ? 'caller' : 'agent';
   appendCallTurn(callId, { role: turnRole, content: trimmed });
   appendConversationMessage(
-    DEFAULT_ORG_ID,
+    phoneOrgId(),
     partyPhone,
     {
       role,
@@ -842,6 +982,10 @@ async function handleVapiMessage(
     const tools = parseToolCalls(message);
     const results = await Promise.all(tools.map(async (tool) => {
       if (shouldSkipDuplicateTool(String(call.id), tool.id)) {
+        appendCallTurn(String(call.id), {
+          role: 'system',
+          content: `tool:${tool.name} → ok (deduped)`,
+        });
         return {
           toolCallId: tool.id,
           result: JSON.stringify({ ok: true, deduped: true }),
@@ -849,14 +993,23 @@ async function handleVapiMessage(
       }
       try {
         const output = await executeTool(tool.name, tool.arguments, call, partyPhone);
+        appendCallTurn(String(call.id), {
+          role: 'system',
+          content: summarizeToolResult(tool.name, output),
+        });
         return {
           toolCallId: tool.id,
           result: JSON.stringify(output),
         };
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        appendCallTurn(String(call.id), {
+          role: 'system',
+          content: `tool:${tool.name} → error: ${message.slice(0, 160)}`,
+        });
         return {
           toolCallId: tool.id,
-          result: JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+          result: JSON.stringify({ error: message }),
         };
       }
     }));
@@ -1007,7 +1160,7 @@ export async function handleVapiWebSession(
   const headerUser = typeof req.headers['x-user-id'] === 'string' ? req.headers['x-user-id'].trim() : '';
   const headerOrg = typeof req.headers['x-org-id'] === 'string' ? req.headers['x-org-id'].trim() : '';
   const staffUserId = String(body.userId || headerUser || '').trim();
-  const orgId = String(body.orgId || headerOrg || DEFAULT_ORG_ID).trim();
+  const orgId = String(body.orgId || headerOrg || phoneOrgId()).trim();
   if (!staffUserId) {
     sendJson(res, 401, { error: 'Authenticated userId required', code: 'staff_not_resolved' });
     return;

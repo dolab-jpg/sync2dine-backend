@@ -17,16 +17,17 @@ import {
   ensureGuestCustomerForCall,
   resolvePhoneLineByDid,
   saveCall,
+  stampCustomerLastRecording,
   syncData,
   setRequestOrgId,
   updateOutboundJob,
+  expireStaleOpenCalls,
 } from './data-store';
-import { resolveOrgIdForRequest } from './auth';
+import { resolveOrgIdForRequest, isAuthEnforced, requireAuth } from './auth';
 import { OpenAIConnectionError } from './openai-connection';
 import { getOrganizationByPhoneDid } from './organizations';
 import { handleChannelInbound } from './channel-inbound-handler';
 import { buildPhoneBrainPrompt } from './phone-brain';
-import { backfillCallRecordingOnFinalize } from './call-recording-backfill';
 import {
   getTelephonyProvider,
   resolveTelephonyConfig,
@@ -34,6 +35,9 @@ import {
   type CallEvent,
   type OutboundCampaignTemplate,
 } from './telephony';
+import { enrichCallListRow } from './call-recording-artifacts';
+import { resolveCallPlaybackUrl, ingestCallRecording } from './call-recording-store';
+import { refreshCallFromProvider, refreshCallsMissingArtifacts } from './call-provider-refresh';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -253,11 +257,11 @@ async function processCallTurn(
     .trim()
     .slice(0, 500)
     || (isConnect
-      ? `Hello${resolved.customerName ? ` ${resolved.customerName}` : ''}, it's Lizzie from Sync2Dine. How can I help today?`
+      ? `Hello${resolved.customerName ? ` ${resolved.customerName}` : ''}, it's Cynthia from Builder Diddies. How can I help today?`
       : "Sorry, I didn't quite catch that — could you say that again?");
 
   appendCallTurn(String(call.id), { role: 'agent', content: speak });
-  await appendAuditLog(call, 'assistant', speak, 'Lizzie');
+  await appendAuditLog(call, 'assistant', speak, 'Cynthia');
 
   const updated = getCallById(String(call.id)) ?? call;
   saveCall({
@@ -273,7 +277,7 @@ async function processCallTurn(
     appendCustomerCallActivity({
       customerId: resolved.customerId,
       callId: String(call.id),
-      summary: `Caller: ${speechText.slice(0, 160)} | Lizzie: ${speak.slice(0, 160)}`,
+      summary: `Caller: ${speechText.slice(0, 160)} | Cynthia: ${speak.slice(0, 160)}`,
     });
   }
 
@@ -339,6 +343,7 @@ export async function handlePhoneStatus(req: IncomingMessage, res: ServerRespons
   if (event?.providerCallId || event?.callId) {
     const call = getCallByProviderId(event.providerCallId ?? '') ?? getCallById(event.callId);
     if (call && event.status) {
+      const recordingUrl = event.recordingUrl || (call.recordingUrl as string | undefined);
       saveCall({
         id: call.id,
         status: event.status,
@@ -350,8 +355,9 @@ export async function handlePhoneStatus(req: IncomingMessage, res: ServerRespons
           ? computeCallDurationSec({ ...call, endedAt: new Date().toISOString() })
           : undefined,
       });
-      if (event.recordingUrl && ['completed', 'failed'].includes(event.status)) {
-        void backfillCallRecordingOnFinalize(String(call.id), event.recordingUrl, DEFAULT_ORG_ID);
+      const customerId = call.customerId != null ? String(call.customerId) : '';
+      if (customerId && recordingUrl) {
+        stampCustomerLastRecording(customerId, recordingUrl, String(call.id));
       }
     }
   }
@@ -410,6 +416,8 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
     return;
   }
 
+  const config = resolveTelephonyConfig();
+  const provider = getTelephonyProvider(config);
   const callId = `out-${Date.now()}`;
   const meta = {
     ...(context && typeof context === 'object' ? context : {}),
@@ -417,23 +425,6 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
     aim: context?.aim ?? context?.reason,
     brief: context?.brief ?? context?.aim ?? context?.reason,
   };
-
-  if (body.enqueueOnly === true || body.enqueueOnly === '1') {
-    const { enqueueOutboundCall } = await import('./data-store');
-    const job = enqueueOutboundCall({
-      to: String(to),
-      template: String(template),
-      status: 'queued',
-      context: meta,
-      scheduledAt,
-      callId,
-    });
-    sendJson(res, 200, { success: true, jobId: job.id, status: 'queued', enqueueOnly: true });
-    return;
-  }
-
-  const config = resolveTelephonyConfig();
-  const provider = getTelephonyProvider(config);
 
   // Worker already owns the queue row — dial only, do not enqueue another job.
   if (fromWorker === true || fromWorker === '1') {
@@ -591,17 +582,159 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
   });
 }
 
+function digitsOnly(value: unknown): string {
+  return String(value ?? '').replace(/\D/g, '');
+}
+
+function callPartyName(call: Record<string, unknown>, customersById: Map<string, Record<string, unknown>>): string {
+  const contact = String(call.contactName ?? '').trim();
+  if (contact) return contact;
+  const cid = call.customerId != null ? String(call.customerId) : '';
+  if (cid) {
+    const cust = customersById.get(cid);
+    const name = String(cust?.name ?? '').trim();
+    if (name) return name;
+  }
+  return '';
+}
+
+function isGuestCall(call: Record<string, unknown>, customersById: Map<string, Record<string, unknown>>): boolean {
+  const name = callPartyName(call, customersById);
+  if (/^guest$/i.test(name)) return true;
+  const meta = (call.metadata as Record<string, unknown> | undefined) || {};
+  if (String(meta.callerKind ?? '').toLowerCase() === 'guest') return true;
+  const cid = call.customerId != null ? String(call.customerId) : '';
+  if (cid) {
+    const cust = customersById.get(cid);
+    if (cust && /^guest$/i.test(String(cust.name ?? ''))) return true;
+  }
+  return !name && !cid;
+}
+
+function buildOutboundTodaySummary(
+  calls: Array<Record<string, unknown>>,
+  customersById: Map<string, Record<string, unknown>>,
+): Array<{ to: string; name: string; count: number }> {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const startMs = start.getTime();
+  const map = new Map<string, { to: string; name: string; count: number }>();
+  for (const call of calls) {
+    if (String(call.direction ?? '') !== 'outbound') continue;
+    const started = call.startedAt ? new Date(String(call.startedAt)).getTime() : NaN;
+    if (!Number.isFinite(started) || started < startMs) continue;
+    const to = String(call.to ?? '').trim() || 'unknown';
+    const name = callPartyName(call, customersById) || to;
+    const key = `${digitsOnly(to) || to}|${name.toLowerCase()}`;
+    const prev = map.get(key);
+    if (prev) prev.count += 1;
+    else map.set(key, { to, name, count: 1 });
+  }
+  return Array.from(map.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
 export async function handleCallsListApi(req: IncomingMessage, res: ServerResponse, url?: URL) {
+  const closed = expireStaleOpenCalls();
+  if (closed > 0) {
+    void refreshCallsMissingArtifacts(3).catch(() => {});
+  }
+
   const store = getDataStore();
-  const limit = Math.min(Number(url?.searchParams.get('limit') ?? 100), 100);
-  const calls = store.calls.slice(0, limit).map(c => ({
+  const params = url?.searchParams;
+  const limit = Math.min(Math.max(Number(params?.get('limit') ?? 100) || 100, 1), 200);
+  const offset = Math.max(Number(params?.get('offset') ?? 0) || 0, 0);
+  const q = String(params?.get('q') ?? '').trim().toLowerCase();
+  const qDigits = digitsOnly(q);
+  const fromIso = String(params?.get('from') ?? '').trim();
+  const toIso = String(params?.get('to') ?? '').trim();
+  const direction = String(params?.get('direction') ?? '').trim().toLowerCase();
+  const customerId = String(params?.get('customerId') ?? '').trim();
+  const guestFilter = String(params?.get('guest') ?? 'all').trim().toLowerCase() as 'all' | 'guest' | 'named';
+  const fromMs = fromIso ? new Date(fromIso).getTime() : NaN;
+  const toMs = toIso ? new Date(toIso).getTime() : NaN;
+
+  const customersById = new Map(
+    store.customers.map((c) => [String(c.id), c as Record<string, unknown>]),
+  );
+
+  let filtered = store.calls as Array<Record<string, unknown>>;
+
+  if (direction === 'inbound' || direction === 'outbound') {
+    filtered = filtered.filter((c) => String(c.direction ?? '') === direction);
+  }
+  if (customerId) {
+    filtered = filtered.filter((c) => String(c.customerId ?? '') === customerId);
+  }
+  if (Number.isFinite(fromMs) || Number.isFinite(toMs)) {
+    filtered = filtered.filter((c) => {
+      const started = c.startedAt ? new Date(String(c.startedAt)).getTime() : NaN;
+      if (!Number.isFinite(started)) return false;
+      if (Number.isFinite(fromMs) && started < fromMs) return false;
+      if (Number.isFinite(toMs) && started > toMs) return false;
+      return true;
+    });
+  }
+  if (guestFilter === 'guest' || guestFilter === 'named') {
+    filtered = filtered.filter((c) => {
+      const guest = isGuestCall(c, customersById);
+      return guestFilter === 'guest' ? guest : !guest;
+    });
+  }
+  if (q) {
+    filtered = filtered.filter((c) => {
+      const name = callPartyName(c, customersById).toLowerCase();
+      const meta = (c.metadata as Record<string, unknown> | undefined) || {};
+      const hay = [
+        name,
+        String(c.id ?? ''),
+        String(c.from ?? ''),
+        String(c.to ?? ''),
+        String(meta.partyPhone ?? ''),
+        String(meta.lineDid ?? ''),
+        String(c.outcome ?? ''),
+        String(c.intent ?? ''),
+        String(c.contactName ?? ''),
+        String(c.customerId ?? ''),
+      ].join(' ').toLowerCase();
+      if (hay.includes(q)) return true;
+      if (qDigits && (
+        digitsOnly(c.from).includes(qDigits)
+        || digitsOnly(c.to).includes(qDigits)
+        || digitsOnly(meta.partyPhone).includes(qDigits)
+      )) return true;
+      return false;
+    });
+  }
+
+  const total = filtered.length;
+  const page = filtered.slice(offset, offset + limit).map((c) => enrichCallListRow({
     ...c,
+    contactName: callPartyName(c, customersById) || c.contactName,
+    isGuest: isGuestCall(c, customersById),
     sentiment: c.sentiment ?? computeCallSentiment(c),
     durationSec: c.durationSec ?? computeCallDurationSec(c),
   }));
+
+  const inboundGuestCount = filtered.filter((c) => String(c.direction ?? '') !== 'outbound' && isGuestCall(c, customersById)).length;
+  const withRecordingCount = filtered.filter((c) => {
+    const enriched = enrichCallListRow(c);
+    return Boolean(enriched.hasRecording);
+  }).length;
+  const outboundToday = buildOutboundTodaySummary(store.calls as Array<Record<string, unknown>>, customersById);
+
   sendJson(res, 200, {
-    calls,
+    calls: page,
+    total,
+    limit,
+    offset,
     outboundQueue: store.outboundQueue.slice(0, 50),
+    summary: {
+      outboundToday,
+      outboundTodayTotal: outboundToday.reduce((n, row) => n + row.count, 0),
+      inboundGuestCount,
+      withRecordingCount,
+      matched: total,
+    },
   });
 }
 
@@ -611,7 +744,73 @@ export async function handleCallDetailApi(_req: IncomingMessage, res: ServerResp
     sendJson(res, 404, { error: 'Call not found' });
     return;
   }
-  sendJson(res, 200, { call });
+  sendJson(res, 200, { call: enrichCallListRow(call) });
+}
+
+export async function handleCallRecordingApi(req: IncomingMessage, res: ServerResponse, callId: string) {
+  if (isAuthEnforced() && !requireAuth(req)) {
+    sendJson(res, 401, { error: 'Unauthorized' });
+    return;
+  }
+  const call = getCallById(callId);
+  if (!call) {
+    sendJson(res, 404, { error: 'Call not found' });
+    return;
+  }
+
+  // Opportunistically ingest if we only have a provider URL
+  if (!call.recordingStoragePath && (call.recordingUrl || call.stereoRecordingUrl)) {
+    await ingestCallRecording({
+      callId,
+      urls: {
+        recordingUrl: call.recordingUrl ? String(call.recordingUrl) : undefined,
+        stereoRecordingUrl: call.stereoRecordingUrl ? String(call.stereoRecordingUrl) : undefined,
+      },
+    }).catch(() => {});
+  }
+
+  const download = (() => {
+    try {
+      const u = new URL(req.url || '', 'http://localhost');
+      return u.searchParams.get('download') === '1';
+    } catch {
+      return false;
+    }
+  })();
+
+  const playback = await resolveCallPlaybackUrl(callId);
+  if (!playback.url) {
+    sendJson(res, 404, {
+      error: 'No recording available',
+      hint: 'Use POST /api/calls/:id/refresh-from-provider if this call has a Vapi id',
+    });
+    return;
+  }
+
+  res.statusCode = 302;
+  res.setHeader('Location', playback.url);
+  res.setHeader('Cache-Control', 'private, max-age=60');
+  if (download) {
+    res.setHeader('Content-Disposition', `attachment; filename="call-${callId}.audio"`);
+  }
+  res.end();
+}
+
+export async function handleCallRefreshFromProviderApi(
+  req: IncomingMessage,
+  res: ServerResponse,
+  callId: string,
+) {
+  if (isAuthEnforced() && !requireAuth(req)) {
+    sendJson(res, 401, { error: 'Unauthorized' });
+    return;
+  }
+  const result = await refreshCallFromProvider(callId);
+  const status = result.ok ? 200 : (result.found ? 502 : 404);
+  sendJson(res, status, {
+    ...result,
+    call: result.found ? enrichCallListRow(getCallById(callId) || { id: callId }) : undefined,
+  });
 }
 
 export async function handleMockCallApi(req: IncomingMessage, res: ServerResponse) {
@@ -691,6 +890,16 @@ export async function handlePhoneRoutes(
   }
   if (pathname === '/api/calls/mock' && req.method === 'POST') {
     await handleMockCallApi(req, res);
+    return true;
+  }
+  const recordingMatch = pathname.match(/^\/api\/calls\/([^/]+)\/recording$/);
+  if (recordingMatch && req.method === 'GET') {
+    await handleCallRecordingApi(req, res, decodeURIComponent(recordingMatch[1]));
+    return true;
+  }
+  const refreshMatch = pathname.match(/^\/api\/calls\/([^/]+)\/refresh-from-provider$/);
+  if (refreshMatch && req.method === 'POST') {
+    await handleCallRefreshFromProviderApi(req, res, decodeURIComponent(refreshMatch[1]));
     return true;
   }
   const detailMatch = pathname.match(/^\/api\/calls\/([^/]+)$/);
