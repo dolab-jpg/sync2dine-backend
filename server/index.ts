@@ -20,6 +20,7 @@ import { handlePlatformRoutes } from './platform-routes';
 import { handleStripeRoutes } from './stripe-routes';
 import { handleAuthRoutes } from './auth';
 import { handleMailboxRoutes } from './mailbox-routes';
+import { handleCalendarRoutes } from './calendar-routes';
 import { handlePackageUpdatesRoute } from './mailbox/package-updates';
 import { handleLeadsRoutes } from './leads-routes';
 import { handleOrdersRoutes } from './orders-routes';
@@ -83,6 +84,8 @@ const server = createServer(async (req, res) => {
     if (await handleBankingRoutes(req, res, pathname, url)) return;
 
     if (await handleMailboxRoutes(req, res, pathname, url)) return;
+
+    if (await handleCalendarRoutes(req, res, pathname, url)) return;
 
     if (await handlePackageUpdatesRoute(pathname, res)) return;
 

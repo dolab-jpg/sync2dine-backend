@@ -232,6 +232,43 @@ export async function handleIntegrationTest(
       return;
     }
 
+    if (integrationId === 'google_calendar') {
+      saveIntegrationSecrets('google_calendar', values);
+      const { getGoogleCalendarOAuthCredentials, hasGoogleCalendarOAuthConfigured, getCalendarRedirectUri, buildCalendarAuthUrl } =
+        await import('./calendar/google-calendar');
+      if (!hasGoogleCalendarOAuthConfigured()) {
+        sendJson(res, 200, {
+          success: true,
+          message: 'Google Calendar ready once Client ID/Secret are set (or reuse Mailbox OAuth Google credentials)',
+          status: 'mock',
+          redirectUri: getCalendarRedirectUri(),
+        });
+        return;
+      }
+      try {
+        const { clientId } = getGoogleCalendarOAuthCredentials();
+        const authUrl = buildCalendarAuthUrl('integration-test');
+        const clientIdPresent = authUrl.includes('client_id=') && clientId.length > 0;
+        if (!clientIdPresent) {
+          sendJson(res, 400, { success: false, message: 'Google Calendar client ID invalid', status: 'error' });
+          return;
+        }
+        sendJson(res, 200, {
+          success: true,
+          message: `Google Calendar OAuth ready (redirect: ${getCalendarRedirectUri()}) — click Connect with Google on this card`,
+          status: 'connected',
+          redirectUri: getCalendarRedirectUri(),
+        });
+      } catch (err) {
+        sendJson(res, 400, {
+          success: false,
+          message: err instanceof Error ? err.message : 'Google Calendar OAuth test failed',
+          status: 'error',
+        });
+      }
+      return;
+    }
+
     // Generic: credentials saved
     sendJson(res, 200, {
       success: true,
