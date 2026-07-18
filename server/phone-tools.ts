@@ -1,19 +1,15 @@
 import {
   appendCustomerCallActivity,
   appendProjectMessageRecord,
-  completeOnboardingTaskByCategory,
   enqueueOutboundCall,
-  getCallById,
   getDataStore,
   getRequestOrgId,
   lookupContactByPhone,
   normalizePhoneExport,
-  resolveCandidateByPhone,
   saveCall,
   saveCustomerRecord,
   saveOrderRecord,
   saveQuoteRecord,
-  saveRecruitmentApplication,
   saveRecruitmentCandidate,
   saveRecruitmentInterview,
   syncData,
@@ -36,8 +32,6 @@ import {
   updateReservation,
 } from './reservations-store';
 import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from './restaurant-ai-tools';
-import { getConnectorConfig } from './connectors/config-store';
-import { forwardOrderIfPosEnabled } from './connectors/pos-outbound';
 
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -336,22 +330,6 @@ export const PHONE_TOOLS = [
           notes: { type: 'string' },
         },
         required: ['name'],
-      },
-    },
-  },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'completeOnboardingTask',
-      description: 'Tick off an onboarding task for a hired candidate by category (documentation, training, equipment, access, orientation)',
-      parameters: {
-        type: 'object',
-        properties: {
-          candidateId: { type: 'string' },
-          candidateName: { type: 'string' },
-          category: { type: 'string', enum: ['documentation', 'training', 'equipment', 'access', 'orientation'] },
-        },
-        required: ['category'],
       },
     },
   },
@@ -673,7 +651,6 @@ export const PHONE_AUTO_ACTIONS = new Set([
   'screenCandidate',
   'bookInterview',
   'logCandidate',
-  'completeOnboardingTask',
   'transferToHuman',
   'enqueueOutboundCall',
   'placeOutboundCall',
@@ -994,19 +971,6 @@ export async function executePhoneTool(
     if (callId) {
       saveCall({ id: callId, candidateId: candidate.id, intent: 'recruitment' });
     }
-    const jobId = firstString(input.jobId);
-    if (jobId) {
-      saveRecruitmentApplication({
-        candidateId: candidate.id,
-        jobId,
-        stage: 'screening',
-        appliedDate: new Date().toISOString().slice(0, 10),
-        stageDate: new Date().toISOString().slice(0, 10),
-        notes: ['Phone screening by Cynthia'],
-        feedback: '',
-        rating: 0,
-      });
-    }
     return { candidateId: candidate.id, name: candidate.name, screened: true };
   }
 
@@ -1020,51 +984,7 @@ export async function executePhoneTool(
       source: input.source ?? 'phone',
       notes: input.notes ?? '',
     });
-    const role = firstString(input.desiredRole) ?? '';
-    if (role) {
-      const store = getDataStore();
-      const matchJob = store.recruitmentJobs.find(
-        j => String(j.status) === 'open' && String(j.title ?? '').toLowerCase().includes(role.toLowerCase()),
-      );
-      if (matchJob) {
-        saveRecruitmentApplication({
-          candidateId: candidate.id,
-          jobId: String(matchJob.id),
-          stage: 'applied',
-          appliedDate: new Date().toISOString().slice(0, 10),
-          stageDate: new Date().toISOString().slice(0, 10),
-          notes: [`Auto-matched via logCandidate (${input.source ?? 'phone'})`],
-          feedback: '',
-          rating: 0,
-        });
-      }
-    }
     return { candidateId: candidate.id, name: candidate.name, saved: true };
-  }
-
-  if (name === 'completeOnboardingTask') {
-    const category = firstString(input.category) ?? '';
-    if (!category) {
-      return { ok: false, error: 'category_required', spokenHint: 'Which onboarding category: documentation, training, equipment, access, or orientation?' };
-    }
-    let candidateId = firstString(input.candidateId);
-    if (!candidateId && callerPhone) {
-      const resolved = resolveCandidateByPhone(callerPhone);
-      candidateId = resolved.candidateId ?? undefined;
-    }
-    if (!candidateId) {
-      return { ok: false, error: 'candidate_not_found', spokenHint: 'I could not match you to a hired candidate.' };
-    }
-    const updated = completeOnboardingTaskByCategory(candidateId, category);
-    if (!updated) {
-      return { ok: false, error: 'task_not_found', spokenHint: `No pending ${category} task found for that candidate.` };
-    }
-    return {
-      ok: true,
-      taskId: updated.id,
-      category,
-      spokenHint: `Done — ${category} onboarding task marked complete.`,
-    };
   }
 
   if (name === 'bookInterview') {
@@ -1624,30 +1544,27 @@ export async function executePhoneTool(
       };
     }
 
-    // Hard-block only on declared allergen conflicts with the caller.
-    // Undeclared dishes: warn + kitchen-check note (playbook) — still place the order.
     const allergenWarnings: string[] = [];
-    const allergenConflicts: string[] = [];
     for (const line of expanded.items) {
       const match = catalog.find((c) => c.name.toLowerCase() === String(line.name).toLowerCase());
       if (!match) continue;
       const safety = allergenSafetyHint(match);
       if (safety) allergenWarnings.push(safety);
-      if (customerAllergies && !/^none$/i.test(customerAllergies.trim())) {
+      if (customerAllergies) {
         const conflicts = customerAllergenConflict(customerAllergies, match.allergensContains ?? []);
         if (conflicts.length) {
-          allergenConflicts.push(
+          allergenWarnings.push(
             `${match.name} contains ${conflicts.join(', ')} which matches the caller allergies — suggest alternatives or kitchen check.`,
           );
         }
       }
     }
-    if (allergenConflicts.length) {
+    if (allergenWarnings.length) {
       return {
         ok: false,
         error: 'allergen_review_required',
-        allergenWarnings: allergenConflicts,
-        spokenHint: allergenConflicts[0],
+        allergenWarnings,
+        spokenHint: allergenWarnings[0],
       };
     }
 
@@ -1689,20 +1606,6 @@ export async function executePhoneTool(
     if (!customerId && phone) {
       const found = lookupContactByPhone(phone);
       if (found.found && found.customerId) customerId = found.customerId;
-    }
-    if (!customerId && phone) {
-      const { ensureGuestCustomerForCall } = await import('./data-store');
-      const guest = ensureGuestCustomerForCall(phone, callId);
-      customerId = guest.customerId ?? undefined;
-    }
-    if (customerId && callId) {
-      appendCustomerCallActivity({
-        customerId,
-        callId,
-        summary: 'Order placed by phone',
-        outcome: 'order_placed',
-        updateCallQueue: true,
-      });
     }
 
     const store = getDataStore();
@@ -1746,10 +1649,7 @@ export async function executePhoneTool(
     }
 
     const baseNotes = firstString(input.notes) ?? '';
-    const undeclaredNote = allergenWarnings.length
-      ? `Kitchen allergen check: ${allergenWarnings.slice(0, 3).join('; ')}`
-      : '';
-    const notes = [baseNotes, specialAppliedNote, undeclaredNote].filter(Boolean).join(' | ');
+    const notes = [baseNotes, specialAppliedNote].filter(Boolean).join(' | ');
 
     const payRaw = (firstString(input.paymentStatus) ?? 'unpaid').toLowerCase();
     let paymentStatus = 'unpaid';
@@ -1761,13 +1661,7 @@ export async function executePhoneTool(
       paymentStatus = 'paid';
     }
 
-    const callRecord = callId ? getCallById(callId) : undefined;
-    const callMeta = (callRecord?.metadata as Record<string, unknown> | undefined) || {};
-    const listenUrl = String(callRecord?.listenUrl ?? callMeta.listenUrl ?? '').trim() || undefined;
-    const recordingUrl = String(callRecord?.recordingUrl ?? '').trim() || undefined;
-
-    const orgIdForOrder = firstString(body.orgId) ?? getRequestOrgId();
-    let record = await saveOrderRecord({
+    const record = await saveOrderRecord({
       customerId: customerId || undefined,
       customerName: firstString(input.customerName, body.customerContext?.customerName) ?? 'Guest',
       customerPhone: phone,
@@ -1786,25 +1680,11 @@ export async function executePhoneTool(
       allergyConfirmed,
       sourceCallId: callId,
       callIds: callId ? [callId] : [],
-      listenUrl,
-      recordingUrl,
       source: 'phone',
       syncState: 'local',
       placedAt: new Date().toISOString(),
       etaMinutes: orderType === 'delivery' ? 40 : 20,
-    }, orgIdForOrder);
-
-    try {
-      const connector = await getConnectorConfig(orgIdForOrder);
-      const forwarded = await forwardOrderIfPosEnabled(String(orgIdForOrder ?? ''), record, connector);
-      record = forwarded.order;
-    } catch (err) {
-      console.warn(
-        '[placeFoodOrder] POS forward failed:',
-        err instanceof Error ? err.message : err,
-      );
-    }
-
+    }, firstString(body.orgId) ?? getRequestOrgId());
     const spokenTotal = formatSpokenGbp(Number(record.total));
     const where =
       orderType === 'delivery' && deliveryAddress
@@ -1813,11 +1693,6 @@ export async function executePhoneTool(
           ? ' Collection.'
           : '';
     const specialSpeak = specialAppliedNote ? ` Special applied: ${appliedSpecialName}.` : '';
-    const syncHint = record.syncState === 'synced'
-      ? ' Sent to your till.'
-      : record.syncState === 'error'
-        ? ' (Till sync needs a retry.)'
-        : '';
     return {
       ok: true,
       orderId: record.id,
@@ -1828,9 +1703,7 @@ export async function executePhoneTool(
       deliveryAddress: record.deliveryAddress ?? deliveryAddress ?? null,
       deliveryPostcode: normalizedPostcode || null,
       customerId: record.customerId ?? customerId ?? null,
-      syncState: record.syncState ?? 'local',
-      externalId: record.externalId ?? null,
-      spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${specialSpeak} The kitchen has it.${syncHint}`,
+      spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${specialSpeak} The kitchen has it.`,
     };
   }
 
