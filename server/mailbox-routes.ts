@@ -378,11 +378,39 @@ export async function executeMailboxTool(
   }
 
   if (toolName === 'sendEmailReply' || toolName === 'sendEmailWithAttachment') {
+    // Receptionist / Sally path: require explicit confirmation when flagged
+    if (input.requireConfirm === true || input.fromSally === true) {
+      if (input.confirmed !== true && input.confirmed !== 'true') {
+        return {
+          success: false,
+          error: 'confirmation_required',
+          spokenHint: 'Draft ready — confirm before I send.',
+        };
+      }
+    }
+    let body = String(input.body ?? '');
+    let html = input.html != null ? String(input.html) : undefined;
+    if (!html?.trim() && body.trim()) {
+      try {
+        const { wrapSalesEmail } = await import('./sales-email-html');
+        const wrapped = wrapSalesEmail(body, {
+          subject: String(input.subject ?? ''),
+          heroTitle: String(input.subject ?? ''),
+          companyName: 'Sync2Dine',
+          sentBy: 'Sally · Sync2Dine',
+        });
+        body = wrapped.text;
+        html = wrapped.html;
+      } catch {
+        /* plain */
+      }
+    }
     const payload: SendMailboxPayload = {
       connectionId,
       to: String(input.to ?? ''),
       subject: String(input.subject ?? ''),
-      body: String(input.body ?? ''),
+      body,
+      html,
       attachments: Array.isArray(input.attachments)
         ? input.attachments as SendMailboxPayload['attachments']
         : undefined,
@@ -390,7 +418,7 @@ export async function executeMailboxTool(
     const result = isMailboxMockMode()
       ? await sendMockEmail(payload)
       : await sendFromMailbox(payload);
-    return { ...result, to: payload.to, subject: payload.subject };
+    return { ...result, ok: result.success, to: payload.to, subject: payload.subject };
   }
 
   return { error: `Unknown mailbox tool: ${toolName}` };

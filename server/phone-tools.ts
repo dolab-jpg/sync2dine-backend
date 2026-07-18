@@ -1,15 +1,19 @@
 import {
   appendCustomerCallActivity,
   appendProjectMessageRecord,
+  completeOnboardingTaskByCategory,
   enqueueOutboundCall,
+  getCallById,
   getDataStore,
   getRequestOrgId,
   lookupContactByPhone,
   normalizePhoneExport,
+  resolveCandidateByPhone,
   saveCall,
   saveCustomerRecord,
   saveOrderRecord,
   saveQuoteRecord,
+  saveRecruitmentApplication,
   saveRecruitmentCandidate,
   saveRecruitmentInterview,
   syncData,
@@ -338,6 +342,22 @@ export const PHONE_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'completeOnboardingTask',
+      description: 'Tick off an onboarding task for a hired candidate by category (documentation, training, equipment, access, orientation)',
+      parameters: {
+        type: 'object',
+        properties: {
+          candidateId: { type: 'string' },
+          candidateName: { type: 'string' },
+          category: { type: 'string', enum: ['documentation', 'training', 'equipment', 'access', 'orientation'] },
+        },
+        required: ['category'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'transferToHuman',
       description:
         'Warm-transfer the live call to a human: put the caller on hold, dial staff, brief them, then connect. Use takeMessage if they only want a message.',
@@ -653,6 +673,7 @@ export const PHONE_AUTO_ACTIONS = new Set([
   'screenCandidate',
   'bookInterview',
   'logCandidate',
+  'completeOnboardingTask',
   'transferToHuman',
   'enqueueOutboundCall',
   'placeOutboundCall',
@@ -663,6 +684,13 @@ export const PHONE_AUTO_ACTIONS = new Set([
   'saveCustomer',
   'saveQuote',
   'sendCustomerMessage',
+  'briefInbox',
+  'listRecentEmails',
+  'getEmailThread',
+  'composeSalesEmail',
+  'readDraftAloud',
+  'sendEmailReply',
+  'scheduleSalesFollowUp',
   'getMenu',
   'placeFoodOrder',
   'checkDeliveryArea',
@@ -684,6 +712,14 @@ export async function executePhoneTool(
   input: Record<string, unknown>,
   body: OrchestratorRequest,
 ): Promise<Record<string, unknown>> {
+  const { SALLY_RECEPTIONIST_TOOL_NAMES, executeSallyReceptionistTool } = await import('./sally-receptionist');
+  if (SALLY_RECEPTIONIST_TOOL_NAMES.has(name)) {
+    return executeSallyReceptionistTool(name, input, {
+      callId: firstString(body.callContext?.callId),
+      staffUserId: firstString(body.staffContext?.userId),
+      orgId: body.orgId || getRequestOrgId(),
+    });
+  }
   if (RESTAURANT_TOOL_NAMES.has(name) && name !== 'getMenu') {
     return executeRestaurantTool(name, input, body);
   }
@@ -958,6 +994,19 @@ export async function executePhoneTool(
     if (callId) {
       saveCall({ id: callId, candidateId: candidate.id, intent: 'recruitment' });
     }
+    const jobId = firstString(input.jobId);
+    if (jobId) {
+      saveRecruitmentApplication({
+        candidateId: candidate.id,
+        jobId,
+        stage: 'screening',
+        appliedDate: new Date().toISOString().slice(0, 10),
+        stageDate: new Date().toISOString().slice(0, 10),
+        notes: ['Phone screening by Cynthia'],
+        feedback: '',
+        rating: 0,
+      });
+    }
     return { candidateId: candidate.id, name: candidate.name, screened: true };
   }
 
@@ -971,7 +1020,51 @@ export async function executePhoneTool(
       source: input.source ?? 'phone',
       notes: input.notes ?? '',
     });
+    const role = firstString(input.desiredRole) ?? '';
+    if (role) {
+      const store = getDataStore();
+      const matchJob = store.recruitmentJobs.find(
+        j => String(j.status) === 'open' && String(j.title ?? '').toLowerCase().includes(role.toLowerCase()),
+      );
+      if (matchJob) {
+        saveRecruitmentApplication({
+          candidateId: candidate.id,
+          jobId: String(matchJob.id),
+          stage: 'applied',
+          appliedDate: new Date().toISOString().slice(0, 10),
+          stageDate: new Date().toISOString().slice(0, 10),
+          notes: [`Auto-matched via logCandidate (${input.source ?? 'phone'})`],
+          feedback: '',
+          rating: 0,
+        });
+      }
+    }
     return { candidateId: candidate.id, name: candidate.name, saved: true };
+  }
+
+  if (name === 'completeOnboardingTask') {
+    const category = firstString(input.category) ?? '';
+    if (!category) {
+      return { ok: false, error: 'category_required', spokenHint: 'Which onboarding category: documentation, training, equipment, access, or orientation?' };
+    }
+    let candidateId = firstString(input.candidateId);
+    if (!candidateId && callerPhone) {
+      const resolved = resolveCandidateByPhone(callerPhone);
+      candidateId = resolved.candidateId ?? undefined;
+    }
+    if (!candidateId) {
+      return { ok: false, error: 'candidate_not_found', spokenHint: 'I could not match you to a hired candidate.' };
+    }
+    const updated = completeOnboardingTaskByCategory(candidateId, category);
+    if (!updated) {
+      return { ok: false, error: 'task_not_found', spokenHint: `No pending ${category} task found for that candidate.` };
+    }
+    return {
+      ok: true,
+      taskId: updated.id,
+      category,
+      spokenHint: `Done — ${category} onboarding task marked complete.`,
+    };
   }
 
   if (name === 'bookInterview') {
@@ -1531,27 +1624,30 @@ export async function executePhoneTool(
       };
     }
 
+    // Hard-block only on declared allergen conflicts with the caller.
+    // Undeclared dishes: warn + kitchen-check note (playbook) — still place the order.
     const allergenWarnings: string[] = [];
+    const allergenConflicts: string[] = [];
     for (const line of expanded.items) {
       const match = catalog.find((c) => c.name.toLowerCase() === String(line.name).toLowerCase());
       if (!match) continue;
       const safety = allergenSafetyHint(match);
       if (safety) allergenWarnings.push(safety);
-      if (customerAllergies) {
+      if (customerAllergies && !/^none$/i.test(customerAllergies.trim())) {
         const conflicts = customerAllergenConflict(customerAllergies, match.allergensContains ?? []);
         if (conflicts.length) {
-          allergenWarnings.push(
+          allergenConflicts.push(
             `${match.name} contains ${conflicts.join(', ')} which matches the caller allergies — suggest alternatives or kitchen check.`,
           );
         }
       }
     }
-    if (allergenWarnings.length) {
+    if (allergenConflicts.length) {
       return {
         ok: false,
         error: 'allergen_review_required',
-        allergenWarnings,
-        spokenHint: allergenWarnings[0],
+        allergenWarnings: allergenConflicts,
+        spokenHint: allergenConflicts[0],
       };
     }
 
@@ -1650,7 +1746,10 @@ export async function executePhoneTool(
     }
 
     const baseNotes = firstString(input.notes) ?? '';
-    const notes = [baseNotes, specialAppliedNote].filter(Boolean).join(' | ');
+    const undeclaredNote = allergenWarnings.length
+      ? `Kitchen allergen check: ${allergenWarnings.slice(0, 3).join('; ')}`
+      : '';
+    const notes = [baseNotes, specialAppliedNote, undeclaredNote].filter(Boolean).join(' | ');
 
     const payRaw = (firstString(input.paymentStatus) ?? 'unpaid').toLowerCase();
     let paymentStatus = 'unpaid';
@@ -1661,6 +1760,11 @@ export async function executePhoneTool(
     } else if (payRaw === 'paid') {
       paymentStatus = 'paid';
     }
+
+    const callRecord = callId ? getCallById(callId) : undefined;
+    const callMeta = (callRecord?.metadata as Record<string, unknown> | undefined) || {};
+    const listenUrl = String(callRecord?.listenUrl ?? callMeta.listenUrl ?? '').trim() || undefined;
+    const recordingUrl = String(callRecord?.recordingUrl ?? '').trim() || undefined;
 
     const orgIdForOrder = firstString(body.orgId) ?? getRequestOrgId();
     let record = await saveOrderRecord({
@@ -1682,6 +1786,8 @@ export async function executePhoneTool(
       allergyConfirmed,
       sourceCallId: callId,
       callIds: callId ? [callId] : [],
+      listenUrl,
+      recordingUrl,
       source: 'phone',
       syncState: 'local',
       placedAt: new Date().toISOString(),

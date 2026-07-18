@@ -19,6 +19,7 @@ export interface SendPayload {
   to?: string;
   subject?: string;
   body?: string;
+  html?: string;
   attachment?: { filename: string; mimeType: string; content: string };
   config?: SmtpConfig;
   /** Sender's known language, if already resolved by the caller (e.g. a worker's profile). */
@@ -85,11 +86,32 @@ export async function sendViaSmtp(payload: SendPayload, to: string): Promise<{ s
       }]
     : undefined;
 
+  let html = payload.html;
+  if (html?.trim()) {
+    const htmlGuard = await ensureEnglishForCustomerSend(html, payload.sourceLang, getRequestOrgId());
+    if (!htmlGuard.ok) {
+      return { success: false, error: 'Could not translate the HTML email to English before sending.' };
+    }
+    html = htmlGuard.english;
+  } else {
+    try {
+      const { wrapSalesEmail } = await import('./sales-email-html');
+      html = wrapSalesEmail(guard.english, {
+        subject: payload.subject,
+        heroTitle: payload.subject,
+        companyName: smtp.fromName || 'Sync2Dine',
+      }).html;
+    } catch {
+      /* plain text only fallback */
+    }
+  }
+
   const info = await transporter.sendMail({
     from: `"${smtp.fromName}" <${smtp.fromEmail}>`,
     to,
     subject: payload.subject ?? '',
     text: guard.english,
+    html,
     attachments,
   });
 
@@ -116,11 +138,26 @@ async function sendViaResend(payload: SendPayload, to: string): Promise<{ succes
     || 'onboarding@resend.dev';
   const fromName = payload.config?.fromName?.trim() || process.env.SMTP_FROM_NAME?.trim() || 'Sync2Dine';
 
+  let html = payload.html;
+  if (!html?.trim()) {
+    try {
+      const { wrapSalesEmail } = await import('./sales-email-html');
+      html = wrapSalesEmail(guard.english, {
+        subject: payload.subject,
+        heroTitle: payload.subject,
+        companyName: fromName,
+      }).html;
+    } catch {
+      html = undefined;
+    }
+  }
+
   const body: Record<string, unknown> = {
     from: `${fromName} <${fromEmail}>`,
     to: [to],
     subject: payload.subject ?? '',
     text: guard.english,
+    ...(html ? { html } : {}),
   };
 
   if (payload.attachment) {
@@ -151,6 +188,74 @@ export async function handleMessageRoutes(
   res: ServerResponse,
   pathname: string
 ): Promise<boolean> {
+  if (pathname === '/api/messages/schedule') {
+    if (req.method === 'GET') {
+      const { listScheduledMessages } = await import('./scheduled-messages-store');
+      const orgId = String(req.headers['x-org-id'] || getRequestOrgId() || '');
+      sendJson(res, 200, { jobs: listScheduledMessages(orgId || undefined) });
+      return true;
+    }
+    if (req.method === 'DELETE') {
+      let body: { id?: string };
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        sendJson(res, 400, { error: 'Invalid JSON' });
+        return true;
+      }
+      const { cancelScheduledMessage } = await import('./scheduled-messages-store');
+      const job = cancelScheduledMessage(String(body.id || ''));
+      sendJson(res, job ? 200 : 404, job ? { ok: true, job } : { error: 'not_found' });
+      return true;
+    }
+    if (req.method === 'POST') {
+      let body: Record<string, unknown>;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        sendJson(res, 400, { error: 'Invalid JSON' });
+        return true;
+      }
+      const sendAt = String(body.sendAt || '');
+      if (!sendAt || !Number.isFinite(Date.parse(sendAt))) {
+        sendJson(res, 400, { error: 'sendAt ISO datetime required' });
+        return true;
+      }
+      const channelsRaw = body.channels;
+      const channels: Array<'email' | 'whatsapp'> = Array.isArray(channelsRaw)
+        ? channelsRaw.filter((c): c is 'email' | 'whatsapp' => c === 'email' || c === 'whatsapp')
+        : ['email'];
+      const { enqueueScheduledMessage } = await import('./scheduled-messages-store');
+      const job = enqueueScheduledMessage({
+        orgId: String(body.orgId || req.headers['x-org-id'] || getRequestOrgId() || ''),
+        sendAt: new Date(sendAt).toISOString(),
+        channels: channels.length ? channels : ['email'],
+        toEmail: body.toEmail ? String(body.toEmail) : undefined,
+        toPhone: body.toPhone ? String(body.toPhone) : undefined,
+        customerId: body.customerId ? String(body.customerId) : undefined,
+        customerName: body.customerName ? String(body.customerName) : undefined,
+        templateId: body.templateId ? String(body.templateId) : undefined,
+        subject: String(body.subject || ''),
+        body: String(body.body || ''),
+        createdBy: String(body.createdBy || 'hub'),
+        aim: body.aim ? String(body.aim) : 'followup',
+        heroTitle: body.heroTitle ? String(body.heroTitle) : undefined,
+        ctaUrl: body.ctaUrl ? String(body.ctaUrl) : undefined,
+        ctaLabel: body.ctaLabel ? String(body.ctaLabel) : undefined,
+      });
+      sendJson(res, 200, { ok: true, job });
+      return true;
+    }
+    sendJson(res, 405, { error: 'Method not allowed' });
+    return true;
+  }
+
+  if (pathname === '/api/messages/templates') {
+    const { SALES_TEMPLATES } = await import('./sales-templates');
+    sendJson(res, 200, { templates: SALES_TEMPLATES });
+    return true;
+  }
+
   if (pathname !== '/api/messages/send' && pathname !== '/api/messages/test') return false;
 
   if (req.method !== 'POST') {

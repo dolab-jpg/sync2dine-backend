@@ -162,6 +162,9 @@ server.listen(PORT, async () => {
   ensureBdiddiesHomeOrg();
   startMailboxPoller();
   startOutboundWorker();
+  void import('./scheduled-message-worker').then(({ startScheduledMessageWorker }) => {
+    startScheduledMessageWorker();
+  });
   void import('./code-fix-handler').then(({ startCodeFixWorker }) => startCodeFixWorker());
   void import('./whatsapp-web-client').then(({ initWWebClient }) => {
     console.log('Starting WhatsApp Web.js client...');

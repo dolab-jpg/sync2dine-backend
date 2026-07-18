@@ -24,19 +24,40 @@ function getTransport() {
   });
 }
 
-export async function sendOrgInviteEmail(org: Organization): Promise<void> {
+export async function sendPlainTextEmail(opts: {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+}): Promise<{ ok: true; messageId?: string } | { ok: false; error: string }> {
   const transport = getTransport();
   if (!transport) {
-    console.log(`[email] Invite skipped (no SMTP) for ${org.contactEmail}`);
-    return;
+    return { ok: false, error: 'smtp_not_configured' };
   }
-  const baseUrl = process.env.APP_BASE_URL?.trim() || 'http://localhost:5174';
   const from = process.env.SMTP_FROM?.trim()
     || process.env.SMTP_FROM_EMAIL?.trim()
-    || resolveSmtpUser()
-    || 'info@sync2dine.io';
-  await transport.sendMail({
-    from,
+    || resolveSmtpUser();
+  if (!from) {
+    return { ok: false, error: 'smtp_from_missing' };
+  }
+  const fromName = process.env.SMTP_FROM_NAME?.trim() || 'Sync2Dine';
+  try {
+    const info = await transport.sendMail({
+      from: `"${fromName}" <${from}>`,
+      to: opts.to,
+      subject: opts.subject,
+      text: opts.text,
+      html: opts.html,
+    });
+    return { ok: true, messageId: info.messageId };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'smtp_send_failed' };
+  }
+}
+
+export async function sendOrgInviteEmail(org: Organization): Promise<void> {
+  const baseUrl = process.env.APP_BASE_URL?.trim() || 'http://localhost:5174';
+  const result = await sendPlainTextEmail({
     to: org.contactEmail,
     subject: `Welcome to Sync2Dine — ${org.name}`,
     text: [
@@ -51,4 +72,7 @@ export async function sendOrgInviteEmail(org: Organization): Promise<void> {
       '— Sync2Dine',
     ].join('\n'),
   });
+  if (!result.ok) {
+    console.log(`[email] Invite skipped (${result.error}) for ${org.contactEmail}`);
+  }
 }

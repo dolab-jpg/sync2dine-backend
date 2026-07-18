@@ -359,6 +359,13 @@ export const STAFF_PHONE_TOOL_NAMES = [
   'deliverCallFollowUp',
   'placeOutboundCall',
   'enqueueOutboundCall',
+  'briefInbox',
+  'listRecentEmails',
+  'getEmailThread',
+  'composeSalesEmail',
+  'readDraftAloud',
+  'sendEmailReply',
+  'scheduleSalesFollowUp',
   'endCall',
   'setCallLanguage',
 ] as const;

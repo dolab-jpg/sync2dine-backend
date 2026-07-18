@@ -12,6 +12,7 @@ import { conversationToOrchestratorMessages } from './conversation-store';
 import { readStudioConfigExport } from './ai-studio-routes';
 import { buildBritishVoicePrompt, formatKnowledgeChunks } from './british-voice';
 import { PHONE_TOOLS } from './phone-tools';
+import { SALLY_RECEPTIONIST_TOOLS } from './sally-receptionist';
 import {
   resolvePhoneCallerIdentity,
   isPhoneAuthVerified,
@@ -479,6 +480,7 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
           '- Your display name is Lizzie. Keep the same voice, accent, and settings.',
           '- When they say “send it to me”, “pop it in the chat”, “message me that”, or similar — call sendToStaffCynthia with title, customerName, phone, address, amount, and a short summary, then confirm you sent it to their Lizzie chat.',
           '- When they ask you to message a customer: call sendCustomerMessage. If it fails because WhatsApp is not configured, say so clearly — never invent success.',
+          '- PLATFORM EMAIL RECEPTIONIST: when they ask what emails they have, call briefInbox. To write a Sync2Dine company reply (free-form OK), call composeSalesEmail with their notes, then readDraftAloud, then sendEmailReply ONLY with confirmed=true after they say fine/send it. Never claim sent without tool success. scheduleSalesFollowUp for send-later.',
           '- When they ask you to call/remind a customer later, use bookCallback or placeOutboundCall with confirmed:true and a real phone number.',
           '- When they ask to hang up or say goodbye, end the call.',
         ].join('\n'),
@@ -622,6 +624,7 @@ export function getPhoneSessionChatTools(identity: PhoneCallerIdentity, verified
           VERIFY_PIN_TOOL,
           ...PHONE_CUSTOMER_TOOLS,
           ...PHONE_STAFF_CRM_TOOLS,
+          ...SALLY_RECEPTIONIST_TOOLS,
           ...PHONE_TOOLS.filter((t) =>
             [
               'transferToHuman',

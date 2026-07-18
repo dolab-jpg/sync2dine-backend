@@ -189,6 +189,17 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
     return;
   }
 
+  if (pathname === '/api/ai/compose-email') {
+    const { handleComposeEmail } = await import('./compose-email-handler');
+    try {
+      const result = await handleComposeEmail(body);
+      sendJson(res, 200, result);
+    } catch (err) {
+      sendOpenAIConnectionError(res, err);
+    }
+    return;
+  }
+
   if (pathname === '/api/ai/categorize-transaction') {
     const { handleCategorizeTransaction } = await import('./categorize-transaction-handler');
     try {
