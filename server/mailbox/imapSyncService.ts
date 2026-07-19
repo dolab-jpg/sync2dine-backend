@@ -100,7 +100,9 @@ export async function syncConnection(connectionId: string): Promise<{ synced: nu
     const isAuth = message.toLowerCase().includes('auth') || message.includes('invalid_grant');
     upsertConnection({
       ...conn,
-      status: isAuth ? 'needs_reconnect' : 'error',
+      // A transient IMAP failure must not disable outbound Gmail SMTP.
+      // Only an OAuth/auth failure requires reconnecting the mailbox.
+      status: isAuth ? 'needs_reconnect' : 'connected',
       lastError: message,
     });
     const state = getSyncState(connectionId);

@@ -35,7 +35,7 @@ async function englishMailboxPayload(
 export async function sendFromMailbox(payload: SendMailboxPayload): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const conn = getConnection(payload.connectionId);
   if (!conn) return { success: false, error: 'Connection not found' };
-  if (conn.status !== 'connected') {
+  if (conn.status === 'needs_reconnect' || conn.status === 'disconnected') {
     return { success: false, error: 'Mailbox needs reconnect before sending' };
   }
 
