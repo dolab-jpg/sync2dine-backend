@@ -224,6 +224,28 @@ export async function handleOrgIntegrationsRoutes(
       values: body.values,
     });
 
+    // Mirror OAuth / SMTP client secrets onto VPS disk so mailbox runtime
+    // (integration-secrets.json) stays in sync with Supabase Save.
+    if (
+      (
+        integrationId === 'email_oauth'
+        || integrationId === 'google_calendar'
+        || integrationId === 'email_smtp'
+        || integrationId === 'email_resend'
+        || integrationId === 'stripe'
+      )
+      && body.values
+    ) {
+      const { saveIntegrationSecrets } = await import('./integration-secrets');
+      const stored = await getOrgIntegrationDecrypted(orgId!, integrationId);
+      const merged: Record<string, string> = { ...(stored?.values ?? {}) };
+      for (const [k, v] of Object.entries(body.values)) {
+        if (isMaskedOrPlaceholder(v)) continue;
+        merged[k] = String(v);
+      }
+      saveIntegrationSecrets(integrationId, merged);
+    }
+
     // Mirror OpenAI brain key into organizations table (existing path)
     if (integrationId === 'openai' && body.values) {
       const apiKey = body.values.apiKey?.trim();

@@ -5,12 +5,13 @@ import {
   updateOrganization,
   type OrgPlan,
 } from './organizations';
+import { getStripeRuntimeConfig } from './stripe-config';
 
 let stripeClient: Stripe | null = null;
 
 export function getStripe(): Stripe {
   if (!stripeClient) {
-    const key = process.env.STRIPE_SECRET_KEY?.trim();
+    const key = getStripeRuntimeConfig().secretKey;
     if (!key) throw new Error('STRIPE_SECRET_KEY is not configured');
     stripeClient = new Stripe(key);
   }

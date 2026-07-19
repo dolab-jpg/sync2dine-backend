@@ -4,6 +4,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { getDataStore, syncData } from './data-store';
 import { getStripe } from './stripe-service';
+import { getStripeRuntimeConfig } from './stripe-config';
 import { updateOrganization, getOrganizationById, type OrgPlan } from './organizations';
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -77,7 +78,7 @@ export async function handleGapApiRoutes(
         sendJson(res, 400, { error: 'paymentIntentId or chargeId required' });
         return true;
       }
-      if (!process.env.STRIPE_SECRET_KEY?.trim()) {
+      if (!getStripeRuntimeConfig().secretKey) {
         sendJson(res, 200, {
           ok: true,
           stub: true,
@@ -115,7 +116,7 @@ export async function handleGapApiRoutes(
         sendJson(res, 400, { error: 'action must be cancel|upgrade|downgrade' });
         return true;
       }
-      if (!process.env.STRIPE_SECRET_KEY?.trim()) {
+      if (!getStripeRuntimeConfig().secretKey) {
         sendJson(res, 200, {
           ok: true,
           stub: true,

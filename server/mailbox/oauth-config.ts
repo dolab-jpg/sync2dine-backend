@@ -43,25 +43,38 @@ export function getProviderOAuthConfig(provider: MailProviderId): {
 
 export function isMailboxMockMode(): boolean {
   if (process.env.MAILBOX_FORCE_MOCK === 'true') return true;
-  if (process.env.INTEGRATIONS_MOCK_MODE === 'false' || process.env.MAILBOX_MOCK_MODE === 'false') {
+  if (process.env.MAILBOX_MOCK_MODE === 'true') return true;
+  if (process.env.MAILBOX_MOCK_MODE === 'false' || process.env.INTEGRATIONS_MOCK_MODE === 'false') {
     return false;
   }
-  return true;
+  // Client credentials on disk/env → prefer live OAuth (Save now mirrors secrets here).
+  if (hasAnyMailboxOAuthConfigured()) return false;
+  return process.env.INTEGRATIONS_MOCK_MODE === 'true';
+}
+
+export function hasProviderOAuthConfigured(provider: MailProviderId): boolean {
+  const cfg = getProviderOAuthConfig(provider);
+  return Boolean(cfg.clientId?.trim() && cfg.clientSecret?.trim());
 }
 
 export function hasGoogleOAuthConfigured(): boolean {
-  const secrets = getEmailOAuthSecrets();
-  return Boolean(
-    (process.env.GOOGLE_OAUTH_CLIENT_ID || secrets.googleClientId)
-    && (process.env.GOOGLE_OAUTH_CLIENT_SECRET || secrets.googleClientSecret)
+  return hasProviderOAuthConfigured('google');
+}
+
+export function hasAnyMailboxOAuthConfigured(): boolean {
+  return (
+    hasProviderOAuthConfigured('google')
+    || hasProviderOAuthConfigured('microsoft')
+    || hasProviderOAuthConfigured('yahoo')
   );
 }
 
-export function shouldUseLiveMailbox(req?: IncomingMessage): boolean {
+export function shouldUseLiveMailbox(req?: IncomingMessage, provider?: MailProviderId): boolean {
   if (isMailboxMockMode()) {
     const liveHeader = req?.headers?.['x-mailbox-live'];
-    if (liveHeader === 'true' && hasGoogleOAuthConfigured()) return true;
-    return false;
+    if (liveHeader !== 'true') return false;
+    if (provider) return hasProviderOAuthConfigured(provider);
+    return hasAnyMailboxOAuthConfigured();
   }
   return true;
 }

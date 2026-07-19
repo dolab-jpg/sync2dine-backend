@@ -8,6 +8,7 @@ import {
   type OrgIntegrationPublic,
 } from './org-integrations-store';
 import { ensureOrgOpenAIKeyLoaded, getOrgOpenAIKeyStatus } from './organizations';
+import { getStripeRuntimeConfig } from './stripe-config';
 
 export type IntegrationStatusSource = 'supabase' | 'env' | 'runtime' | 'both' | 'memory' | 'none';
 
@@ -130,16 +131,17 @@ function envVoiceProbes(): IntegrationStatusItem[] {
     }));
   }
 
-  if (process.env.STRIPE_SECRET_KEY?.trim()) {
+  const stripeConfig = getStripeRuntimeConfig();
+  if (stripeConfig.secretKey) {
     items.push(baseItem('stripe', {
       status: 'connected',
-      source: 'env',
+      source: process.env.STRIPE_SECRET_KEY?.trim() ? 'env' : 'runtime',
       values: {
-        publishableKey: process.env.STRIPE_PUBLISHABLE_KEY?.trim() || process.env.VITE_STRIPE_PUBLISHABLE_KEY?.trim() || '',
+        publishableKey: stripeConfig.publishableKey,
       },
       configuredFields: {
         secretKey: SERVER_PLACEHOLDER,
-        ...(process.env.STRIPE_WEBHOOK_SECRET ? { webhookSecret: SERVER_PLACEHOLDER } : {}),
+        ...(stripeConfig.webhookSecret ? { webhookSecret: SERVER_PLACEHOLDER } : {}),
       },
     }));
   }
@@ -225,9 +227,10 @@ async function runtimeWhatsApp(): Promise<IntegrationStatusItem | null> {
     const status = String(getWWebStatus() || '');
     if (!status || status === 'disconnected' || status === 'unauthenticated') return null;
     const info = (getWWebInfo() || {}) as { pushname?: string; phone?: string; wid?: string };
-    const connected = status === 'ready' || status === 'authenticated';
+    // Only "ready" is truly connected — qr_pending / authenticated alone must not green-badge the hub.
+    const connected = status === 'ready';
     return baseItem('whatsapp', {
-      status: connected ? 'connected' : 'connected',
+      status: connected ? 'connected' : 'error',
       source: 'runtime',
       values: {
         cyrusDisplayName: 'Cynthia',

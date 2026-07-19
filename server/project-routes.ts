@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { getDataStore, syncData, getProjectById, saveWhatsAppGroup, setRequestOrgId } from './data-store';
 import { isAuthEnforced, requireAuth, resolveOrgIdForRequest } from './auth';
+import { getStripeRuntimeConfig } from './stripe-config';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -36,7 +37,7 @@ export async function handleProjectRoutes(
         sendJson(res, 400, { error: 'Invalid deposit amount' });
         return true;
       }
-      const secret = process.env.STRIPE_SECRET_KEY;
+      const secret = getStripeRuntimeConfig().secretKey;
       if (!secret) {
         sendJson(res, 501, { error: 'Stripe customer checkout not configured' });
         return true;
@@ -98,7 +99,7 @@ export async function handleProjectRoutes(
         sendJson(res, 400, { error: 'Invalid payment amount' });
         return true;
       }
-      const secret = process.env.STRIPE_SECRET_KEY;
+      const secret = getStripeRuntimeConfig().secretKey;
       if (!secret) {
         sendJson(res, 501, { error: 'Stripe customer checkout not configured' });
         return true;

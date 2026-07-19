@@ -111,6 +111,24 @@ export async function handleIntegrationTest(
       return;
     }
 
+    if (integrationId === 'stripe') {
+      saveIntegrationSecrets('stripe', values);
+      const saved = (await import('./stripe-config')).getStripeRuntimeConfig();
+      if (!saved.secretKey) {
+        sendJson(res, 400, { success: false, message: 'Stripe secret key required', status: 'error' });
+        return;
+      }
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(saved.secretKey);
+      const account = await stripe.accounts.retrieve();
+      sendJson(res, 200, {
+        success: true,
+        message: `Stripe connected${account.id ? ` (${account.id})` : ''}`,
+        status: 'connected',
+      });
+      return;
+    }
+
     if (integrationId === 'webhook_server') {
       const base = values.baseUrl?.replace(/\/$/, '');
       const health = values.healthEndpoint || '/health';

@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { getStripe, handleStripeWebhookEvent } from './stripe-service';
+import { getStripeRuntimeConfig } from './stripe-config';
 
 function readBody(req: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -23,7 +24,7 @@ export async function handleStripeRoutes(
 ): Promise<boolean> {
   if (pathname === '/api/stripe/webhook' && req.method === 'POST') {
     const sig = req.headers['stripe-signature'];
-    const secret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    const secret = getStripeRuntimeConfig().webhookSecret;
     if (!secret) {
       sendJson(res, 503, { error: 'STRIPE_WEBHOOK_SECRET not configured' });
       return true;
