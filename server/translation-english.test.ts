@@ -197,7 +197,7 @@ describe('language-packs SUPPORTED_LANGS / deepgram', () => {
   it('SUPPORTED_LANGS includes ru and deepgram maps it', () => {
     assert.deepEqual(
       [...SUPPORTED_LANGS].sort(),
-      ['en', 'es', 'fa', 'pl', 'ru', 'sq', 'uk', 'zh'].sort(),
+      ['ar', 'en', 'es', 'fa', 'hi', 'it', 'pl', 'pt', 'ro', 'ru', 'sq', 'tr', 'uk', 'zh'].sort(),
     );
     assert.equal(deepgramLanguageForPack('ru'), 'multi');
     assert.equal(deepgramLanguageForPack('uk'), 'multi');

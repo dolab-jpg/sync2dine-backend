@@ -39,6 +39,13 @@ jobs:
             set -e
             BE="${{ vars.SYNC2DINE_BACKEND_DIR }}"
             cd "$BE"
+            # Pull Cockney Sally sales OS from frontend master (live web/chat source of truth)
+            curl -fsSL "https://raw.githubusercontent.com/dolab-jpg/sync2dine-frontend/master/server/sally-sales.ts" \
+              -o server/sally-sales.ts
+            curl -fsSL "https://raw.githubusercontent.com/dolab-jpg/sync2dine-frontend/master/server/orchestrator-prompt.ts" \
+              -o server/orchestrator-prompt.ts || true
+            grep -n "VOICE & HUMOUR" server/sally-sales.ts | head -5
+            grep -n "VOICE & HUMOUR" server/sally-sales-phone.ts | head -5 || true
             npm ci --omit=dev
             if command -v pm2 >/dev/null 2>&1; then
               pm2 restart sync2dine-backend || pm2 start "npm run start" --name sync2dine-backend
@@ -53,4 +60,9 @@ jobs:
               sleep 5
             fi
             curl -sS --max-time 10 https://app.sync2dine.io/health || true
+            echo
+            curl -sS --max-time 60 -X POST https://app.sync2dine.io/api/sally/web \
+              -H 'Content-Type: application/json' \
+              -H 'Origin: https://sync2dine.io' \
+              -d '{"sessionId":"web_cockney_be","text":"Who are you then?","page":"/"}' | head -c 900
             echo
