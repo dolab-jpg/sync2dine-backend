@@ -18,6 +18,11 @@ export function getHomeOrgId(): string {
   return FALLBACK_HOME_ORG_UUID;
 }
 
+/** Alias used by call-recording / kitchen demo paths. */
+export function getDemoKitchenOrgId(): string {
+  return getHomeOrgId();
+}
+
 /** Real Supabase uuid — never the legacy "bdiddies" slug. */
 export const BDIDDIES_HOME_ORG_ID = getHomeOrgId();
 

@@ -195,6 +195,15 @@ export function resolveStaffUserId(opts: {
       if (matches.length === 1 && matches[0]?.userId) return String(matches[0].userId);
     }
   }
+  // Sync2Dine platform owner — explicit env, not B-Diddies / first-admin guess
+  const platformOwner = (
+    process.env.PLATFORM_OWNER_USER_ID
+    || process.env.SYNC2DINE_PLATFORM_OWNER_USER_ID
+    || ''
+  ).trim();
+  if (platformOwner && platformOwner.length >= 8 && platformOwner !== 'default-staff' && platformOwner !== 'default') {
+    return platformOwner;
+  }
   return null;
 }
 

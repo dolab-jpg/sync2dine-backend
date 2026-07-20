@@ -32,6 +32,7 @@ import {
   updateReservation,
 } from './reservations-store';
 import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from './restaurant-ai-tools';
+import { resolveCallbackIso } from './callback-time';
 
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -746,6 +747,10 @@ export async function executePhoneTool(
           : 'I need a valid UK phone number to book that callback.',
       };
     }
+    const preferredRaw = firstString(input.preferredTime, input.scheduledAt) || '';
+    const scheduledIso = preferredRaw
+      ? (resolveCallbackIso(preferredRaw) || preferredRaw)
+      : undefined;
     const job = enqueueOutboundCall({
       to: dialTo,
       template: 'lead_callback',
@@ -753,30 +758,29 @@ export async function executePhoneTool(
       context: {
         name: input.name,
         reason: input.reason,
-        preferredTime: input.preferredTime,
+        preferredTime: preferredRaw || scheduledIso,
         urgency: input.urgency ?? 'medium',
         callId,
         customerId: firstString(input.customerId, body.customerContext?.customerId),
         aim: firstString(input.aim) || 'callback',
       },
-      scheduledAt: firstString(input.preferredTime, input.scheduledAt),
+      scheduledAt: scheduledIso,
     });
     const customerId = firstString(input.customerId, body.customerContext?.customerId);
     if (customerId) {
       appendCustomerCallActivity({
         customerId,
         callId: callId ?? undefined,
-        summary: `Callback booked to ${dialTo}${input.preferredTime ? ` (${String(input.preferredTime)})` : ''}`,
+        summary: `Callback booked to ${dialTo}${scheduledIso ? ` (${scheduledIso})` : preferredRaw ? ` (${preferredRaw})` : ''}`,
         detail: String(input.reason ?? 'Callback requested'),
         aim: 'callback',
         type: 'callback',
       });
-      const preferred = firstString(input.preferredTime, input.scheduledAt);
-      if (preferred) {
+      if (scheduledIso || preferredRaw) {
         const store = getDataStore();
         const idx = store.customers.findIndex((c) => String(c.id) === customerId);
         if (idx >= 0) {
-          store.customers[idx] = { ...store.customers[idx], nextFollowUp: preferred };
+          store.customers[idx] = { ...store.customers[idx], nextFollowUp: scheduledIso || preferredRaw };
           syncData(store);
         }
       }
@@ -785,8 +789,9 @@ export async function executePhoneTool(
       callbackQueued: true,
       jobId: job.id,
       to: dialTo,
-      preferredTime: input.preferredTime,
-      spokenHint: `Callback queued to ${dialTo}${input.preferredTime ? ` around ${String(input.preferredTime)}` : ''}.`,
+      preferredTime: preferredRaw || undefined,
+      scheduledAt: scheduledIso,
+      spokenHint: `Callback queued to ${dialTo}${scheduledIso ? ` at ${scheduledIso}` : preferredRaw ? ` around ${preferredRaw}` : ''}.`,
     };
   }
 

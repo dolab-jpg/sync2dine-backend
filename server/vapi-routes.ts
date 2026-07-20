@@ -3,6 +3,7 @@
  * Reuses Cyrus phone brain + existing customer/phone tool executors.
  */
 import type { IncomingMessage, ServerResponse } from 'http';
+import { appendFileSync } from 'fs';
 import {
   appendCallTurn,
   appendCustomerCallActivity,
@@ -108,11 +109,25 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+/** Structured Vapi webhook audit — /tmp/vapi-webhook-audit.log + console. */
+function auditVapiWebhook(payload: Record<string, unknown>): void {
+  const line = JSON.stringify({ ts: new Date().toISOString(), ...payload });
+  console.log('[vapi-audit]', line);
+  try {
+    appendFileSync('/tmp/vapi-webhook-audit.log', `${line}\n`);
+  } catch {
+    /* ignore */
+  }
+}
+
 function verifyVapiRequest(req: IncomingMessage): boolean {
   const secret = getVapiServerSecret();
   if (!secret) {
     // Production must never accept unauthenticated webhooks
-    if (isProductionRuntime()) return false;
+    if (isProductionRuntime()) {
+      auditVapiWebhook({ event: 'auth_reject', reason: 'missing_VAPI_SERVER_SECRET' });
+      return false;
+    }
     return true; // allow only in explicit non-production / mock mode
   }
   const header = req.headers['x-vapi-secret']
@@ -121,6 +136,11 @@ function verifyVapiRequest(req: IncomingMessage): boolean {
   if (typeof header === 'string' && header.includes(secret)) return true;
   if (typeof header === 'string' && header.trim() === secret) return true;
   if (Array.isArray(header) && header.some((h) => h.includes(secret))) return true;
+  auditVapiWebhook({
+    event: 'auth_reject',
+    reason: 'secret_mismatch',
+    hasHeader: Boolean(header),
+  });
   return false;
 }
 
@@ -524,6 +544,21 @@ function finalizeVapiCall(
     });
     stampCustomerLastRecording(customerId, finalRecordingUrl, callId);
   }
+
+  // Sally sales: always notify staff with end-of-call summary (+ callback if nextFollowUp set)
+  void import('./sally-sales-phone')
+    .then(({ isSallySalesCall, notifySallyCallEnded }) => {
+      if (isSallySalesCall(afterMeta, { agentPersona: String(afterMeta.agentPersona || '') })) {
+        notifySallyCallEnded({
+          callId,
+          customerId,
+          partyPhone,
+          summary: fallbackSummary,
+          disposition: disposition || endedReason,
+        });
+      }
+    })
+    .catch(() => {});
 }
 
 async function buildTransientAssistant(message: Record<string, unknown>) {
@@ -770,7 +805,7 @@ async function executeTool(
 
   const callMeta = (call?.metadata as Record<string, unknown> | undefined) || {};
   const { isSallySalesCall, executeSallySalesPhoneTool } = await import('./sally-sales-phone');
-  if (isSallySalesCall(callMeta) && (name === 'getOfferTerms' || name === 'bookDemo')) {
+  if (isSallySalesCall(callMeta) && (name === 'getOfferTerms' || name === 'bookDemo' || name === 'sendSalesFollowUp')) {
     return executeSallySalesPhoneTool(name, args, {
       callId,
       partyPhone,
@@ -948,6 +983,12 @@ async function handleVapiMessage(
 
   const message = (body.message || body) as Record<string, unknown>;
   const type = String(message.type || body.type || '');
+  const vapiCallPreview = ((message.call || {}) as Record<string, unknown>).id
+    || message.callId
+    || '';
+  const priorByProvider = vapiCallPreview
+    ? getCallByProviderId(String(vapiCallPreview))
+    : undefined;
 
   if (type === 'assistant-request') {
     const capacity = getAgentCapacitySnapshot();
@@ -976,6 +1017,13 @@ async function handleVapiMessage(
       || call.providerCallId
       || '',
     );
+    auditVapiWebhook({
+      type,
+      vapiCallId: vapiId || null,
+      matchedLocalCallId: String(call.id),
+      matchMethod: priorByProvider ? 'providerCallId' : (getCallById(String(call.id)) ? 'localId' : 'new'),
+      authOk: true,
+    });
     if (vapiId) {
       void enrichMonitorUrlsFromVapi(String(call.id), vapiId, extractMonitorUrls(message));
     }
@@ -990,6 +1038,14 @@ async function handleVapiMessage(
       || partyPhoneFromCall(message.call as Record<string, unknown>)
       || '');
     const tools = parseToolCalls(message);
+    auditVapiWebhook({
+      type,
+      vapiCallId: String(call.providerCallId || vapiCallPreview || ''),
+      matchedLocalCallId: String(call.id),
+      matchMethod: priorByProvider ? 'providerCallId' : 'ensure',
+      authOk: true,
+      tools: tools.map((t) => t.name),
+    });
     const results = await Promise.all(tools.map(async (tool) => {
       if (shouldSkipDuplicateTool(String(call.id), tool.id)) {
         appendCallTurn(String(call.id), {
@@ -1007,6 +1063,12 @@ async function handleVapiMessage(
           role: 'system',
           content: summarizeToolResult(tool.name, output),
         });
+        auditVapiWebhook({
+          type: 'tool-result',
+          toolName: tool.name,
+          ok: true,
+          matchedLocalCallId: String(call.id),
+        });
         return {
           toolCallId: tool.id,
           result: JSON.stringify(output),
@@ -1016,6 +1078,13 @@ async function handleVapiMessage(
         appendCallTurn(String(call.id), {
           role: 'system',
           content: `tool:${tool.name} → error: ${message.slice(0, 160)}`,
+        });
+        auditVapiWebhook({
+          type: 'tool-result',
+          toolName: tool.name,
+          ok: false,
+          error: message.slice(0, 120),
+          matchedLocalCallId: String(call.id),
         });
         return {
           toolCallId: tool.id,
@@ -1049,6 +1118,15 @@ async function handleVapiMessage(
         }
       }
     }
+    auditVapiWebhook({
+      type,
+      vapiCallId: String(call.providerCallId || vapiCallPreview || ''),
+      matchedLocalCallId: String(call.id),
+      authOk: true,
+      transcriptLen: text.length,
+      role,
+      isFinal,
+    });
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -1088,6 +1166,9 @@ async function handleVapiMessage(
     } else if (monitor.listenUrl || monitor.controlUrl) {
       Object.assign(meta, monitor);
     }
+    // Keep partyPhone on the row for CRM finalize
+    const partyFromMsg = partyPhoneFromCall(message.call as Record<string, unknown>);
+    if (partyFromMsg && !meta.partyPhone) meta.partyPhone = partyFromMsg;
     saveCall({
       id: call.id,
       status: mapped,
@@ -1104,12 +1185,35 @@ async function handleVapiMessage(
           }
         : {}),
     });
+    auditVapiWebhook({
+      type,
+      status,
+      mapped,
+      terminal,
+      vapiCallId: String(call.providerCallId || vapiCallPreview || ''),
+      matchedLocalCallId: String(call.id),
+      authOk: true,
+    });
+    // Do not full-finalize here — end-of-call-report owns CRM/notify. Status only closes the row.
     sendJson(res, 200, { ok: true });
     return;
   }
 
   if (type === 'end-of-call-report' || type === 'hang') {
     const call = ensureCallFromVapi(message);
+    const artifact = message.artifact as Record<string, unknown> | undefined;
+    const recUrls = extractRecordingUrls(message);
+    auditVapiWebhook({
+      type,
+      vapiCallId: String(call.providerCallId || vapiCallPreview || ''),
+      matchedLocalCallId: String(call.id),
+      matchMethod: priorByProvider ? 'providerCallId' : 'ensure',
+      authOk: true,
+      hasArtifact: Boolean(artifact),
+      recordingUrlPresent: Boolean(preferredRecordingUrl(recUrls) || message.recordingUrl),
+      endedReason: String(message.endedReason || message.ended_reason || ''),
+      transcriptLen: Array.isArray(call.transcript) ? (call.transcript as unknown[]).length : 0,
+    });
     // Always close the row even if finalize throws mid-way on CRM append
     try {
       const partyPhone = String((call.metadata as Record<string, unknown> | undefined)?.partyPhone
@@ -1125,7 +1229,7 @@ async function handleVapiMessage(
         outcome: 'finalize_error',
       });
     }
-    // Belt-and-braces: never leave hang/EOC as in_progress
+    // Belt-and-braces: never leave hang/EOC as in_progress or ringing
     const after = getCallById(String(call.id));
     const afterStatus = String(after?.status ?? '');
     if (after && (afterStatus === 'ringing' || afterStatus === 'in_progress')) {
@@ -1140,6 +1244,7 @@ async function handleVapiMessage(
     return;
   }
 
+  auditVapiWebhook({ type: type || 'unknown', authOk: true, vapiCallId: String(vapiCallPreview || '') });
   // unknown — acknowledge
   sendJson(res, 200, { ok: true });
 }

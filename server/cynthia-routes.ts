@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { DEFAULT_ORG_ID } from './data-store';
+import { getHomeOrgId } from './home-org';
 import {
   appendStaffMessage,
   getStaffThread,
@@ -202,7 +203,11 @@ export function sendToStaffCynthiaInternal(input: {
   source?: CynthiaStaffCard['source'];
   toolCallId?: string;
 }): { ok: boolean; card?: CynthiaStaffCard; userId?: string; route?: string; error?: string; code?: string } {
-  const orgId = input.orgId || DEFAULT_ORG_ID;
+  // Prefer Sync2Dine home org UUID when caller did not pass orgId (legacy DEFAULT_ORG_ID is a slug)
+  let orgId = input.orgId || DEFAULT_ORG_ID;
+  if (!input.orgId || orgId === DEFAULT_ORG_ID || orgId === 'sync2dine') {
+    orgId = getHomeOrgId();
+  }
   const userId = resolveStaffUserId({
     userId: input.userId,
     staffPhone: input.staffPhone,

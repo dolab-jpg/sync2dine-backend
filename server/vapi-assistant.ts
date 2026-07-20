@@ -180,9 +180,20 @@ export async function buildVapiAssistantForParty(opts: {
       model: process.env.VAPI_DEEPGRAM_MODEL?.trim() || 'nova-2',
       language: deepgramLanguageForPack(language),
     },
-    silenceTimeoutSeconds: 45,
-    maxDurationSeconds: Number(process.env.VAPI_MAX_CALL_SECONDS || 900),
+    silenceTimeoutSeconds: sally ? 90 : 45,
+    maxDurationSeconds: Number(
+      process.env.VAPI_MAX_CALL_SECONDS
+      || (sally ? 1200 : 900),
+    ),
     backgroundSound: 'off',
+    ...(sally
+      ? {
+          voicemailDetectionEnabled: true,
+          voicemailMessage:
+            process.env.SALLY_VOICEMAIL_MESSAGE?.trim()
+            || "Hi, it's Sally from Sync2Dine. We help restaurants answer the phone with AI that takes orders. I'll try you again soon — or reply to this number and we'll book a quick demo. Thanks!",
+        }
+      : {}),
     // PIN via spoken digits → verifyStaffPhonePin. Do NOT send keypadInputEnabled (Vapi 400).
     serverUrl: toolServer,
     serverMessages: [
