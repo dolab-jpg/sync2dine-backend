@@ -23,6 +23,8 @@ import {
   isSallySalesCall,
   SALLY_PERSONA,
 } from './sally-sales-phone';
+import { getHomeOrgId } from './home-org';
+import { buildVapiModelBlock } from './vapi-llm-model';
 
 export async function buildVapiAssistantForParty(opts: {
   partyPhone: string;
@@ -161,16 +163,16 @@ export async function buildVapiAssistantForParty(opts: {
     ? { ...baseVoice, stability: 0.28, style: 0.55, similarityBoost: 0.85 }
     : baseVoice;
 
+  const model = await buildVapiModelBlock({
+    orgId: getHomeOrgId() || DEFAULT_ORG_ID,
+    instructions,
+    tools: [...nativeTools, ...functionTools],
+  });
+
   const assistant: Record<string, unknown> = {
     name: assistantName,
     firstMessage,
-    model: {
-      provider: 'openai',
-      model: process.env.VAPI_LLM_MODEL?.trim() || 'gpt-4o',
-      temperature: 0.7,
-      messages: [{ role: 'system', content: instructions }],
-      tools: [...nativeTools, ...functionTools],
-    },
+    model,
     voice,
     transcriber: {
       provider: 'deepgram',
