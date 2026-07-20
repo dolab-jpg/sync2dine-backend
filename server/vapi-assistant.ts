@@ -78,9 +78,13 @@ export async function buildVapiAssistantForParty(opts: {
     language = sallyPrompt.language;
     assistantName = 'Sally Sync2Dine';
     if (opts.direction === 'outbound') {
-      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Sally from Sync2Dine — have you got a quick moment?`;
+      firstMessage = firstName && !/^guest$/i.test(firstName)
+        ? `Alright ${firstName}, it's Sally from Sync2Dine — you got a minute?`
+        : `Alright love, it's Sally from Sync2Dine — who am I speaking with?`;
     } else {
-      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Sally from Sync2Dine here — how can I help?`;
+      firstMessage = firstName && !/^guest$/i.test(firstName)
+        ? `Alright ${firstName}, Sally from Sync2Dine — what can I do you for?`
+        : `Alright, Sally from Sync2Dine — who am I speaking with?`;
     }
     functionTools = getSallyPhoneSessionChatTools()
       .filter((tool) => tool.function.name !== 'endCall')
@@ -141,13 +145,21 @@ export async function buildVapiAssistantForParty(opts: {
   const nativeTools: Array<Record<string, unknown>> = [
     { type: 'endCall' },
   ];
-  const xfer = transferDestinationsFromEnv();
-  if (xfer.length) {
-    nativeTools.push({
-      type: 'transferCall',
-      destinations: xfer,
-    });
+  // Sally sales: callback only — no warm transfer destinations.
+  if (!sally) {
+    const xfer = transferDestinationsFromEnv();
+    if (xfer.length) {
+      nativeTools.push({
+        type: 'transferCall',
+        destinations: xfer,
+      });
+    }
   }
+
+  const baseVoice = getVapiVoiceConfigForLang(language) as Record<string, unknown>;
+  const voice = sally
+    ? { ...baseVoice, stability: 0.28, style: 0.55, similarityBoost: 0.85 }
+    : baseVoice;
 
   const assistant: Record<string, unknown> = {
     name: assistantName,
@@ -159,7 +171,7 @@ export async function buildVapiAssistantForParty(opts: {
       messages: [{ role: 'system', content: instructions }],
       tools: [...nativeTools, ...functionTools],
     },
-    voice: getVapiVoiceConfigForLang(language),
+    voice,
     transcriber: {
       provider: 'deepgram',
       // Multilingual STT so callers can flip language mid-call (Vapi + Deepgram multi).

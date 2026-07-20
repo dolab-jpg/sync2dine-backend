@@ -59,7 +59,10 @@ export function buildWarmTransferPlan(opts?: {
       maxDurationSeconds: 90,
       model: {
         provider: 'openai',
-        model: process.env.VAPI_LLM_MODEL?.trim() || 'gpt-4o',
+        model: process.env.VAPI_TRANSFER_LLM_MODEL?.trim()
+          || (process.env.VAPI_LLM_MODEL?.trim() && !/^gpt-4o/.test(process.env.VAPI_LLM_MODEL.trim())
+            ? process.env.VAPI_LLM_MODEL.trim()
+            : 'gpt-4.1'),
         messages: [
           {
             role: 'system',
