@@ -14,7 +14,7 @@ import {
 } from './phone-auth';
 import { deepgramLanguageForPack } from './language-packs';
 import { getVapiVoiceConfigForLang } from './phone-voices';
-import { getVapiWebhookBaseUrl } from './vapi-client';
+import { getVapiServerSecret, getVapiWebhookBaseUrl } from './vapi-client';
 export { resolveTransferNumber, transferDestinationsFromEnv } from './transfer-numbers';
 import { transferDestinationsFromEnv } from './transfer-numbers';
 import {
@@ -60,6 +60,10 @@ export async function buildVapiAssistantForParty(opts: {
 
   const webhookBase = getVapiWebhookBaseUrl();
   const toolServer = `${webhookBase}/webhooks/vapi`;
+  const webhookSecret = getVapiServerSecret() || undefined;
+  const toolServerCfg = webhookSecret
+    ? { url: toolServer, secret: webhookSecret }
+    : { url: toolServer };
   const firstName = (opts.contactName || identity.name || String(callMeta.company || '')).split(/\s+/)[0];
 
   let instructions: string;
@@ -94,7 +98,7 @@ export async function buildVapiAssistantForParty(opts: {
         type: 'function',
         function: tool.function,
         async: false,
-        server: { url: toolServer },
+        server: toolServerCfg,
       }));
   } else {
     const built = buildPhoneBrainPrompt({
@@ -131,7 +135,7 @@ export async function buildVapiAssistantForParty(opts: {
         type: 'function',
         function: tool.function,
         async: false,
-        server: { url: toolServer },
+        server: toolServerCfg,
       }));
 
     if (identity.kind !== 'customer' && !functionTools.some((t) => t.function.name === 'verifyStaffPhonePin')) {
@@ -139,7 +143,7 @@ export async function buildVapiAssistantForParty(opts: {
         type: 'function',
         function: VERIFY_PIN_TOOL.function,
         async: false,
-        server: { url: toolServer },
+        server: toolServerCfg,
       });
     }
   }
@@ -196,6 +200,7 @@ export async function buildVapiAssistantForParty(opts: {
       : {}),
     // PIN via spoken digits → verifyStaffPhonePin. Do NOT send keypadInputEnabled (Vapi 400).
     serverUrl: toolServer,
+    ...(webhookSecret ? { serverUrlSecret: webhookSecret } : {}),
     serverMessages: [
       'transcript',
       'status-update',

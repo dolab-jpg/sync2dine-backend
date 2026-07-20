@@ -109,14 +109,14 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-/** Structured Vapi webhook audit — /tmp/vapi-webhook-audit.log + console. */
+/** Structured Vapi webhook audit → /tmp/vapi-webhook-audit.log */
 function auditVapiWebhook(payload: Record<string, unknown>): void {
   const line = JSON.stringify({ ts: new Date().toISOString(), ...payload });
   console.log('[vapi-audit]', line);
   try {
     appendFileSync('/tmp/vapi-webhook-audit.log', `${line}\n`);
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.warn('[vapi-audit] write failed', err instanceof Error ? err.message : err);
   }
 }
 
@@ -548,7 +548,17 @@ function finalizeVapiCall(
   // Sally sales: always notify staff with end-of-call summary (+ callback if nextFollowUp set)
   void import('./sally-sales-phone')
     .then(({ isSallySalesCall, notifySallyCallEnded }) => {
-      if (isSallySalesCall(afterMeta, { agentPersona: String(afterMeta.agentPersona || '') })) {
+      const sally = isSallySalesCall(afterMeta, { agentPersona: String(afterMeta.agentPersona || '') });
+      auditVapiWebhook({
+        event: 'finalize_sally_notify',
+        callId,
+        sally,
+        customerId: customerId || null,
+        hasRecording: Boolean(recordingUrl || after?.recordingUrl),
+        transcriptLen: Array.isArray(after?.transcript) ? (after!.transcript as unknown[]).length : 0,
+        disposition: disposition || endedReason || null,
+      });
+      if (sally) {
         notifySallyCallEnded({
           callId,
           customerId,
@@ -558,7 +568,13 @@ function finalizeVapiCall(
         });
       }
     })
-    .catch(() => {});
+    .catch((err) => {
+      auditVapiWebhook({
+        event: 'finalize_sally_notify_error',
+        callId,
+        error: err instanceof Error ? err.message.slice(0, 160) : String(err).slice(0, 160),
+      });
+    });
 }
 
 async function buildTransientAssistant(message: Record<string, unknown>) {
@@ -977,6 +993,7 @@ async function handleVapiMessage(
   }
 
   if (!isAgentActive()) {
+    auditVapiWebhook({ event: 'agent_inactive', type: String((body.message as Record<string, unknown> | undefined)?.type || body.type || '') });
     sendJson(res, 503, { error: 'Agent inactive' });
     return;
   }
@@ -1351,6 +1368,15 @@ export async function handleVapiRoutes(
     return true;
   }
 
+  auditVapiWebhook({
+    event: 'webhook_entry',
+    pathname,
+    method: req.method,
+    hasSecretHeader: Boolean(
+      req.headers['x-vapi-secret'] || req.headers['x-vapi-signature'] || req.headers.authorization,
+    ),
+  });
+
   if (!verifyVapiRequest(req)) {
     sendJson(res, 401, { error: 'Invalid or missing Vapi webhook secret' });
     return true;
@@ -1360,6 +1386,7 @@ export async function handleVapiRoutes(
   try {
     body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
   } catch {
+    auditVapiWebhook({ event: 'bad_json', pathname });
     sendJson(res, 400, { error: 'Invalid JSON' });
     return true;
   }
@@ -1367,6 +1394,10 @@ export async function handleVapiRoutes(
   try {
     await handleVapiMessage(req, res, body);
   } catch (err) {
+    auditVapiWebhook({
+      event: 'webhook_handler_error',
+      error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+    });
     console.error('[vapi] webhook error', err);
     sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
   }
