@@ -151,12 +151,87 @@ async function syncOrgBillingToSupabase(
   }
 }
 
+function stripeObjectMetadata(object: unknown): Record<string, string> {
+  if (!object || typeof object !== 'object') return {};
+  const record = object as Record<string, unknown>;
+  const direct = record.metadata && typeof record.metadata === 'object'
+    ? record.metadata as Record<string, unknown>
+    : {};
+  const parent = record.parent && typeof record.parent === 'object'
+    ? record.parent as Record<string, unknown>
+    : {};
+  const subscriptionDetails =
+    parent.subscription_details && typeof parent.subscription_details === 'object'
+      ? parent.subscription_details as Record<string, unknown>
+      : record.subscription_details && typeof record.subscription_details === 'object'
+        ? record.subscription_details as Record<string, unknown>
+        : {};
+  const nested = subscriptionDetails.metadata && typeof subscriptionDetails.metadata === 'object'
+    ? subscriptionDetails.metadata as Record<string, unknown>
+    : {};
+  return Object.fromEntries(
+    Object.entries({ ...nested, ...direct })
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  );
+}
+
+function stripeId(value: unknown): string | undefined {
+  if (typeof value === 'string' && value) return value;
+  if (value && typeof value === 'object' && typeof (value as { id?: unknown }).id === 'string') {
+    return (value as { id: string }).id;
+  }
+  return undefined;
+}
+
+async function reconcileQuotePayment(
+  event: Stripe.Event,
+  object: unknown,
+  details: {
+    sessionId?: string;
+    subscriptionId?: string;
+    customerId?: string;
+  } = {},
+): Promise<void> {
+  const metadata = stripeObjectMetadata(object);
+  const quoteId = metadata.quoteId?.trim();
+  const orgId = metadata.orgId?.trim();
+  if (!quoteId || !orgId) return;
+  const { markQuotePaidFromStripe } = await import('./quote-checkout');
+  const reconciled = await markQuotePaidFromStripe({
+    quoteId,
+    orgId,
+    eventId: event.id,
+    paidAt: new Date(event.created * 1000).toISOString(),
+    stripeCustomerId: details.customerId,
+    stripeSubscriptionId: details.subscriptionId,
+    stripeCheckoutSessionId: details.sessionId,
+  });
+  if (!reconciled) {
+    throw new Error(`Quote ${quoteId} could not be reconciled`);
+  }
+}
+
 export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
+    case 'checkout.session.completed': {
+      const session = event.data.object as Stripe.Checkout.Session;
+      await reconcileQuotePayment(event, session, {
+        sessionId: session.id,
+        customerId: stripeId(session.customer),
+        subscriptionId: stripeId(session.subscription),
+      });
+      break;
+    }
     case 'customer.subscription.created':
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted': {
       const sub = event.data.object as Stripe.Subscription;
+      if (event.type !== 'customer.subscription.deleted' && sub.status === 'active') {
+        await reconcileQuotePayment(event, sub, {
+          subscriptionId: sub.id,
+          customerId: stripeId(sub.customer),
+        });
+      }
       const orgId = sub.metadata?.orgId;
       let org = orgId ? getOrganizationById(orgId) : undefined;
       if (!org) {
@@ -220,6 +295,11 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
     }
     case 'invoice.paid': {
       const invoice = event.data.object as Stripe.Invoice;
+      const invoiceRecord = invoice as unknown as Record<string, unknown>;
+      await reconcileQuotePayment(event, invoice, {
+        customerId: stripeId(invoice.customer),
+        subscriptionId: stripeId(invoiceRecord.subscription),
+      });
       const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
       if (!customerId) return;
       const { getOrganizationByStripeCustomerId } = await import('./organizations');
