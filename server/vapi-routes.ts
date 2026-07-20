@@ -768,6 +768,16 @@ async function executeTool(
 
   const orchBody = buildStaffOrchBodyFromCall(call, callId, partyPhone, identity);
 
+  const callMeta = (call?.metadata as Record<string, unknown> | undefined) || {};
+  const { isSallySalesCall, executeSallySalesPhoneTool } = await import('./sally-sales-phone');
+  if (isSallySalesCall(callMeta) && (name === 'getOfferTerms' || name === 'bookDemo')) {
+    return executeSallySalesPhoneTool(name, args, {
+      callId,
+      partyPhone,
+      orgId: call?.orgId,
+    });
+  }
+
   if (CUSTOMER_TOOL_NAMES.has(name)) {
     return executeCustomerTool(name, args, orchBody);
   }

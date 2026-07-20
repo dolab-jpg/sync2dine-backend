@@ -17,6 +17,12 @@ import { getVapiVoiceConfigForLang } from './phone-voices';
 import { getVapiWebhookBaseUrl } from './vapi-client';
 export { resolveTransferNumber, transferDestinationsFromEnv } from './transfer-numbers';
 import { transferDestinationsFromEnv } from './transfer-numbers';
+import {
+  buildSallyBrainPrompt,
+  getSallyPhoneSessionChatTools,
+  isSallySalesCall,
+  SALLY_PERSONA,
+} from './sally-sales-phone';
 
 export async function buildVapiAssistantForParty(opts: {
   partyPhone: string;
@@ -24,10 +30,12 @@ export async function buildVapiAssistantForParty(opts: {
   campaignTemplate?: string;
   callId?: string;
   contactName?: string;
+  agentPersona?: string;
 }): Promise<{
   assistant: Record<string, unknown>;
   identity: PhoneCallerIdentity;
   verified: boolean;
+  agentPersona?: string;
 }> {
   await hydrateCallerFromCloud(opts.partyPhone);
   const identity = resolvePhoneCallerIdentity(opts.partyPhone, DEFAULT_ORG_ID);
@@ -42,53 +50,92 @@ export async function buildVapiAssistantForParty(opts: {
     : callMeta.aim != null
       ? String(callMeta.aim)
       : undefined;
-  const { instructions, language } = buildPhoneBrainPrompt({
-    orgId: DEFAULT_ORG_ID,
-    partyPhone: opts.partyPhone,
-    direction: opts.direction,
+
+  const sally = isSallySalesCall(callMeta, {
     campaignTemplate: opts.campaignTemplate,
-    outboundBrief,
-    contactName: opts.contactName || identity.name,
-    identity,
-    callId: opts.callId,
-    phoneAuthVerified: verified,
-    languageOverride,
+    agentPersona: opts.agentPersona || String(callMeta.agentPersona || ''),
   });
 
   const webhookBase = getVapiWebhookBaseUrl();
   const toolServer = `${webhookBase}/webhooks/vapi`;
-  const firstName = (opts.contactName || identity.name || '').split(/\s+/)[0];
+  const firstName = (opts.contactName || identity.name || String(callMeta.company || '')).split(/\s+/)[0];
 
+  let instructions: string;
+  let language: string;
   let firstMessage: string;
-  if (identity.kind === 'staff' || identity.kind === 'foreman') {
-    firstMessage = verified
-      ? `Hi ${firstName || 'there'}, Cynthia here — you're unlocked, what do you need?`
-      : `Hi ${firstName || 'there'}, Cynthia here — when you can, say your four-digit security code and I'll unlock your tools.`;
-  } else if (opts.direction === 'outbound') {
-    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Lizzie from Sync2Dine — how are you getting on?`;
-  } else {
-    firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Lizzie from Sync2Dine here — how can I help?`;
-  }
+  let assistantName: string;
+  let functionTools: Array<Record<string, unknown>>;
 
-  // Vapi uses native { type: 'endCall' } — do not also expose a function endCall
-  // (that path only marks the DB completed and leaves the live session open).
-  const functionTools = getPhoneSessionChatTools(identity, verified)
-    .filter((tool) => tool.function.name !== 'endCall')
-    .map((tool) => ({
-      type: 'function',
-      function: tool.function,
-      async: false,
-      server: { url: toolServer },
-    }));
-
-  // Always expose PIN verifier for staff sessions even if somehow filtered
-  if (identity.kind !== 'customer' && !functionTools.some((t) => t.function.name === 'verifyStaffPhonePin')) {
-    functionTools.unshift({
-      type: 'function',
-      function: VERIFY_PIN_TOOL.function,
-      async: false,
-      server: { url: toolServer },
+  if (sally) {
+    const sallyPrompt = buildSallyBrainPrompt({
+      partyPhone: opts.partyPhone,
+      direction: opts.direction,
+      outboundBrief,
+      contactName: opts.contactName || identity.name,
+      companyHint: callMeta.company != null ? String(callMeta.company) : undefined,
     });
+    instructions = sallyPrompt.instructions;
+    language = sallyPrompt.language;
+    assistantName = 'Sally Sync2Dine';
+    if (opts.direction === 'outbound') {
+      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Sally from Sync2Dine — have you got a quick moment?`;
+    } else {
+      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Sally from Sync2Dine here — how can I help?`;
+    }
+    functionTools = getSallyPhoneSessionChatTools()
+      .filter((tool) => tool.function.name !== 'endCall')
+      .map((tool) => ({
+        type: 'function',
+        function: tool.function,
+        async: false,
+        server: { url: toolServer },
+      }));
+  } else {
+    const built = buildPhoneBrainPrompt({
+      orgId: DEFAULT_ORG_ID,
+      partyPhone: opts.partyPhone,
+      direction: opts.direction,
+      campaignTemplate: opts.campaignTemplate,
+      outboundBrief,
+      contactName: opts.contactName || identity.name,
+      identity,
+      callId: opts.callId,
+      phoneAuthVerified: verified,
+      languageOverride,
+    });
+    instructions = built.instructions;
+    language = built.language;
+
+    if (identity.kind === 'staff' || identity.kind === 'foreman') {
+      firstMessage = verified
+        ? `Hi ${firstName || 'there'}, Cynthia here — you're unlocked, what do you need?`
+        : `Hi ${firstName || 'there'}, Cynthia here — when you can, say your four-digit security code and I'll unlock your tools.`;
+      assistantName = `Lizzie (${identity.role})`;
+    } else if (opts.direction === 'outbound') {
+      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Lizzie from Sync2Dine — how are you getting on?`;
+      assistantName = 'Lizzie Sync2Dine';
+    } else {
+      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Lizzie from Sync2Dine here — how can I help?`;
+      assistantName = 'Lizzie Sync2Dine';
+    }
+
+    functionTools = getPhoneSessionChatTools(identity, verified)
+      .filter((tool) => tool.function.name !== 'endCall')
+      .map((tool) => ({
+        type: 'function',
+        function: tool.function,
+        async: false,
+        server: { url: toolServer },
+      }));
+
+    if (identity.kind !== 'customer' && !functionTools.some((t) => t.function.name === 'verifyStaffPhonePin')) {
+      functionTools.unshift({
+        type: 'function',
+        function: VERIFY_PIN_TOOL.function,
+        async: false,
+        server: { url: toolServer },
+      });
+    }
   }
 
   const nativeTools: Array<Record<string, unknown>> = [
@@ -103,7 +150,7 @@ export async function buildVapiAssistantForParty(opts: {
   }
 
   const assistant: Record<string, unknown> = {
-    name: identity.kind === 'customer' ? 'Lizzie Sync2Dine' : `Lizzie (${identity.role})`,
+    name: assistantName,
     firstMessage,
     model: {
       provider: 'openai',
@@ -134,5 +181,5 @@ export async function buildVapiAssistantForParty(opts: {
     ],
   };
 
-  return { assistant, identity, verified };
+  return { assistant, identity, verified, agentPersona: sally ? SALLY_PERSONA : undefined };
 }

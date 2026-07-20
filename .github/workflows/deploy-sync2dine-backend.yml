@@ -36,6 +36,21 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            cd "${{ vars.SYNC2DINE_BACKEND_DIR }}"
+            set -e
+            BE="${{ vars.SYNC2DINE_BACKEND_DIR }}"
+            cd "$BE"
             npm ci --omit=dev
-            pm2 restart sync2dine-backend || pm2 start "npm run start" --name sync2dine-backend
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 restart sync2dine-backend || pm2 start "npm run start" --name sync2dine-backend
+            else
+              pkill -f 'sync2dine.io/sync2dine-backend.*server/index.ts' || true
+              sleep 2
+              nohup /opt/plesk/node/24/bin/node \
+                --require ./node_modules/tsx/dist/preflight.cjs \
+                --import file://$BE/node_modules/tsx/dist/loader.mjs \
+                --env-file=.env server/index.ts \
+                >/tmp/sync2dine-api.log 2>&1 &
+              sleep 5
+            fi
+            curl -sS --max-time 10 https://app.sync2dine.io/health || true
+            echo
