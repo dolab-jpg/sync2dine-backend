@@ -6,6 +6,9 @@ on:
       - master
   workflow_dispatch:
 
+env:
+  SYNC2DINE_BACKEND_DIR: /var/www/vhosts/sync2dine.io/sync2dine-backend
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -20,16 +23,29 @@ jobs:
   deploy:
     needs: verify
     runs-on: ubuntu-latest
-    if: ${{ vars.SYNC2DINE_BACKEND_DIR != '' }}
     steps:
+      - name: Check VPS secrets present
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          echo "host_len=${#VPS_HOST} user_len=${#VPS_USER} key_len=${#VPS_SSH_KEY}"
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::error::Missing VPS_HOST / VPS_USER / VPS_SSH_KEY GitHub secrets — cannot SSH to live API"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
+
       - uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           source: .
-          target: ${{ vars.SYNC2DINE_BACKEND_DIR }}
+          target: ${{ env.SYNC2DINE_BACKEND_DIR }}
+
       - uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -37,7 +53,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -e
-            BE="${{ vars.SYNC2DINE_BACKEND_DIR }}"
+            BE="/var/www/vhosts/sync2dine.io/sync2dine-backend"
             cd "$BE"
             # Pull Cockney Sally sales OS from frontend master (live web/chat source of truth)
             curl -fsSL "https://raw.githubusercontent.com/dolab-jpg/sync2dine-frontend/master/server/sally-sales.ts" \
