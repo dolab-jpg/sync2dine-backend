@@ -31,18 +31,6 @@ import { getHomeOrgId } from './home-org';
 
 export const SALLY_PERSONA = 'sally';
 
-export function isSallySalesCall(
-  meta?: Record<string, unknown> | null,
-  opts?: { campaignTemplate?: string; agentPersona?: string },
-): boolean {
-  const m = meta || {};
-  const persona = String(opts?.agentPersona || m.agentPersona || '').toLowerCase();
-  if (persona === SALLY_PERSONA) return true;
-  if (String(m.aim || '').toLowerCase() === 'sales_outreach') return true;
-  if (String(m.source || '').toLowerCase() === 'sales_csv_dial') return true;
-  return false;
-}
-
 function launchActive(): boolean {
   return String(process.env.SALLY_LAUNCH_ACTIVE || '1').trim() !== '0';
 }
@@ -54,6 +42,64 @@ function resolveDemoPhone(): string {
     || process.env.SALLY_DEMO_PHONE?.trim()
     || '02080505029'
   );
+}
+
+/** Strip to comparable UK national digits (no leading 44/0). */
+export function phoneDigitsForMatch(input: string): string {
+  let digits = String(input || '').replace(/\D/g, '');
+  if (digits.startsWith('44') && digits.length >= 11) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = digits.slice(1);
+  return digits;
+}
+
+/** Numbers whose inbound voice should always use Sally sales (demo / Twilio / allowlist). */
+export function listSallyInboundNumbers(): string[] {
+  const fromAllowlist = String(process.env.SALLY_INBOUND_NUMBERS || '')
+    .split(/[,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return [
+    resolveDemoPhone(),
+    process.env.TWILIO_FROM_NUMBER,
+    process.env.TWILIO_PHONE_NUMBER,
+    ...fromAllowlist,
+  ]
+    .map((n) => String(n || '').trim())
+    .filter(Boolean);
+}
+
+/** True when the called line DID is the Sally sales/demo/Twilio number. */
+export function isSallyInboundLine(calledNumber?: string | null): boolean {
+  const called = phoneDigitsForMatch(calledNumber || '');
+  if (!called || called.length < 7) return false;
+  return listSallyInboundNumbers().some((candidate) => {
+    const digits = phoneDigitsForMatch(candidate);
+    if (!digits || digits.length < 7) return false;
+    return digits === called || digits.endsWith(called) || called.endsWith(digits);
+  });
+}
+
+export function resolveSallyWebsiteUrl(): string {
+  const raw = (
+    process.env.SALLY_WEBSITE_URL?.trim()
+    || process.env.APP_BASE_URL?.trim()
+    || 'https://sync2dine.io'
+  );
+  return raw.replace(/\/+$/, '');
+}
+
+export function isSallySalesCall(
+  meta?: Record<string, unknown> | null,
+  opts?: { campaignTemplate?: string; agentPersona?: string; lineDid?: string },
+): boolean {
+  const m = meta || {};
+  const persona = String(opts?.agentPersona || m.agentPersona || '').toLowerCase();
+  if (persona === SALLY_PERSONA) return true;
+  if (String(m.aim || '').toLowerCase() === 'sales_outreach') return true;
+  if (String(m.source || '').toLowerCase() === 'sales_csv_dial') return true;
+  const lineDid = opts?.lineDid ?? (m.lineDid != null ? String(m.lineDid) : '');
+  if (isSallyInboundLine(lineDid)) return true;
+  return false;
 }
 
 function packageLine(pkg: SaasPackageDef, launch: boolean): string {
@@ -183,12 +229,17 @@ const SALLY_SALES_OS = [
   '- Do not default to WhatsApp. If WhatsApp fails, say so and offer email/SMS/speak the number.',
   'CALLBACKS:',
   '- Only book a callback if they refuse signup or ask for one. Then MUST call bookCallback or bookDemo with preferredTime as ISO (Europe/London). Never claim booked without tool success.',
+  'STAFFING (this sales/demo line):',
+  '- This line is AI-staffed. You own the call end-to-end. Humans are not available on this number.',
+  '- Do NOT offer to transfer or put them through to a person. Never volunteer transfer.',
+  '- If they insist on a human: take a message (captureMessage) or bookCallback / bookDemo — keep closing yourself. Do not dial transfer.',
+  '- transferToHuman / transferCall exist only as a dormant last-resort capability; default behaviour is NEVER use them.',
   'GUARDRAILS:',
   '- NOT the restaurant food-order agent.',
   '- Products: Judie and/or Atmosphere (+ Complete). Sally is not a separate SKU.',
   '- Never invent price — use getOfferTerms.',
   '- Never address Guest or Unknown.',
-  '- LARGE CONTRACT / multi-site: arrange callback. You cannot transfer calls.',
+  '- LARGE CONTRACT / multi-site: arrange callback yourself — do not transfer.',
   '- DNC/opt-out = stop. When finished, native hang-up.',
 ].join('\n');
 
@@ -274,6 +325,8 @@ export function getSallyPhoneSessionChatTools() {
       'classifyCallIntent',
       'scheduleAppointment',
       'verifyStaffPhonePin',
+      // Wired for parity; prompt forbids using it — staff are not on this line.
+      'transferToHuman',
     ),
     END_CALL_FUNCTION_TOOL,
     SET_CALL_LANGUAGE_TOOL,
@@ -299,7 +352,7 @@ export function buildSallyBrainPrompt(input: {
     '- CLARITY: Postcode NATO readback only when newly spoken or corrected — skip if CRM/brief already has venue + postcode.',
     input.direction === 'outbound'
       ? '- This is an outbound sales call you placed — work the close script.'
-      : '- This is an inbound sales call — work the close script.',
+      : '- This is an inbound sales/demo callback — they likely got your SMS or website number. Greet as Sally, then work the close script. Do not transfer to a human.',
     safeName
       ? `- Contact name hint: ${safeName} — greet them by name.`
       : '- Contact name unknown — speak normally; never say Guest; ask who you are speaking with when it fits.',
@@ -351,17 +404,22 @@ export async function executeSallySalesPhoneTool(
     const offer = buildOfferTermsPayload();
     const demoPhone = String(offer.demoPhone || '');
     const spoken = String(offer.spokenDemoPhone || speakUkPhone(demoPhone));
+    const website = resolveSallyWebsiteUrl();
     const includeDemo = input.includeDemoPhone !== false;
+    const demoNational = toUkNationalDigits(demoPhone) || demoPhone;
     const defaultBody = [
       'Hi — Sally from Sync2Dine here.',
-      includeDemo ? `Try our Judie demo line: ${toUkNationalDigits(demoPhone) || demoPhone} (${spoken}).` : '',
+      `Website: ${website}`,
+      includeDemo
+        ? `Call me on the demo line: ${demoNational} (${spoken}). Ask for Sally — I answer this number.`
+        : '',
       'Judie takes full orders; Atmosphere runs venue audio. Complete does both.',
-      'Reply to this message or we can get you signed up on a quick call.',
+      'Reply to this message or call the number above and we can get you signed up.',
       String(input.body || '').trim(),
     ]
       .filter(Boolean)
       .join('\n\n');
-    const subject = String(input.subject || 'Sync2Dine — demo number + next steps').trim();
+    const subject = String(input.subject || 'Sync2Dine — website, demo number + next steps').trim();
     const sentVia: string[] = [];
     const errors: string[] = [];
     let emailMessageId: string | undefined;
