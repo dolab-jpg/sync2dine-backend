@@ -565,11 +565,15 @@ async function buildTransientAssistant(message: Record<string, unknown>) {
   const call = ensureCallFromVapi(message);
   const vapiCall = (message.call || {}) as Record<string, unknown>;
   const existingMeta = (call.metadata as Record<string, unknown> | undefined) || {};
-  const direction = (call.direction as 'inbound' | 'outbound') || 'outbound';
+  // Prefer live Vapi call type — never default missing direction to outbound (that skips Sally inbound).
+  const directionRaw = String(vapiCall.type || call.direction || '').toLowerCase();
+  const direction: 'inbound' | 'outbound' = directionRaw.includes('outbound')
+    ? 'outbound'
+    : 'inbound';
   const lineDid = lineDidForDirection(
     direction,
     vapiCall,
-    String(process.env.SOHO66_FROM_NUMBER || existingMeta.lineDid || ''),
+    String(existingMeta.lineDid || process.env.SOHO66_FROM_NUMBER || ''),
   );
   const partyPhone = String(existingMeta.partyPhone
     || partyPhoneFromCall(vapiCall)
@@ -788,15 +792,14 @@ async function executeTool(
   }
 
   const callMetaEarly = (call?.metadata as Record<string, unknown> | undefined) || {};
-  const { isSallySalesCall, executeSallySalesPhoneTool } = await import('./sally-sales-phone');
+  const { isSallySalesCall, executeSallySalesPhoneTool, isSallyTransferAllowed } = await import('./sally-sales-phone');
   const sallyCall = isSallySalesCall(callMetaEarly, {
     lineDid: callMetaEarly.lineDid != null ? String(callMetaEarly.lineDid) : undefined,
   });
 
   if (name === 'transferToHuman') {
     // Sally sales/demo line: humans are not staffed. Dial only if SALLY_ALLOW_TRANSFER=1.
-    const sallyTransferAllowed = String(process.env.SALLY_ALLOW_TRANSFER || '').trim() === '1';
-    const takeMessage = Boolean(args.takeMessage) || (sallyCall && !sallyTransferAllowed);
+    const takeMessage = Boolean(args.takeMessage) || (sallyCall && !isSallyTransferAllowed());
     const department = String(args.department || 'general');
     const transferNumber = resolveTransferNumber(department);
     const destination = !takeMessage
@@ -1032,7 +1035,11 @@ async function handleVapiMessage(
     const inboundLineDid = lineDidForDirection(
       isOutbound ? 'outbound' : 'inbound',
       vapiCallPreviewObj,
-      String(process.env.SOHO66_FROM_NUMBER || ''),
+      String(
+        ((vapiCallPreviewObj.metadata as Record<string, unknown> | undefined)?.lineDid as string | undefined)
+        || process.env.SOHO66_FROM_NUMBER
+        || '',
+      ),
     );
     const { isSallyInboundLine } = await import('./sally-sales-phone');
     const sallyInboundLine = !isOutbound && isSallyInboundLine(inboundLineDid);

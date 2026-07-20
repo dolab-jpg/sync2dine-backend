@@ -68,15 +68,24 @@ export function listSallyInboundNumbers(): string[] {
     .filter(Boolean);
 }
 
-/** True when the called line DID is the Sally sales/demo/Twilio number. */
+/**
+ * True when the called line DID is the Sally sales/demo/Twilio number.
+ * Exact national-digit match only (no endsWith) — short fragments must not steal restaurant DIDs.
+ */
 export function isSallyInboundLine(calledNumber?: string | null): boolean {
   const called = phoneDigitsForMatch(calledNumber || '');
-  if (!called || called.length < 7) return false;
+  // UK national (no leading 0/44): mobiles 10 digits, most geos 9–10.
+  if (!called || called.length < 9) return false;
   return listSallyInboundNumbers().some((candidate) => {
     const digits = phoneDigitsForMatch(candidate);
-    if (!digits || digits.length < 7) return false;
-    return digits === called || digits.endsWith(called) || called.endsWith(digits);
+    if (!digits || digits.length < 9) return false;
+    return digits === called;
   });
+}
+
+/** Sally may warm-transfer only when explicitly enabled (default: blocked). */
+export function isSallyTransferAllowed(): boolean {
+  return String(process.env.SALLY_ALLOW_TRANSFER || '').trim() === '1';
 }
 
 export function resolveSallyWebsiteUrl(): string {
@@ -292,7 +301,7 @@ const SEND_SALES_FOLLOW_UP_TOOL = {
   function: {
     name: 'sendSalesFollowUp',
     description:
-      'Email and/or SMS the prospect the demo number and a short pricing/demo note. Prefer email. SMS only to UK mobiles. Never claim success without this tool succeeding.',
+      'Email and/or SMS the prospect the website, demo number, and a short pricing/demo note. Prefer email. SMS only to UK mobiles. Never claim success without this tool succeeding.',
     parameters: {
       type: 'object',
       properties: {
@@ -304,6 +313,26 @@ const SEND_SALES_FOLLOW_UP_TOOL = {
         includeDemoPhone: { type: 'boolean' },
       },
       required: ['channel'],
+    },
+  },
+};
+
+/** Present for tool parity; default handler blocks dial — use takeMessage / bookCallback instead. */
+const SALLY_TRANSFER_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'transferToHuman',
+    description:
+      'This sales/demo line is AI-staffed. Do NOT use to dial a human. Set takeMessage true to leave a message, or prefer bookCallback/bookDemo. Transfer dials are blocked unless ops enables SALLY_ALLOW_TRANSFER.',
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string' },
+        department: { type: 'string', enum: ['sales', 'projects', 'recruitment', 'accounts', 'general'] },
+        takeMessage: { type: 'boolean' },
+        message: { type: 'string' },
+      },
+      required: ['reason'],
     },
   },
 };
@@ -325,9 +354,8 @@ export function getSallyPhoneSessionChatTools() {
       'classifyCallIntent',
       'scheduleAppointment',
       'verifyStaffPhonePin',
-      // Wired for parity; prompt forbids using it — staff are not on this line.
-      'transferToHuman',
     ),
+    SALLY_TRANSFER_TOOL,
     END_CALL_FUNCTION_TOOL,
     SET_CALL_LANGUAGE_TOOL,
   ];

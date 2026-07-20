@@ -21,6 +21,7 @@ import {
   buildSallyBrainPrompt,
   getSallyPhoneSessionChatTools,
   isSallySalesCall,
+  isSallyTransferAllowed,
   SALLY_PERSONA,
 } from './sally-sales-phone';
 import { getHomeOrgId } from './home-org';
@@ -150,9 +151,8 @@ export async function buildVapiAssistantForParty(opts: {
   ];
   // Transfer destinations when VOICE_TRANSFER_* is set.
   // Sally: only expose native transferCall if SALLY_ALLOW_TRANSFER=1 (default off — AI-staffed).
-  const sallyTransferAllowed = String(process.env.SALLY_ALLOW_TRANSFER || '').trim() === '1';
   const xfer = transferDestinationsFromEnv();
-  if (xfer.length && (!sally || sallyTransferAllowed)) {
+  if (xfer.length && (!sally || isSallyTransferAllowed())) {
     nativeTools.push({
       type: 'transferCall',
       destinations: xfer,
