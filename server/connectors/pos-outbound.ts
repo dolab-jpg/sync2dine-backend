@@ -46,9 +46,6 @@ export async function forwardOrderIfPosEnabled(
   order: Record<string, unknown>,
   config: ConnectorConfig | null,
 ): Promise<{ order: Record<string, unknown>; push?: PosPushResult }> {
-  // #region agent log
-  fetch('http://127.0.0.1:7756/ingest/45011e36-ac12-4dbc-b7c1-e1827334fcf5',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6b4e46'},body:JSON.stringify({sessionId:'6b4e46',runId:'debug-square',hypothesisId:'F',location:'pos-outbound.ts:forward',message:'pos forward gate',data:{orgId,orderId:String(order.id??''),enabled:!!config?.enabled,provider:config?.provider??null,direction:config?.direction??null,gateOpen:isPosOutboundEnabled(config)},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   if (!isPosOutboundEnabled(config) || !config) {
     return { order };
   }

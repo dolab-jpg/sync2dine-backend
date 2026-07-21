@@ -14,6 +14,18 @@ Sync2Dine exposes an **integration-ready** connector API for middleware partners
 - `POST /api/connectors/commerce/forward` posts Commerce/basket-shaped payload to partner URL
 - Configure `deliverectAccountId` / `deliverectLocationId` in connector config (server-side only)
 
+## Judie phone orders → providers (auto)
+
+When **Connected systems** is enabled with outbound (or both):
+
+1. Judie `placeFoodOrder` saves the kitchen board order (`source: phone`)
+2. Sync2Dine auto-forwards:
+   - **Square / Epos Now** → POS Orders API (`forwardOrderIfPosEnabled`)
+   - **mock / deliverect / otter / custom** → signed commerce webhook (`forwardOrderToCommerceHub`)
+3. Manual retry: `POST /api/connectors/orders/:orderId/push` (kitchen badge)
+
+Inbound diner calls also create a **CRM guest card** on ring so messages, complaints, and orders attach to a backend customer timeline.
+
 ## Menu export
 
 - `GET /api/connectors/menu` — full menu with UK 14 allergens

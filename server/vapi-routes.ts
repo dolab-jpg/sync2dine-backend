@@ -17,6 +17,7 @@ import {
   getCallByProviderId,
   getDataStore,
   isAgentActive,
+  getRequestOrgId,
   resolveContactByPhone,
   saveCall,
   setRequestOrgId,
@@ -39,6 +40,7 @@ import {
 import { ingestCallRecording } from './call-recording-store';
 import type { OrchestratorRequest } from './orchestrator-types';
 import { getDemoKitchenOrgId } from './home-org';
+import { resolveOrgIdForInboundDid } from './phone-lines';
 import {
   getVapiServerSecret,
   getVapiPublicKey,
@@ -157,7 +159,12 @@ function partyPhoneFromCall(call: Record<string, unknown> | undefined): string {
   return toE164Uk(from || customerNumber || to);
 }
 
-function phoneOrgId(): string {
+/** Resolve restaurant from the line DID; fall back to request org / home kitchen. */
+function phoneOrgId(lineDid?: string): string {
+  const fromDid = resolveOrgIdForInboundDid(lineDid);
+  if (fromDid) return fromDid;
+  const current = getRequestOrgId();
+  if (current) return current;
   return getDemoKitchenOrgId();
 }
 
@@ -195,13 +202,25 @@ function backfillCallIdentity(
 
   let contactName = existing.contactName;
   let customerId = existing.customerId;
-  if (partyPhone && partyEmpty) {
+  if (partyPhone && (partyEmpty || !customerId)) {
     const identity = resolvePhoneCallerIdentity(partyPhone);
     const resolved = resolveContactByPhone(partyPhone);
     contactName = identity.kind !== 'customer'
       ? identity.name
       : (resolved.customerName || resolved.contactName || contactName);
     customerId = resolved.customerId ?? customerId;
+    // Backfill guest CRM card for Judie inbound diners missing customerId.
+    if (
+      String(direction) !== 'outbound'
+      && identity.kind === 'customer'
+      && !customerId
+    ) {
+      const guest = ensureGuestCustomerForCall(partyPhone, callId);
+      if (guest.customerId) {
+        customerId = guest.customerId;
+        contactName = guest.contactName || contactName;
+      }
+    }
   }
 
   return saveCall({
@@ -222,8 +241,16 @@ function backfillCallIdentity(
 }
 
 function ensureCallFromVapi(message: Record<string, unknown>): Record<string, unknown> {
-  setRequestOrgId(phoneOrgId());
   const call = (message.call || message) as Record<string, unknown>;
+  const directionHint = String(call.type || call.direction || '').toLowerCase();
+  const directionForDid = directionHint.includes('outbound') ? 'outbound' : 'inbound';
+  const earlyLineDid = lineDidForDirection(
+    directionForDid,
+    call,
+    String(process.env.SOHO66_FROM_NUMBER || ''),
+  );
+  setRequestOrgId(phoneOrgId(earlyLineDid));
+
   const vapiId = String(call.id || message.callId || `vapi-${Date.now()}`);
   const metaIn = (call.metadata || message.metadata || {}) as Record<string, unknown>;
   const tradeproCallId = String(metaIn.tradeproCallId || '').trim();
@@ -253,10 +280,24 @@ function ensureCallFromVapi(message: Record<string, unknown>): Record<string, un
   const resolved = resolveContactByPhone(partyPhone);
   const directionRaw = String(call.type || '').toLowerCase();
   const direction = directionRaw.includes('outbound') ? 'outbound' : 'inbound';
-  const lineDid = lineDidForDirection(direction, call, String(process.env.SOHO66_FROM_NUMBER || ''));
+  const lineDid = earlyLineDid || lineDidForDirection(direction, call, String(process.env.SOHO66_FROM_NUMBER || ''));
+  const localCallId = tradeproCallId || vapiId;
+
+  // Judie inbound diners always get a CRM guest/customer card on ring.
+  let contactName = identity.kind !== 'customer'
+    ? identity.name
+    : (resolved.customerName || resolved.contactName);
+  let customerId = resolved.customerId;
+  if (direction === 'inbound' && identity.kind === 'customer' && partyPhone) {
+    const guest = ensureGuestCustomerForCall(partyPhone, localCallId);
+    if (guest.customerId) {
+      customerId = guest.customerId;
+      contactName = guest.contactName || contactName;
+    }
+  }
 
   return saveCall({
-    id: tradeproCallId || vapiId,
+    id: localCallId,
     providerCallId: vapiId,
     provider: 'vapi',
     direction,
@@ -265,10 +306,8 @@ function ensureCallFromVapi(message: Record<string, unknown>): Record<string, un
     status: 'in_progress',
     transcript: [],
     startedAt: new Date().toISOString(),
-    contactName: identity.kind !== 'customer'
-      ? identity.name
-      : (resolved.customerName || resolved.contactName),
-    customerId: resolved.customerId,
+    contactName,
+    customerId,
     metadata: {
       ...metaIn,
       vapiCallId: vapiId,

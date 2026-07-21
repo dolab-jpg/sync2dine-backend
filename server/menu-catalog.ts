@@ -2,7 +2,7 @@
  * Sync2Dine food menu ↔ Supabase public.products (service role).
  * The FE Menu tab and demo seed write rows as { org_id, id, data jsonb }.
  * The phone/kiosk agent reads the same rows through getMenu so editing
- * /menu changes what Lizzie offers on the next call.
+ * /menu changes what Judie offers on the next call.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
@@ -39,6 +39,18 @@ export interface MealDeal {
   roles: MealDealRole[];
 }
 
+/** Optional / required upgrade group on a dish (stuffed crust, package side, etc.). */
+export interface MenuOptionChoice {
+  name: string;
+  priceDelta: number;
+}
+
+export interface MenuOptionGroup {
+  role: string;
+  required?: boolean;
+  choices: MenuOptionChoice[];
+}
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -54,6 +66,8 @@ export interface MenuItem {
   allergenDeclared?: boolean;
   /** When set, this special expands into component kitchen lines on placeFoodOrder. */
   deal?: MealDeal;
+  /** Paid / free upgrades Judie can offer (crust, dips, package sides). */
+  options?: MenuOptionGroup[];
   /** POS catalog ids — e.g. Square item variation id */
   externalIds?: { square?: string; epos_now?: string };
 }
@@ -72,6 +86,7 @@ export interface MenuExportItem {
   allergenNotes?: string;
   allergenDeclared?: boolean;
   deal?: MealDeal;
+  options?: MenuOptionGroup[];
   externalIds?: { square?: string; epos_now?: string };
 }
 
@@ -81,6 +96,8 @@ export type OrderLineInput = {
   price?: number;
   /** Per-unit role → dish name, length === qty for meal deals. */
   dealChoices?: Array<Record<string, string>>;
+  /** role → chosen upgrade name for this line (applies to each qty unit). */
+  optionChoices?: Record<string, string>;
   dealName?: string;
   dealIndex?: number;
   role?: string;
@@ -112,6 +129,42 @@ function parseDeal(raw: unknown): MealDeal | undefined {
   return roles.length ? { roles } : undefined;
 }
 
+export function parseMenuOptions(raw: unknown): MenuOptionGroup[] | undefined {
+  if (!Array.isArray(raw) || !raw.length) return undefined;
+  const groups: MenuOptionGroup[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const role = String(r.role ?? '').trim().toLowerCase();
+    if (!role) continue;
+    const choicesRaw = Array.isArray(r.choices) ? r.choices : [];
+    const choices: MenuOptionChoice[] = [];
+    for (const c of choicesRaw) {
+      if (typeof c === 'string') {
+        const name = c.trim();
+        if (name) choices.push({ name, priceDelta: 0 });
+        continue;
+      }
+      if (!c || typeof c !== 'object') continue;
+      const choice = c as Record<string, unknown>;
+      const name = String(choice.name ?? '').trim();
+      if (!name) continue;
+      const priceDelta = Number(choice.priceDelta ?? choice.price ?? 0);
+      choices.push({
+        name,
+        priceDelta: Number.isFinite(priceDelta) ? Math.round(priceDelta * 100) / 100 : 0,
+      });
+    }
+    if (!choices.length) continue;
+    groups.push({
+      role,
+      required: r.required === true,
+      choices,
+    });
+  }
+  return groups.length ? groups : undefined;
+}
+
 function rowToMenuItem(id: string, data: Record<string, unknown>): MenuItem | null {
   const name = typeof data.name === 'string' ? data.name.trim() : '';
   if (!name) return null;
@@ -123,6 +176,7 @@ function rowToMenuItem(id: string, data: Record<string, unknown>): MenuItem | nu
   const rawCategory = typeof data.category === 'string' ? data.category.trim().toLowerCase() : '';
   const category = FOOD_CATEGORIES.has(rawCategory) ? rawCategory : 'other';
   const deal = parseDeal(data.deal);
+  const options = parseMenuOptions(data.options);
   const allergens = normalizeAllergenFields(data);
   const externalIdsRaw = (data.externalIds && typeof data.externalIds === 'object')
     ? data.externalIds as Record<string, unknown>
@@ -149,6 +203,7 @@ function rowToMenuItem(id: string, data: Record<string, unknown>): MenuItem | nu
     ...(allergens.allergenNotes ? { allergenNotes: allergens.allergenNotes } : {}),
     ...(allergens.allergenDeclared ? { allergenDeclared: true } : {}),
     ...(deal ? { deal } : {}),
+    ...(options ? { options } : {}),
     ...(externalIds ? { externalIds } : {}),
   };
 }
@@ -167,6 +222,7 @@ export function menuItemToExport(item: MenuItem): MenuExportItem {
     allergenNotes: item.allergenNotes,
     allergenDeclared: item.allergenDeclared,
     deal: item.deal,
+    options: item.options,
     externalIds: item.externalIds,
   };
 }
@@ -275,6 +331,7 @@ export async function upsertMenuItemForOrg(
     available?: boolean;
     image?: string;
     deal?: MealDeal | null;
+    options?: MenuOptionGroup[] | null;
     allergensContains?: AllergenCode[];
     allergensMayContain?: AllergenCode[];
     dietary?: DietaryCode[];
@@ -301,6 +358,12 @@ export async function upsertMenuItemForOrg(
   }
 
   const parsedDeal = input.deal === null ? undefined : input.deal !== undefined ? parseDeal(input.deal) : parseDeal(existingData.deal);
+  const parsedOptions =
+    input.options === null
+      ? undefined
+      : input.options !== undefined
+        ? parseMenuOptions(input.options)
+        : parseMenuOptions(existingData.options);
 
   const data: Record<string, unknown> = {
     ...existingData,
@@ -320,6 +383,11 @@ export async function upsertMenuItemForOrg(
     delete data.deal;
   } else if (parsedDeal) {
     data.deal = parsedDeal;
+  }
+  if (input.options === null) {
+    delete data.options;
+  } else if (parsedOptions) {
+    data.options = parsedOptions;
   }
 
   const allergenInput: Record<string, unknown> = { ...existingData };
@@ -359,9 +427,47 @@ export async function deleteMenuItemForOrg(
   return { ok: true };
 }
 
-function findCatalogByName(catalog: MenuItem[], name: string): MenuItem | undefined {
+export function findCatalogByName(catalog: MenuItem[], name: string): MenuItem | undefined {
   const needle = name.trim().toLowerCase();
   return catalog.find((c) => c.name.toLowerCase() === needle);
+}
+
+/** Closest catalog names for hard-reject hints (exact / contains / token overlap). */
+export function findClosestCatalogNames(
+  catalog: MenuItem[],
+  name: string,
+  limit = 3,
+): string[] {
+  const needle = name.trim().toLowerCase();
+  if (!needle || !catalog.length) return [];
+  const needleTokens = new Set(needle.split(/\s+/).filter(Boolean));
+  const scored = catalog
+    .map((c) => {
+      const n = c.name.toLowerCase();
+      let score = 0;
+      if (n === needle) score = 100;
+      else if (n.includes(needle) || needle.includes(n)) score = 60;
+      else {
+        const tokens = n.split(/\s+/).filter(Boolean);
+        score = tokens.filter((t) => needleTokens.has(t)).length * 15;
+        if (tokens.some((t) => t.startsWith(needle.slice(0, 3)) || needle.startsWith(t.slice(0, 3)))) {
+          score += 5;
+        }
+      }
+      return { name: c.name, score };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const row of scored) {
+    const key = row.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row.name);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /**
@@ -455,4 +561,118 @@ export function expandMealDealOrderItems(
     return { ok: false, error: 'items_required', spokenHint: 'Tell me what you would like to order first.' };
   }
   return { ok: true, items: out };
+}
+
+/**
+ * Expand dish upgrades (crust, dips, package sides) into kitchen lines.
+ * Meal-deal rows pass through unchanged for expandMealDealOrderItems.
+ */
+export function expandMenuOptions(
+  rawItems: OrderLineInput[],
+  catalog: MenuItem[],
+):
+  | { ok: true; items: OrderLineInput[]; surcharge: number }
+  | { ok: false; error: string; spokenHint: string } {
+  const out: OrderLineInput[] = [];
+  let surcharge = 0;
+
+  for (const row of rawItems) {
+    const name = String(row.name ?? '').trim();
+    if (!name) continue;
+    const qty = Math.max(1, Number(row.qty ?? 1) || 1);
+    const catalogItem = findCatalogByName(catalog, name);
+
+    // Already a component / option line, or a meal deal — leave for deal expander.
+    if (row.role || row.dealName || catalogItem?.deal) {
+      out.push({ ...row, name, qty });
+      continue;
+    }
+
+    const groups = catalogItem?.options ?? [];
+    if (!groups.length) {
+      out.push({
+        name,
+        qty,
+        price: row.price != null && Number(row.price) > 0 ? Number(row.price) : catalogItem?.price,
+        dealChoices: row.dealChoices,
+        optionChoices: row.optionChoices,
+      });
+      continue;
+    }
+
+    const chosen = row.optionChoices && typeof row.optionChoices === 'object'
+      ? row.optionChoices
+      : {};
+
+    out.push({
+      name,
+      qty,
+      price: row.price != null && Number(row.price) > 0 ? Number(row.price) : catalogItem?.price,
+    });
+
+    for (const group of groups) {
+      const rawChoice = String(
+        chosen[group.role]
+          ?? chosen[group.role.charAt(0).toUpperCase() + group.role.slice(1)]
+          ?? '',
+      ).trim();
+      if (!rawChoice) {
+        if (group.required) {
+          const opts = group.choices.map((c) => c.name).join(', ');
+          return {
+            ok: false,
+            error: 'option_required',
+            spokenHint: `For ${name}, which ${group.role} would you like? Options: ${opts}.`,
+          };
+        }
+        continue;
+      }
+      const match = group.choices.find((c) => c.name.toLowerCase() === rawChoice.toLowerCase());
+      if (!match) {
+        const opts = group.choices.map((c) => c.name).join(', ');
+        return {
+          ok: false,
+          error: 'option_invalid',
+          spokenHint: `For ${name}, ${rawChoice} is not a ${group.role} option. Choose from: ${opts}.`,
+        };
+      }
+      const delta = Number(match.priceDelta ?? 0) || 0;
+      surcharge += delta * qty;
+      out.push({
+        name: match.name,
+        qty,
+        price: delta,
+        role: group.role,
+        dealName: name,
+      });
+    }
+  }
+
+  if (!out.length) {
+    return { ok: false, error: 'items_required', spokenHint: 'Tell me what you would like to order first.' };
+  }
+  return { ok: true, items: out, surcharge: Math.round(surcharge * 100) / 100 };
+}
+
+/** Extra £ from selected upgrades on a raw basket line. */
+export function optionSurchargeForLine(
+  line: OrderLineInput,
+  catalog: MenuItem[],
+): number {
+  const catalogItem = findCatalogByName(catalog, String(line.name ?? ''));
+  const groups = catalogItem?.options ?? [];
+  if (!groups.length || !line.optionChoices) return 0;
+  const qty = Math.max(1, Number(line.qty ?? 1) || 1);
+  let total = 0;
+  for (const group of groups) {
+    const rawChoice = String(
+      line.optionChoices[group.role]
+        ?? line.optionChoices[group.role.charAt(0).toUpperCase() + group.role.slice(1)]
+        ?? '',
+    ).trim();
+    if (!rawChoice) continue;
+    const match = group.choices.find((c) => c.name.toLowerCase() === rawChoice.toLowerCase());
+    if (match) total += (Number(match.priceDelta ?? 0) || 0) * qty;
+  }
+  return Math.round(total * 100) / 100;
 }

@@ -2,10 +2,12 @@ import {
   appendCustomerCallActivity,
   appendProjectMessageRecord,
   enqueueOutboundCall,
+  ensureGuestCustomerForCall,
   getDataStore,
   getRequestOrgId,
   lookupContactByPhone,
   normalizePhoneExport,
+  resolveContactByPhone,
   saveCall,
   saveCustomerRecord,
   saveOrderRecord,
@@ -22,7 +24,13 @@ import { formatSpokenGbp } from './spoken-money';
 import { resolvePhoneCallerIdentity } from './phone-auth';
 import { ensureEnglishForCustomerSend } from './outbound-english-guard';
 import { resolveTransferDestination, resolveTransferNumber } from './transfer-numbers';
-import { expandMealDealOrderItems, listMenuItemsForOrg, type OrderLineInput } from './menu-catalog';
+import {
+  expandMealDealOrderItems,
+  expandMenuOptions,
+  listMenuItemsForOrg,
+  optionSurchargeForLine,
+  type OrderLineInput,
+} from './menu-catalog';
 import { allergenSafetyHint, customerAllergenConflict } from './allergens';
 import {
   cancelReservation,
@@ -33,6 +41,13 @@ import {
 } from './reservations-store';
 import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from './restaurant-ai-tools';
 import { resolveCallbackIso } from './callback-time';
+import {
+  mergeDeliveryAddressLine,
+  resolveSavedDeliveryAddressFromRecords,
+  validateCatalogOrderItems,
+  validateDeliveryAddressForOrder,
+  validateDeliveryPaymentPreference,
+} from './food-order-guards';
 
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -513,7 +528,7 @@ export const PHONE_TOOLS = [
     function: {
       name: 'placeFoodOrder',
       description:
-        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. For delivery, pass postcode (and address) after checkDeliveryArea succeeds. For meal deals (getMenu items with a deal object), pass qty plus dealChoices — one object per unit with main/side/drink (or whatever roles the deal lists). The kitchen receives expanded component lines.',
+        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. MUST ask about allergies/intolerances first — set allergyConfirmed true and pass customerAllergies (or "none"). Items must match getMenu exactly — never invent dishes. Soft-upsell upgrades from each item options (e.g. stuffed crust, coleslaw/beans) and pass optionChoices. For delivery: house number + street + full postcode after checkDeliveryArea, OR useSavedAddress true; ask cash or card preference only. For meal deals, pass qty plus dealChoices.',
       parameters: {
         type: 'object',
         properties: {
@@ -537,13 +552,30 @@ export const PHONE_TOOLS = [
                     additionalProperties: { type: 'string' },
                   },
                 },
+                optionChoices: {
+                  type: 'object',
+                  description:
+                    'Upgrade choices from getMenu item.options — role → choice name (e.g. {crust:"Stuffed Crust", side:"Coleslaw"}).',
+                  additionalProperties: { type: 'string' },
+                },
               },
               required: ['name'],
             },
           },
           total: { type: 'number' },
-          deliveryAddress: { type: 'string' },
-          postcode: { type: 'string', description: 'UK postcode required for delivery orders' },
+          deliveryAddress: {
+            type: 'string',
+            description: 'House number + street for delivery (required unless useSavedAddress)',
+          },
+          postcode: { type: 'string', description: 'Full UK postcode required for delivery orders' },
+          useSavedAddress: {
+            type: 'boolean',
+            description: 'True when the caller confirmed the saved delivery address from Account memory',
+          },
+          parkingAccessNotes: {
+            type: 'string',
+            description: 'Optional parking / access note for the driver (ask once if useful)',
+          },
           specialName: {
             type: 'string',
             description: 'Named customer special applied on this order (from their CRM specialName)',
@@ -551,15 +583,22 @@ export const PHONE_TOOLS = [
           notes: { type: 'string' },
           customerAllergies: {
             type: 'string',
-            description: 'Spoken allergy summary e.g. peanuts, sesame — ask once before placing',
+            description:
+              'Required safety field — what the caller said about allergies/intolerances (e.g. peanuts, sesame, or "none"). Ask every food order before placing.',
           },
           allergyConfirmed: {
             type: 'boolean',
-            description: 'True after you asked about allergies (even if none)',
+            description:
+              'Required — true only after you asked out loud about allergies/intolerances and they answered (including "none"). Never place without this.',
           },
-          paymentStatus: { type: 'string', enum: ['unpaid', 'cash', 'card'] },
+          paymentStatus: {
+            type: 'string',
+            enum: ['cash', 'card'],
+            description:
+              'Delivery payment preference only — cash or card for the driver. Do not take card details or send payment links.',
+          },
         },
-        required: ['items'],
+        required: ['items', 'allergyConfirmed', 'customerAllergies'],
       },
     },
   },
@@ -708,6 +747,25 @@ export async function executePhoneTool(
     const intent = String(input.intent ?? 'general') as CallIntent;
     if (callId) {
       saveCall({ id: callId, intent });
+    }
+    // Complaints / after-hours get a CRM timeline card when we know the caller.
+    if (intent === 'complaint' || intent === 'after_hours') {
+      let intentCustomerId = firstString(input.customerId, body.customerContext?.customerId);
+      if (!intentCustomerId && callerPhone) {
+        const guest = ensureGuestCustomerForCall(callerPhone, callId);
+        intentCustomerId = guest.customerId ?? undefined;
+      }
+      if (intentCustomerId) {
+        appendCustomerCallActivity({
+          customerId: intentCustomerId,
+          callId,
+          summary: `Call classified as ${intent}`,
+          detail: firstString(input.reason) || `Judie tagged this call as ${intent}.`,
+          outcome: intent,
+          type: 'call',
+          updateCallQueue: true,
+        });
+      }
     }
     return { intent, confidence: Number(input.confidence ?? 0.8), reason: input.reason ?? '' };
   }
@@ -1114,22 +1172,48 @@ export async function executePhoneTool(
   }
 
   if (name === 'captureMessage') {
+    const department = firstString(input.department) ?? 'general';
+    const message = firstString(input.message) ?? '';
+    const callerName = firstString(input.callerName) ?? '';
+    const urgency = firstString(input.urgency) ?? 'medium';
     if (callId) {
       saveCall({
         id: callId,
         outcome: 'message_captured',
         metadata: {
-          department: input.department,
-          message: input.message,
-          callerName: input.callerName,
-          urgency: input.urgency ?? 'medium',
+          department,
+          message,
+          callerName,
+          urgency,
         },
+      });
+    }
+    // Ensure a CRM guest card exists so the message lands on the backend timeline.
+    let messageCustomerId = firstString(input.customerId, body.customerContext?.customerId);
+    if (!messageCustomerId && callerPhone) {
+      const guest = ensureGuestCustomerForCall(callerPhone, callId);
+      messageCustomerId = guest.customerId ?? undefined;
+    }
+    if (messageCustomerId && message) {
+      appendCustomerCallActivity({
+        customerId: messageCustomerId,
+        callId,
+        summary: `Message for ${department}${urgency !== 'medium' ? ` (${urgency})` : ''}`,
+        detail: [
+          callerName ? `From ${callerName}.` : '',
+          message,
+        ].filter(Boolean).join(' '),
+        outcome: 'message_captured',
+        type: 'message',
+        updateCallQueue: true,
       });
     }
     return {
       captured: true,
-      department: input.department ?? 'general',
-      urgency: input.urgency ?? 'medium',
+      department,
+      urgency,
+      customerId: messageCustomerId ?? null,
+      spokenHint: 'Got it — I have passed that message to the team.',
     };
   }
 
@@ -1352,6 +1436,7 @@ export async function executePhoneTool(
         price,
         description,
         deal,
+        options,
         allergensContains,
         allergensMayContain,
         dietary,
@@ -1376,6 +1461,18 @@ export async function executePhoneTool(
                   choices: r.choices,
                 })),
               },
+            }
+          : {}),
+        ...(options?.length
+          ? {
+              options: options.map((g) => ({
+                role: g.role,
+                required: g.required === true,
+                choices: g.choices.map((c) => ({
+                  name: c.name,
+                  priceDelta: c.priceDelta,
+                })),
+              })),
             }
           : {}),
       })),
@@ -1462,24 +1559,58 @@ export async function executePhoneTool(
       return { ok: false, error: 'items_required', spokenHint: 'Tell me what you would like to order first.' };
     }
     const orderType = firstString(input.orderType) ?? 'collection';
-    const postcode = firstString(input.postcode);
-    const streetAddress = firstString(input.deliveryAddress);
+    let postcode = firstString(input.postcode);
+    let streetAddress = firstString(input.deliveryAddress);
+    const useSavedAddress = input.useSavedAddress === true;
+    const parkingAccessNotes = firstString(input.parkingAccessNotes) ?? '';
+
+    const phoneForSaved = firstString(input.customerPhone, callerPhone) ?? '';
+    const resolvedForSaved = phoneForSaved ? resolveContactByPhone(phoneForSaved) : null;
+    const storeForSaved = getDataStore();
+    const customerForSaved = resolvedForSaved?.customerId
+      ? storeForSaved.customers.find((c) => String(c.id) === resolvedForSaved.customerId)
+      : undefined;
+    const ordersForSaved = (storeForSaved.orders ?? []).filter((o) => {
+      if (resolvedForSaved?.customerId && String(o.customerId ?? '') === resolvedForSaved.customerId) {
+        return true;
+      }
+      if (!phoneForSaved) return false;
+      return normalizePhoneExport(String(o.customerPhone ?? '')) === normalizePhoneExport(phoneForSaved);
+    });
+    const savedAddress = resolveSavedDeliveryAddressFromRecords({
+      customerAddress: customerForSaved?.address != null ? String(customerForSaved.address) : '',
+      orders: ordersForSaved,
+    });
 
     if (orderType === 'delivery') {
-      if (!postcode && !streetAddress) {
+      const addressGate = validateDeliveryAddressForOrder({
+        streetAddress,
+        postcode,
+        useSavedAddress,
+        saved: savedAddress,
+      });
+      if (!addressGate.ok) {
         return {
           ok: false,
-          error: 'delivery_address_required',
-          spokenHint: 'For delivery I need the street address and postcode first.',
+          error: addressGate.error,
+          spokenHint: addressGate.spokenHint,
+          savedAddress: savedAddress
+            ? { address: savedAddress.address, postcode: savedAddress.postcode }
+            : null,
         };
       }
-      if (!postcode) {
+      streetAddress = addressGate.streetAddress;
+      postcode = addressGate.postcode;
+
+      const payGate = validateDeliveryPaymentPreference(firstString(input.paymentStatus));
+      if (!payGate.ok) {
         return {
           ok: false,
-          error: 'postcode_required',
-          spokenHint: 'I just need the postcode so I can check we deliver there.',
+          error: payGate.error,
+          spokenHint: payGate.spokenHint,
         };
       }
+
       const { matchDeliveryPostcode, normalizeDeliveryPrefixes } = await import('./delivery-areas');
       const prefixes = normalizeDeliveryPrefixes(getDataStore().agentSettings?.deliveryPostcodePrefixes);
       if (!prefixes.length) {
@@ -1498,6 +1629,7 @@ export async function executePhoneTool(
           spokenHint: 'We do not stretch that far for delivery yet — collection instead, or a different postcode?',
         };
       }
+      postcode = match.normalized || postcode;
     }
 
     // Fill missing/zero prices from the live catalog so phone orders never total £0.
@@ -1519,18 +1651,50 @@ export async function executePhoneTool(
             return mapped;
           })
         : undefined;
+      const optionChoices =
+        r.optionChoices && typeof r.optionChoices === 'object' && !Array.isArray(r.optionChoices)
+          ? Object.fromEntries(
+              Object.entries(r.optionChoices as Record<string, unknown>)
+                .filter(([, v]) => v != null && String(v).trim())
+                .map(([k, v]) => [String(k).toLowerCase(), String(v).trim()]),
+            )
+          : undefined;
       return {
         name: String(r.name ?? '').trim(),
         qty: Number(r.qty ?? 1) || 1,
         price: r.price != null ? Number(r.price) : undefined,
         dealChoices,
+        optionChoices,
         dealName: r.dealName != null ? String(r.dealName) : undefined,
         role: r.role != null ? String(r.role) : undefined,
         dealIndex: r.dealIndex != null ? Number(r.dealIndex) : undefined,
       };
     });
 
-    const expanded = expandMealDealOrderItems(rawLines, catalog);
+    const catalogGate = validateCatalogOrderItems(
+      rawLines.map((line) => line.name),
+      catalog,
+    );
+    if (!catalogGate.ok) {
+      return {
+        ok: false,
+        error: catalogGate.error,
+        item: catalogGate.item,
+        suggestions: catalogGate.suggestions,
+        spokenHint: catalogGate.spokenHint,
+      };
+    }
+
+    const withOptions = expandMenuOptions(rawLines, catalog);
+    if (!withOptions.ok) {
+      return {
+        ok: false,
+        error: withOptions.error,
+        spokenHint: withOptions.spokenHint,
+      };
+    }
+
+    const expanded = expandMealDealOrderItems(withOptions.items, catalog);
     if (!expanded.ok) {
       return {
         ok: false,
@@ -1541,11 +1705,12 @@ export async function executePhoneTool(
 
     const customerAllergies = firstString(input.customerAllergies) ?? '';
     const allergyConfirmed = input.allergyConfirmed === true;
-    if (!allergyConfirmed) {
+    if (!allergyConfirmed || !customerAllergies) {
       return {
         ok: false,
         error: 'allergy_check_required',
-        spokenHint: 'Before I place that — any allergies or intolerances we should know about?',
+        spokenHint:
+          'Before I place that — any allergies or intolerances we should know about? It is important for the kitchen.',
       };
     }
 
@@ -1574,6 +1739,7 @@ export async function executePhoneTool(
     }
 
     // Price: meal deals charge the deal price × qty; components are kitchen lines.
+    // Upgrades add priceDelta × qty from optionChoices.
     let pricedTotal = 0;
     for (const line of rawLines) {
       if (!line.name) continue;
@@ -1584,6 +1750,7 @@ export async function executePhoneTool(
       } else {
         const unit = Number(line.price ?? match?.price ?? 0);
         pricedTotal += (Number.isFinite(unit) ? unit : 0) * qty;
+        pricedTotal += optionSurchargeForLine(line, catalog);
       }
     }
     pricedTotal = Math.round(pricedTotal * 100) / 100;
@@ -1612,6 +1779,11 @@ export async function executePhoneTool(
       const found = lookupContactByPhone(phone);
       if (found.found && found.customerId) customerId = found.customerId;
     }
+    // Every Judie food order gets a CRM guest/customer card on the backend.
+    if (!customerId && phone) {
+      const guest = ensureGuestCustomerForCall(phone, callId);
+      if (guest.customerId) customerId = guest.customerId;
+    }
 
     const store = getDataStore();
     const customerRow = customerId
@@ -1638,35 +1810,38 @@ export async function executePhoneTool(
       specialAppliedNote = `Special: ${appliedSpecialName}${crmSpecialNote ? ` — ${crmSpecialNote}` : ''}`;
     }
 
-    const { formatUkPostcodeDisplay, normalizeUkPostcode } = await import('./delivery-areas');
+    const { formatUkPostcodeDisplay } = await import('./delivery-areas');
     const normalizedPostcode = postcode ? formatUkPostcodeDisplay(postcode) : '';
-    const compactPc = postcode ? normalizeUkPostcode(postcode) : '';
     let deliveryAddress = streetAddress || undefined;
-    if (orderType === 'delivery' && normalizedPostcode) {
-      if (deliveryAddress) {
-        const upper = deliveryAddress.toUpperCase().replace(/\s+/g, '');
-        if (!upper.includes(compactPc)) {
-          deliveryAddress = `${deliveryAddress.replace(/,\s*$/, '')}, ${normalizedPostcode}`;
-        }
-      } else {
-        deliveryAddress = normalizedPostcode;
+    if (orderType === 'delivery' && streetAddress && normalizedPostcode) {
+      deliveryAddress = mergeDeliveryAddressLine(streetAddress, normalizedPostcode);
+    }
+
+    const parkingNote = parkingAccessNotes
+      ? `Parking/access: ${parkingAccessNotes}`
+      : '';
+    const baseNotes = firstString(input.notes) ?? '';
+    const notes = [baseNotes, parkingNote, specialAppliedNote].filter(Boolean).join(' | ');
+
+    let paymentStatus = 'unpaid';
+    let paymentMethod: string | undefined;
+    if (orderType === 'delivery') {
+      const payGate = validateDeliveryPaymentPreference(firstString(input.paymentStatus));
+      // Already validated above; keep method for kitchen Expect cash/card.
+      paymentMethod = payGate.ok ? payGate.paymentMethod : undefined;
+      paymentStatus = 'unpaid';
+    } else {
+      const payRaw = (firstString(input.paymentStatus) ?? 'unpaid').toLowerCase();
+      if (payRaw === 'cash' || payRaw === 'card') {
+        paymentStatus = 'unpaid';
+        paymentMethod = payRaw;
+      } else if (payRaw === 'paid') {
+        paymentStatus = 'paid';
       }
     }
 
-    const baseNotes = firstString(input.notes) ?? '';
-    const notes = [baseNotes, specialAppliedNote].filter(Boolean).join(' | ');
-
-    const payRaw = (firstString(input.paymentStatus) ?? 'unpaid').toLowerCase();
-    let paymentStatus = 'unpaid';
-    let paymentMethod: string | undefined;
-    if (payRaw === 'cash' || payRaw === 'card') {
-      paymentStatus = 'unpaid';
-      paymentMethod = payRaw;
-    } else if (payRaw === 'paid') {
-      paymentStatus = 'paid';
-    }
-
-    const record = await saveOrderRecord({
+    const orgIdForOrder = firstString(body.orgId) ?? getRequestOrgId();
+    let record = await saveOrderRecord({
       customerId: customerId || undefined,
       customerName: firstString(input.customerName, body.customerContext?.customerName) ?? 'Guest',
       customerPhone: phone,
@@ -1689,13 +1864,76 @@ export async function executePhoneTool(
       syncState: 'local',
       placedAt: new Date().toISOString(),
       etaMinutes: orderType === 'delivery' ? 40 : 20,
-    }, firstString(body.orgId) ?? getRequestOrgId());
+    }, orgIdForOrder);
+
+    // Remember delivery address on the CRM customer for next Judie call.
+    if (orderType === 'delivery' && deliveryAddress && (customerId || phone)) {
+      try {
+        const existing = customerId
+          ? store.customers.find((c) => String(c.id) === customerId)
+          : undefined;
+        saveCustomerRecord({
+          ...(existing ?? {}),
+          id: customerId || existing?.id,
+          name: firstString(input.customerName, existing?.name as string, body.customerContext?.customerName) ?? 'Guest',
+          phone: phone || String(existing?.phone ?? ''),
+          address: deliveryAddress,
+          email: existing?.email != null ? String(existing.email) : '',
+        });
+      } catch {
+        // non-fatal — order already placed
+      }
+    }
+
+    // Push to connected POS / commerce partner when Settings → Connected systems is enabled.
+    let providerChannel: 'none' | 'pos' | 'commerce' = 'none';
+    let providerPushOk: boolean | null = null;
+    try {
+      const { forwardJudieOrderToProviders } = await import('./connectors/judie-order-forward');
+      const forwarded = await forwardJudieOrderToProviders(orgIdForOrder, record);
+      record = forwarded.order;
+      providerChannel = forwarded.channel;
+      providerPushOk = forwarded.channel === 'none' ? null : forwarded.ok;
+      if (forwarded.channel !== 'none') {
+        console.info(
+          `[judie-order] provider forward channel=${forwarded.channel} ok=${forwarded.ok} order=${String(record.id)}`,
+          forwarded.error || '',
+        );
+      }
+    } catch (err) {
+      console.warn(
+        '[judie-order] provider forward failed (order kept on kitchen board):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    if (customerId && callId) {
+      try {
+        appendCustomerCallActivity({
+          customerId,
+          callId,
+          summary: `Food order ${String(record.orderNumber ?? '')} placed (${orderType})`,
+          detail: `Total ${formatSpokenGbp(Number(record.total))}.`,
+          outcome: 'order_placed',
+          updateCallQueue: true,
+        });
+      } catch {
+        // non-fatal
+      }
+    }
+
     const spokenTotal = formatSpokenGbp(Number(record.total));
     const where =
       orderType === 'delivery' && deliveryAddress
         ? ` Delivery to ${deliveryAddress}.`
         : orderType === 'collection'
           ? ' Collection.'
+          : '';
+    const paySpeak =
+      paymentMethod === 'cash'
+        ? ' Expect cash.'
+        : paymentMethod === 'card'
+          ? ' Expect card.'
           : '';
     const specialSpeak = specialAppliedNote ? ` Special applied: ${appliedSpecialName}.` : '';
     return {
@@ -1707,8 +1945,13 @@ export async function executePhoneTool(
       specialName: appliedSpecialName ?? null,
       deliveryAddress: record.deliveryAddress ?? deliveryAddress ?? null,
       deliveryPostcode: normalizedPostcode || null,
+      paymentMethod: paymentMethod ?? null,
       customerId: record.customerId ?? customerId ?? null,
-      spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${specialSpeak} The kitchen has it.`,
+      syncState: record.syncState ?? 'local',
+      externalId: record.externalId ?? null,
+      providerChannel,
+      providerPushOk,
+      spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${paySpeak}${specialSpeak} The kitchen has it.`,
     };
   }
 

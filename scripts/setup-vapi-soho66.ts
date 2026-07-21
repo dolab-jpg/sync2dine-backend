@@ -72,8 +72,10 @@ async function main() {
   }
 
   const line = loadSyncedLine();
+  const { decryptSecret } = await import('../server/crypto');
   const sipUsername = String(line.sipUsername || process.env.SOHO66_SIP_USERNAME || '');
-  const sipPassword = String(line.sipPassword || process.env.SOHO66_SIP_PASSWORD || '');
+  const sipPasswordRaw = String(line.sipPassword || process.env.SOHO66_SIP_PASSWORD || '');
+  const sipPassword = decryptSecret(sipPasswordRaw) || sipPasswordRaw;
   const did = String(line.did || process.env.SOHO66_FROM_NUMBER || '');
   const domain = String(line.sipDomain || process.env.SOHO66_SIP_DOMAIN || 'sbc.soho66.co.uk');
   const numberE164 = toE164Uk(did);

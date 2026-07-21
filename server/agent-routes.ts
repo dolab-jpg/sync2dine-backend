@@ -12,6 +12,7 @@ import {
   saveCustomerRecord,
   savePhoneLine,
   updateAgentSettings,
+  type PhoneLineConnectionType,
   type PhoneLinePurpose,
 } from './data-store';
 import {
@@ -28,6 +29,7 @@ import {
 } from './telephony/lineRegistry';
 import { authenticateRequest, resolveOrgIdForRequest } from './auth';
 import { handleRealtimeRoutes } from './realtime-routes';
+import { syncOrgPhoneDidFromLine, withDecryptedSipPassword } from './phone-lines';
 
 function resolveUserIdFromRequest(req: IncomingMessage): string | null {
   const auth = authenticateRequest(req);
@@ -38,7 +40,16 @@ function resolveUserIdFromRequest(req: IncomingMessage): string | null {
 }
 
 function parsePurpose(value: unknown, fallback: PhoneLinePurpose = 'staff'): PhoneLinePurpose {
-  return value === 'aria' ? 'aria' : value === 'staff' ? 'staff' : fallback;
+  if (value === 'aria' || value === 'staff' || value === 'sally') return value;
+  return fallback;
+}
+
+function parseConnectionType(
+  value: unknown,
+  fallback?: PhoneLineConnectionType,
+): PhoneLineConnectionType | undefined {
+  if (value === 'soho66' || value === 'sip' || value === 'twilio' || value === 'other') return value;
+  return fallback;
 }
 
 function parseAssignedUserId(value: unknown): string | null | undefined {
@@ -401,7 +412,7 @@ async function handleGetMyLine(req: IncomingMessage, res: ServerResponse) {
     return;
   }
   // Owner receives real SIP password for JsSIP register (never returned on list endpoints).
-  sendJson(res, 200, { line });
+  sendJson(res, 200, { line: withDecryptedSipPassword(line) });
 }
 
 async function handlePostLine(req: IncomingMessage, res: ServerResponse) {
@@ -423,7 +434,10 @@ async function handlePostLine(req: IncomingMessage, res: ServerResponse) {
     enabled: body.enabled !== false,
     assignedUserId: parseAssignedUserId(body.assignedUserId),
     purpose: parsePurpose(body.purpose, 'staff'),
+    connectionType: parseConnectionType(body.connectionType, 'soho66'),
   });
+  const orgId = resolveOrgIdForRequest(req);
+  if (orgId) syncOrgPhoneDidFromLine(orgId, line);
   sendJson(res, 200, { line: maskPhoneLine(line) });
 }
 
@@ -449,10 +463,13 @@ async function handlePatchLine(req: IncomingMessage, res: ServerResponse, lineId
     status: existing.status,
     assignedUserId: assignedParsed !== undefined ? assignedParsed : existing.assignedUserId,
     purpose: body.purpose !== undefined ? parsePurpose(body.purpose, existing.purpose ?? 'staff') : existing.purpose,
+    connectionType: parseConnectionType(body.connectionType, existing.connectionType),
   });
   if (body.enabled === false) {
     await unregisterLine(lineId);
   }
+  const orgId = resolveOrgIdForRequest(req);
+  if (orgId) syncOrgPhoneDidFromLine(orgId, line);
   sendJson(res, 200, { line: maskPhoneLine(line) });
 }
 

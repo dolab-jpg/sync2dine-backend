@@ -3,6 +3,7 @@ import {
   updatePhoneLineStatus,
   type PhoneLine,
 } from '../data-store';
+import { decryptPhoneLineSipPassword } from '../phone-lines';
 
 export function getSipBridgeUrl(): string | null {
   const url = (process.env.SOHO66_SIP_BRIDGE_URL ?? '').replace(/\/$/, '');
@@ -43,7 +44,7 @@ export async function registerLine(line: PhoneLine, bridgeUrl?: string): Promise
       body: JSON.stringify({
         lineId: line.id,
         sipUsername: line.sipUsername,
-        sipPassword: line.sipPassword,
+        sipPassword: decryptPhoneLineSipPassword(line.sipPassword),
         sipDomain: line.sipDomain,
         did: line.did,
         webhookBaseUrl: getWebhookBaseUrl(),
@@ -90,8 +91,12 @@ export async function registerAllEnabledLines(bridgeUrl?: string): Promise<{
   failed: number;
   results: Array<{ lineId: string; label: string; ok: boolean; message: string }>;
 }> {
-  // Only Cynthia AI lines (purpose: aria compat) register with the bridge — staff softphones use browser JsSIP.
-  const lines = listPhoneLines().filter(l => l.enabled && (l.purpose ?? 'staff') === 'aria');
+  // AI trunk lines (Judie + Sally) register with the bridge — staff softphones use browser JsSIP.
+  const lines = listPhoneLines().filter((l) => {
+    if (!l.enabled) return false;
+    const purpose = l.purpose ?? 'staff';
+    return purpose === 'aria' || purpose === 'sally';
+  });
   const results: Array<{ lineId: string; label: string; ok: boolean; message: string }> = [];
   let registered = 0;
   let failed = 0;
@@ -107,7 +112,8 @@ export async function registerAllEnabledLines(bridgeUrl?: string): Promise<{
 }
 
 export async function testLineConnection(line: PhoneLine, bridgeUrl?: string): Promise<{ ok: boolean; message: string }> {
-  if (!line.sipUsername || !line.sipPassword || !line.sipDomain) {
+  const sipPassword = decryptPhoneLineSipPassword(line.sipPassword);
+  if (!line.sipUsername || !sipPassword || !line.sipDomain) {
     return { ok: false, message: 'SIP username, password, and domain are required' };
   }
   if (!line.did?.trim()) {

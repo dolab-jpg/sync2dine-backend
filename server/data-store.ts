@@ -6,6 +6,7 @@ import {
   queueStatusAfterDisposition,
   type LeadCallDisposition,
 } from './lead-call-disposition';
+import { encryptSecret } from './crypto';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
 export const DEFAULT_ORG_ID = 'default';
@@ -37,6 +38,16 @@ export function withOrgContext<T>(orgId: string, fn: () => T): T {
   requestOrgId = resolveStorageOrgId(orgId);
   try {
     return fn();
+  } finally {
+    requestOrgId = prev;
+  }
+}
+
+export async function withOrgContextAsync<T>(orgId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = requestOrgId;
+  requestOrgId = resolveStorageOrgId(orgId);
+  try {
+    return await fn();
   } finally {
     requestOrgId = prev;
   }
@@ -113,12 +124,16 @@ export interface PendingConfirmationRecord {
 
 export type PhoneLineStatus = 'disconnected' | 'registering' | 'registered' | 'error';
 
-export type PhoneLinePurpose = 'staff' | 'aria';
+export type PhoneLinePurpose = 'staff' | 'aria' | 'sally';
+
+/** How this DID is connected (credentials still stored as SIP fields for soho66/sip). */
+export type PhoneLineConnectionType = 'soho66' | 'sip' | 'twilio' | 'other';
 
 export interface PhoneLine {
   id: string;
   label: string;
   sipUsername: string;
+  /** AES-GCM encrypted (`v1:…`) or legacy plaintext until next save */
   sipPassword: string;
   sipDomain: string;
   did: string;
@@ -129,8 +144,10 @@ export interface PhoneLine {
   updatedAt: string;
   /** Profile / platform user id that owns this softphone extension */
   assignedUserId?: string;
-  /** staff = human softphone; aria = AI bridge registration */
+  /** staff = human softphone; aria = Judie diner AI; sally = platform sales AI */
   purpose?: PhoneLinePurpose;
+  /** Carrier / trunk flavour for platform provisioning UI */
+  connectionType?: PhoneLineConnectionType;
 }
 
 export interface TransferNumbers {
@@ -1174,6 +1191,27 @@ export function markCustomerDialling(customerId: string, callId?: string): void 
   syncData(store);
 }
 
+/** Stamp the latest call recording URL onto the CRM customer card. */
+export function stampCustomerLastRecording(
+  customerId: string,
+  recordingUrl: string | undefined | null,
+  callId?: string,
+): void {
+  const url = String(recordingUrl ?? '').trim();
+  if (!customerId || !url) return;
+  const store = getDataStore();
+  const idx = store.customers.findIndex((c) => String(c.id) === customerId);
+  if (idx < 0) return;
+  const customer = store.customers[idx] as Record<string, unknown>;
+  store.customers[idx] = {
+    ...customer,
+    lastRecordingUrl: url,
+    lastCallId: callId ?? customer.lastCallId,
+    updatedAt: new Date().toISOString(),
+  };
+  syncData(store);
+}
+
 export function resolveCandidateByPhone(phone: string): {
   candidateId: string | null;
   candidateName: string;
@@ -1472,6 +1510,14 @@ export function resolvePhoneLineByDid(did: string): PhoneLine | undefined {
   return getDataStore().phoneLines.find(l => normalizePhone(l.did) === normalized && l.enabled);
 }
 
+function encryptSipPasswordForStore(password: string): string {
+  const trimmed = String(password ?? '').trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('v1:')) return trimmed;
+  if (trimmed === '••••••') return '';
+  return encryptSecret(trimmed);
+}
+
 export function savePhoneLine(
   input: Partial<PhoneLine> & {
     label: string;
@@ -1491,14 +1537,21 @@ export function savePhoneLine(
       ? undefined
       : (typeof input.assignedUserId === 'string' ? input.assignedUserId.trim() : undefined) || prev?.assignedUserId;
   const purpose: PhoneLinePurpose =
-    input.purpose === 'aria' || input.purpose === 'staff'
+    input.purpose === 'aria' || input.purpose === 'staff' || input.purpose === 'sally'
       ? input.purpose
       : (prev?.purpose ?? 'staff');
+  const connectionType: PhoneLineConnectionType | undefined =
+    input.connectionType === 'soho66'
+    || input.connectionType === 'sip'
+    || input.connectionType === 'twilio'
+    || input.connectionType === 'other'
+      ? input.connectionType
+      : prev?.connectionType;
   const record: PhoneLine = {
     id,
     label: input.label,
     sipUsername: input.sipUsername,
-    sipPassword: input.sipPassword,
+    sipPassword: encryptSipPasswordForStore(input.sipPassword),
     sipDomain: input.sipDomain?.trim() || process.env.SOHO66_SIP_DOMAIN?.trim() || 'sbc.soho66.co.uk',
     did: input.did,
     enabled: input.enabled !== false,
@@ -1508,6 +1561,7 @@ export function savePhoneLine(
     updatedAt: now,
     assignedUserId,
     purpose,
+    connectionType,
   };
   if (existing >= 0) {
     store.phoneLines[existing] = { ...store.phoneLines[existing], ...record };
