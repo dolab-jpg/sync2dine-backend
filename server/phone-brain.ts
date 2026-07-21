@@ -329,7 +329,7 @@ export function buildAccountBrainContext(
     lines.push('SAVED DELIVERY ADDRESS (offer once — do not invent):');
     lines.push(`- ${saved.address}${saved.postcode ? ` (${saved.postcode})` : ''}`);
     lines.push(
-      '- If they want delivery, ask: “Deliver to {address} again?” If yes, placeFoodOrder with useSavedAddress true. If no, take house number, street, and full postcode.',
+      `- If they want delivery, ask: “Deliver to ${saved.address} again?” If yes, placeFoodOrder with useSavedAddress true. If no, take house number, street, and full postcode.`,
     );
   }
   const activities = Array.isArray(customer?.activities)
