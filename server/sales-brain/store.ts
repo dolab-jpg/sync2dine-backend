@@ -5,7 +5,9 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { randomUUID } from 'crypto';
 import type { ObjectionCode, SalesOutcome } from './taxonomy';
+import { dualWriteSalesBrainStore, hydrateSalesBrainFromSupabase } from './supabase-sync';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const FILE = join(DATA_DIR, 'sales-brain.json');
@@ -113,14 +115,35 @@ function save(s: StoreShape): void {
   } catch (err) {
     console.warn('[sales-brain] persist failed:', err instanceof Error ? err.message : err);
   }
+  dualWriteSalesBrainStore(s);
 }
 
+let hydrateStarted = false;
+
 export function getSalesBrainStore(): StoreShape {
-  return load();
+  const s = load();
+  if (!hydrateStarted) {
+    hydrateStarted = true;
+    void hydrateSalesBrainFromSupabase(s).then((merged) => {
+      mem = merged;
+      try {
+        if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+        writeFileSync(FILE, JSON.stringify(merged, null, 2), 'utf-8');
+        memMtime = existsSync(FILE) ? statSync(FILE).mtimeMs : Date.now();
+      } catch {
+        /* ignore */
+      }
+    });
+  }
+  return s;
 }
 
 export function syncSalesBrainStore(s: StoreShape): void {
   save(s);
+}
+
+export function newSalesBrainId(): string {
+  return randomUUID();
 }
 
 export function listActiveSnippets(orgId: string, maxChars = 800): string {

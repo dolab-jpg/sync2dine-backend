@@ -1,6 +1,7 @@
 import {
   getSalesBrainStore,
   syncSalesBrainStore,
+  newSalesBrainId,
   type SalesBrainRecommendation,
 } from './store';
 
@@ -27,7 +28,7 @@ export function maybeEmitRecommendations(orgId: string): void {
     if (exists) continue;
     const now = new Date().toISOString();
     const rec: SalesBrainRecommendation = {
-      id: `sbr-${Date.now()}-${code}`,
+      id: newSalesBrainId(),
       orgId,
       type: `objection:${code}`,
       proposedText:

@@ -1,5 +1,5 @@
 import { getHomeOrgId } from '../home-org';
-import { getSalesBrainStore, syncSalesBrainStore, type SalesBrainJob } from './store';
+import { getSalesBrainStore, syncSalesBrainStore, newSalesBrainId, type SalesBrainJob } from './store';
 
 export function enqueueSalesBrainJob(opts: {
   callId: string;
@@ -17,7 +17,7 @@ export function enqueueSalesBrainJob(opts: {
   }
   const now = new Date().toISOString();
   const job: SalesBrainJob = {
-    id: `sbj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: newSalesBrainId(),
     callId,
     orgId,
     status: 'queued',

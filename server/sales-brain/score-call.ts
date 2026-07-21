@@ -2,6 +2,7 @@ import { getCallById } from '../data-store';
 import { getHomeOrgId } from '../home-org';
 import { normalizeObjection, type ObjectionCode, type SalesOutcome } from './taxonomy';
 import type { SalesCallInsight } from './store';
+import { newSalesBrainId } from './store';
 
 function turnsText(callId: string): { text: string; durationSec?: number; meta: Record<string, unknown> } {
   const call = getCallById(callId);
@@ -54,7 +55,7 @@ function heuristicScore(
   const hasValue = /revenue|save|staff|orders|return/.test(lower);
 
   return {
-    id: `sbi-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    id: newSalesBrainId(),
     orgId,
     callId,
     agentPersona: persona,
