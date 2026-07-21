@@ -24,30 +24,267 @@ const EXTRA_STAFF: StaffSeed[] = [
   { email: 'alex.floor@demo.sync2dine.io', username: 'alex.floor', name: 'Alex Floor', role: 'manager' },
 ];
 
-const MENU = [
+type MenuOptionSeed = {
+  role: string;
+  required?: boolean;
+  choices: Array<{ name: string; priceDelta: number }>;
+};
+
+type MenuSeed = {
+  id: string;
+  name: string;
+  sellPrice: number;
+  category: string;
+  description?: string;
+  allergensContains?: string[];
+  allergensMayContain?: string[];
+  dietary?: string[];
+  allergenNotes?: string;
+  allergenDeclared?: boolean;
+  deal?: { roles: Array<{ role: string; qtyPerDeal: number; choices: string[] }> };
+  options?: MenuOptionSeed[];
+};
+
+const MENU: MenuSeed[] = [
+  // Starters
+  { id: 'food-onion-bhaji', name: 'Onion bhaji', sellPrice: 3.5, category: 'starters', allergensContains: ['gluten'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-veg-samosa', name: 'Veg samosa (2)', sellPrice: 3.2, category: 'starters', allergensContains: ['gluten'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-chicken-wings', name: 'Chicken Wings (6)', sellPrice: 5.5, category: 'starters', allergensContains: [], allergenDeclared: true, description: 'Choose sauce when ordering' },
+  { id: 'food-garlic-bread', name: 'Garlic Bread', sellPrice: 3.0, category: 'starters', allergensContains: ['gluten', 'milk'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-mozzarella-sticks', name: 'Mozzarella Sticks', sellPrice: 4.5, category: 'starters', allergensContains: ['gluten', 'milk'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-soup-day', name: 'Soup of the Day', sellPrice: 3.8, category: 'starters', allergensContains: ['celery'], allergenDeclared: true },
+
+  // Indian mains
   { id: 'food-chicken-biryani', name: 'Chicken biryani', sellPrice: 9.5, category: 'mains', allergensContains: ['milk'], allergensMayContain: ['nuts'], allergenDeclared: true },
   { id: 'food-lamb-curry', name: 'Lamb curry', sellPrice: 10.5, category: 'mains', allergensContains: ['milk'], dietary: ['halal'], allergenDeclared: true },
-  { id: 'food-garlic-naan', name: 'Garlic naan', sellPrice: 2.5, category: 'sides', allergensContains: ['gluten', 'milk'], allergenDeclared: true },
-  { id: 'food-pilau-rice', name: 'Pilau rice', sellPrice: 2.8, category: 'sides', allergensContains: [] as string[], allergenDeclared: true },
-  { id: 'food-onion-bhaji', name: 'Onion bhaji', sellPrice: 3.5, category: 'starters', allergensContains: ['gluten'], dietary: ['vegetarian'], allergenDeclared: true },
-  { id: 'food-mango-lassi', name: 'Mango lassi', sellPrice: 3.0, category: 'drinks', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
-  { id: 'food-veg-samosa', name: 'Veg samosa (2)', sellPrice: 3.2, category: 'starters', allergensContains: ['gluten'], dietary: ['vegetarian'], allergenDeclared: true },
   { id: 'food-butter-chicken', name: 'Butter chicken', sellPrice: 11.0, category: 'mains', allergensContains: ['milk', 'nuts'], allergenDeclared: true },
   { id: 'food-paneer-tikka', name: 'Paneer tikka', sellPrice: 9.0, category: 'mains', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-chicken-tikka-masala', name: 'Chicken Tikka Masala', sellPrice: 10.5, category: 'mains', allergensContains: ['milk'], allergenDeclared: true },
+  { id: 'food-veg-korma', name: 'Vegetable Korma', sellPrice: 8.5, category: 'mains', allergensContains: ['milk', 'nuts'], dietary: ['vegetarian'], allergenDeclared: true },
+
+  // Pizza (with crust / dip upgrades)
+  {
+    id: 'food-margherita-pizza',
+    name: 'Margherita Pizza',
+    sellPrice: 9.5,
+    category: 'mains',
+    description: '12 inch tomato, mozzarella, basil',
+    allergensContains: ['gluten', 'milk'],
+    dietary: ['vegetarian'],
+    allergenDeclared: true,
+    options: [
+      {
+        role: 'crust',
+        choices: [
+          { name: 'Classic Crust', priceDelta: 0 },
+          { name: 'Stuffed Crust', priceDelta: 2.5 },
+        ],
+      },
+      {
+        role: 'dip',
+        choices: [
+          { name: 'No dip', priceDelta: 0 },
+          { name: 'Garlic Dip', priceDelta: 1 },
+          { name: 'BBQ Dip', priceDelta: 1 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'food-pepperoni-pizza',
+    name: 'Pepperoni Pizza',
+    sellPrice: 11.0,
+    category: 'mains',
+    description: '12 inch pepperoni',
+    allergensContains: ['gluten', 'milk'],
+    allergenDeclared: true,
+    options: [
+      {
+        role: 'crust',
+        choices: [
+          { name: 'Classic Crust', priceDelta: 0 },
+          { name: 'Stuffed Crust', priceDelta: 2.5 },
+        ],
+      },
+      {
+        role: 'dip',
+        choices: [
+          { name: 'No dip', priceDelta: 0 },
+          { name: 'Garlic Dip', priceDelta: 1 },
+          { name: 'BBQ Dip', priceDelta: 1 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'food-bbq-chicken-pizza',
+    name: 'BBQ Chicken Pizza',
+    sellPrice: 12.0,
+    category: 'mains',
+    allergensContains: ['gluten', 'milk'],
+    allergenDeclared: true,
+    options: [
+      {
+        role: 'crust',
+        choices: [
+          { name: 'Classic Crust', priceDelta: 0 },
+          { name: 'Stuffed Crust', priceDelta: 2.5 },
+        ],
+      },
+    ],
+  },
+
+  // Burgers / grill
+  {
+    id: 'food-classic-burger',
+    name: 'Classic Beef Burger',
+    sellPrice: 8.5,
+    category: 'mains',
+    allergensContains: ['gluten', 'eggs', 'milk'],
+    allergenDeclared: true,
+    options: [
+      {
+        role: 'upgrade',
+        choices: [
+          { name: 'No upgrade', priceDelta: 0 },
+          { name: 'Make it a meal (chips + drink)', priceDelta: 3.5 },
+          { name: 'Add cheese', priceDelta: 1 },
+          { name: 'Add bacon', priceDelta: 1.5 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'food-chicken-burger',
+    name: 'Crispy Chicken Burger',
+    sellPrice: 8.0,
+    category: 'mains',
+    allergensContains: ['gluten', 'eggs'],
+    allergenDeclared: true,
+    options: [
+      {
+        role: 'upgrade',
+        choices: [
+          { name: 'No upgrade', priceDelta: 0 },
+          { name: 'Make it a meal (chips + drink)', priceDelta: 3.5 },
+        ],
+      },
+    ],
+  },
+  { id: 'food-fish-chips', name: 'Fish and Chips', sellPrice: 11.5, category: 'mains', allergensContains: ['fish', 'gluten'], allergenDeclared: true },
+
+  // Chicken box with package side (coleslaw / beans)
+  {
+    id: 'food-chicken-box',
+    name: 'Chicken Box Meal',
+    sellPrice: 9.0,
+    category: 'mains',
+    description: '2 pieces chicken, chips, and a package side',
+    allergensContains: ['gluten'],
+    allergenDeclared: true,
+    options: [
+      {
+        role: 'side',
+        required: true,
+        choices: [
+          { name: 'Coleslaw', priceDelta: 0 },
+          { name: 'Baked Beans', priceDelta: 0 },
+          { name: 'Corn on the Cob', priceDelta: 0.5 },
+          { name: 'Gravy', priceDelta: 0.5 },
+        ],
+      },
+      {
+        role: 'sauce',
+        choices: [
+          { name: 'BBQ Sauce', priceDelta: 0 },
+          { name: 'Hot Sauce', priceDelta: 0 },
+          { name: 'No sauce', priceDelta: 0 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'food-family-feast',
+    name: 'Family Feast Box',
+    sellPrice: 24.0,
+    category: 'mains',
+    description: '8 pieces chicken, large chips, 2 package sides',
+    allergensContains: ['gluten'],
+    allergenDeclared: true,
+    options: [
+      {
+        role: 'side1',
+        required: true,
+        choices: [
+          { name: 'Coleslaw', priceDelta: 0 },
+          { name: 'Baked Beans', priceDelta: 0 },
+          { name: 'Corn on the Cob', priceDelta: 0 },
+        ],
+      },
+      {
+        role: 'side2',
+        required: true,
+        choices: [
+          { name: 'Coleslaw', priceDelta: 0 },
+          { name: 'Baked Beans', priceDelta: 0 },
+          { name: 'Gravy', priceDelta: 0 },
+        ],
+      },
+    ],
+  },
+
+  // Sides / extras
+  { id: 'food-garlic-naan', name: 'Garlic naan', sellPrice: 2.5, category: 'sides', allergensContains: ['gluten', 'milk'], allergenDeclared: true },
+  { id: 'food-pilau-rice', name: 'Pilau rice', sellPrice: 2.8, category: 'sides', allergensContains: [], allergenDeclared: true },
+  { id: 'food-chips', name: 'Chips', sellPrice: 2.5, category: 'sides', allergensContains: [], allergenDeclared: true },
+  { id: 'food-cheesy-chips', name: 'Cheesy Chips', sellPrice: 3.5, category: 'sides', allergensContains: ['milk'], allergenDeclared: true },
+  { id: 'food-coleslaw', name: 'Coleslaw', sellPrice: 2.0, category: 'sides', allergensContains: ['eggs', 'mustard'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-baked-beans', name: 'Baked Beans', sellPrice: 1.8, category: 'sides', allergensContains: [], dietary: ['vegan', 'vegetarian'], allergenDeclared: true },
+  { id: 'food-garlic-dip', name: 'Garlic Dip', sellPrice: 1.0, category: 'sides', allergensContains: ['milk', 'eggs'], allergenDeclared: true },
+  { id: 'food-onion-rings', name: 'Onion Rings', sellPrice: 3.0, category: 'sides', allergensContains: ['gluten'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-side-salad', name: 'Side Salad', sellPrice: 2.5, category: 'sides', allergensContains: [], dietary: ['vegan', 'vegetarian'], allergenDeclared: true },
+
+  // Drinks
+  { id: 'food-mango-lassi', name: 'Mango lassi', sellPrice: 3.0, category: 'drinks', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-coke', name: 'Coke', sellPrice: 1.8, category: 'drinks', allergensContains: [], allergenDeclared: true },
+  { id: 'food-diet-coke', name: 'Diet Coke', sellPrice: 1.8, category: 'drinks', allergensContains: [], allergenDeclared: true },
+  { id: 'food-fanta', name: 'Fanta', sellPrice: 1.8, category: 'drinks', allergensContains: [], allergenDeclared: true },
+  { id: 'food-water', name: 'Bottled Water', sellPrice: 1.2, category: 'drinks', allergensContains: [], dietary: ['vegan'], allergenDeclared: true },
+  { id: 'food-mango-smoothie', name: 'Mango Smoothie', sellPrice: 3.5, category: 'drinks', allergensContains: [], dietary: ['vegan'], allergenDeclared: true },
+
+  // Desserts
   { id: 'food-gulab-jamun', name: 'Gulab jamun', sellPrice: 3.5, category: 'desserts', allergensContains: ['milk', 'gluten'], dietary: ['vegetarian'], allergenDeclared: true },
-  { id: 'food-chips', name: 'Chips', sellPrice: 2.5, category: 'sides', allergensContains: [] as string[], allergenDeclared: true },
-  { id: 'food-coke', name: 'Coke', sellPrice: 1.8, category: 'drinks', allergensContains: [] as string[], allergenDeclared: true },
+  { id: 'food-chocolate-brownie', name: 'Chocolate Brownie', sellPrice: 3.8, category: 'desserts', allergensContains: ['gluten', 'eggs', 'milk'], allergenDeclared: true },
+  { id: 'food-vanilla-ice-cream', name: 'Vanilla Ice Cream', sellPrice: 2.5, category: 'desserts', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
+
+  // Specials / deals
   {
     id: 'food-mile-a-meal',
     name: 'Mile a Meal',
     sellPrice: 12.5,
     category: 'specials',
     description: '1 main + 1 side + 1 drink',
+    allergenDeclared: true,
     deal: {
       roles: [
-        { role: 'main', qtyPerDeal: 1, choices: ['Chicken biryani', 'Butter chicken', 'Lamb curry', 'Paneer tikka'] },
-        { role: 'side', qtyPerDeal: 1, choices: ['Pilau rice', 'Chips', 'Garlic naan'] },
-        { role: 'drink', qtyPerDeal: 1, choices: ['Coke', 'Mango lassi'] },
+        { role: 'main', qtyPerDeal: 1, choices: ['Chicken biryani', 'Butter chicken', 'Lamb curry', 'Paneer tikka', 'Chicken Tikka Masala'] },
+        { role: 'side', qtyPerDeal: 1, choices: ['Pilau rice', 'Chips', 'Garlic naan', 'Coleslaw'] },
+        { role: 'drink', qtyPerDeal: 1, choices: ['Coke', 'Diet Coke', 'Mango lassi', 'Fanta'] },
+      ],
+    },
+  },
+  {
+    id: 'food-pizza-meal-deal',
+    name: 'Pizza Meal Deal',
+    sellPrice: 14.0,
+    category: 'specials',
+    description: 'Any pizza + side + drink',
+    allergenDeclared: true,
+    deal: {
+      roles: [
+        { role: 'main', qtyPerDeal: 1, choices: ['Margherita Pizza', 'Pepperoni Pizza', 'BBQ Chicken Pizza'] },
+        { role: 'side', qtyPerDeal: 1, choices: ['Chips', 'Garlic Bread', 'Coleslaw', 'Onion Rings'] },
+        { role: 'drink', qtyPerDeal: 1, choices: ['Coke', 'Diet Coke', 'Fanta', 'Bottled Water'] },
       ],
     },
   },
@@ -160,41 +397,31 @@ async function resolveOrgId(supabase: ReturnType<typeof admin>): Promise<string>
 
 async function upsertMenu(supabase: ReturnType<typeof admin>, orgId: string) {
   const now = new Date().toISOString();
-  const rows = MENU.map((item) => {
-    const extra = item as {
-      description?: string;
-      deal?: { roles: Array<{ role: string; qtyPerDeal: number; choices: string[] }> };
-      allergensContains?: string[];
-      allergensMayContain?: string[];
-      dietary?: string[];
-      allergenNotes?: string;
-      allergenDeclared?: boolean;
-    };
-    return {
-      id: item.id,
-      org_id: orgId,
-      data: {
-        name: item.name,
-        image: '',
-        basePrice: item.sellPrice,
-        margin: 0,
-        sellPrice: item.sellPrice,
-        price: item.sellPrice,
-        source: 'restaurant',
-        category: item.category,
-        tradeId: null,
-        available: true,
-        ...(extra.description ? { description: extra.description } : {}),
-        ...(extra.deal ? { deal: extra.deal } : {}),
-        ...(extra.allergensContains ? { allergensContains: extra.allergensContains } : {}),
-        ...(extra.allergensMayContain ? { allergensMayContain: extra.allergensMayContain } : {}),
-        ...(extra.dietary ? { dietary: extra.dietary } : {}),
-        ...(extra.allergenNotes ? { allergenNotes: extra.allergenNotes } : {}),
-        ...(extra.allergenDeclared ? { allergenDeclared: true } : {}),
-      },
-      updated_at: now,
-    };
-  });
+  const rows = MENU.map((item) => ({
+    id: item.id,
+    org_id: orgId,
+    data: {
+      name: item.name,
+      image: '',
+      basePrice: item.sellPrice,
+      margin: 0,
+      sellPrice: item.sellPrice,
+      price: item.sellPrice,
+      source: 'restaurant',
+      category: item.category,
+      tradeId: null,
+      available: true,
+      ...(item.description ? { description: item.description } : {}),
+      ...(item.deal ? { deal: item.deal } : {}),
+      ...(item.options ? { options: item.options } : {}),
+      ...(item.allergensContains ? { allergensContains: item.allergensContains } : {}),
+      ...(item.allergensMayContain ? { allergensMayContain: item.allergensMayContain } : {}),
+      ...(item.dietary ? { dietary: item.dietary } : {}),
+      ...(item.allergenNotes ? { allergenNotes: item.allergenNotes } : {}),
+      ...(item.allergenDeclared ? { allergenDeclared: true } : {}),
+    },
+    updated_at: now,
+  }));
   const { error } = await supabase.from('products').upsert(rows, { onConflict: 'org_id,id' });
   if (error) throw new Error(`products: ${error.message}`);
   console.log(`[populate] Menu items: ${rows.length}`);

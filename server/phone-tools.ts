@@ -23,7 +23,13 @@ import { formatSpokenGbp } from './spoken-money';
 import { resolvePhoneCallerIdentity } from './phone-auth';
 import { ensureEnglishForCustomerSend } from './outbound-english-guard';
 import { resolveTransferDestination, resolveTransferNumber } from './transfer-numbers';
-import { expandMealDealOrderItems, listMenuItemsForOrg, type OrderLineInput } from './menu-catalog';
+import {
+  expandMealDealOrderItems,
+  expandMenuOptions,
+  listMenuItemsForOrg,
+  optionSurchargeForLine,
+  type OrderLineInput,
+} from './menu-catalog';
 import { allergenSafetyHint, customerAllergenConflict } from './allergens';
 import {
   cancelReservation,
@@ -521,7 +527,7 @@ export const PHONE_TOOLS = [
     function: {
       name: 'placeFoodOrder',
       description:
-        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. MUST ask about allergies/intolerances first — set allergyConfirmed true and pass customerAllergies (or "none"). Items must match getMenu exactly — never invent dishes. For delivery: house number + street + full postcode after checkDeliveryArea, OR useSavedAddress true when they confirm the saved address from Account memory; ask cash or card preference (driver/card machine — never take payment or send payment links). For meal deals, pass qty plus dealChoices — one object per unit with main/side/drink roles.',
+        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. MUST ask about allergies/intolerances first — set allergyConfirmed true and pass customerAllergies (or "none"). Items must match getMenu exactly — never invent dishes. Soft-upsell upgrades from each item options (e.g. stuffed crust, coleslaw/beans) and pass optionChoices. For delivery: house number + street + full postcode after checkDeliveryArea, OR useSavedAddress true; ask cash or card preference only. For meal deals, pass qty plus dealChoices.',
       parameters: {
         type: 'object',
         properties: {
@@ -544,6 +550,12 @@ export const PHONE_TOOLS = [
                     type: 'object',
                     additionalProperties: { type: 'string' },
                   },
+                },
+                optionChoices: {
+                  type: 'object',
+                  description:
+                    'Upgrade choices from getMenu item.options — role → choice name (e.g. {crust:"Stuffed Crust", side:"Coleslaw"}).',
+                  additionalProperties: { type: 'string' },
                 },
               },
               required: ['name'],
@@ -1378,6 +1390,7 @@ export async function executePhoneTool(
         price,
         description,
         deal,
+        options,
         allergensContains,
         allergensMayContain,
         dietary,
@@ -1402,6 +1415,18 @@ export async function executePhoneTool(
                   choices: r.choices,
                 })),
               },
+            }
+          : {}),
+        ...(options?.length
+          ? {
+              options: options.map((g) => ({
+                role: g.role,
+                required: g.required === true,
+                choices: g.choices.map((c) => ({
+                  name: c.name,
+                  priceDelta: c.priceDelta,
+                })),
+              })),
             }
           : {}),
       })),
@@ -1580,11 +1605,20 @@ export async function executePhoneTool(
             return mapped;
           })
         : undefined;
+      const optionChoices =
+        r.optionChoices && typeof r.optionChoices === 'object' && !Array.isArray(r.optionChoices)
+          ? Object.fromEntries(
+              Object.entries(r.optionChoices as Record<string, unknown>)
+                .filter(([, v]) => v != null && String(v).trim())
+                .map(([k, v]) => [String(k).toLowerCase(), String(v).trim()]),
+            )
+          : undefined;
       return {
         name: String(r.name ?? '').trim(),
         qty: Number(r.qty ?? 1) || 1,
         price: r.price != null ? Number(r.price) : undefined,
         dealChoices,
+        optionChoices,
         dealName: r.dealName != null ? String(r.dealName) : undefined,
         role: r.role != null ? String(r.role) : undefined,
         dealIndex: r.dealIndex != null ? Number(r.dealIndex) : undefined,
@@ -1605,7 +1639,16 @@ export async function executePhoneTool(
       };
     }
 
-    const expanded = expandMealDealOrderItems(rawLines, catalog);
+    const withOptions = expandMenuOptions(rawLines, catalog);
+    if (!withOptions.ok) {
+      return {
+        ok: false,
+        error: withOptions.error,
+        spokenHint: withOptions.spokenHint,
+      };
+    }
+
+    const expanded = expandMealDealOrderItems(withOptions.items, catalog);
     if (!expanded.ok) {
       return {
         ok: false,
@@ -1650,6 +1693,7 @@ export async function executePhoneTool(
     }
 
     // Price: meal deals charge the deal price × qty; components are kitchen lines.
+    // Upgrades add priceDelta × qty from optionChoices.
     let pricedTotal = 0;
     for (const line of rawLines) {
       if (!line.name) continue;
@@ -1660,6 +1704,7 @@ export async function executePhoneTool(
       } else {
         const unit = Number(line.price ?? match?.price ?? 0);
         pricedTotal += (Number.isFinite(unit) ? unit : 0) * qty;
+        pricedTotal += optionSurchargeForLine(line, catalog);
       }
     }
     pricedTotal = Math.round(pricedTotal * 100) / 100;

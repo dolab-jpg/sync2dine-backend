@@ -18,7 +18,7 @@
     "supabase:push": "npx supabase db push",
     "supabase:reset": "npx supabase db reset",
     "functions:deploy": "npx supabase functions deploy",
-    "test": "tsx --experimental-test-module-mocks --test server/translation-english.test.ts server/ai-proxy-auth.test.ts server/agent-activity.test.ts server/tool-facade.test.ts server/allergens.test.ts server/connectors-hmac.test.ts server/reservations-availability.test.ts server/quote-checkout.test.ts server/food-order-guards.test.ts",
+    "test": "tsx --experimental-test-module-mocks --test server/translation-english.test.ts server/ai-proxy-auth.test.ts server/agent-activity.test.ts server/tool-facade.test.ts server/allergens.test.ts server/connectors-hmac.test.ts server/reservations-availability.test.ts server/quote-checkout.test.ts server/food-order-guards.test.ts server/menu-options.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
