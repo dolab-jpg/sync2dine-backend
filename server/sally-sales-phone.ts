@@ -30,6 +30,7 @@ import { toE164Uk } from './vapi-client';
 import { getHomeOrgId } from './home-org';
 import { debugLog } from './debug-session-log';
 import { buildApprovedSalesBrainPromptBlock } from './sales-brain/inject';
+import { getSallyKnowledgePromptBlockCached } from './sally-product-kb/inject';
 
 export const SALLY_PERSONA = 'sally';
 
@@ -338,6 +339,11 @@ export function buildSallyBrainPrompt(input: {
   outboundBrief?: string;
   contactName?: string;
   companyHint?: string;
+  /** Staff / platform_owner dialled Sally — unlock CRM staff playbook (still named Sally). */
+  staffMode?: boolean;
+  staffName?: string;
+  staffRole?: string;
+  phoneAuthVerified?: boolean;
 }): { instructions: string; language: 'en' } {
   const contact = String(input.contactName || '').trim();
   const safeName = contact && !/^(guest|unknown|unknown caller)$/i.test(contact) ? contact : '';
@@ -345,6 +351,18 @@ export function buildSallyBrainPrompt(input: {
   const brief = String(input.outboundBrief || '');
   const isMeetingConfirm = /meeting_confirm|confirm.*install|T-?30/i.test(brief);
   const approvedBrain = buildApprovedSalesBrainPromptBlock();
+  const productKb = getSallyKnowledgePromptBlockCached();
+  const staffBlock = input.staffMode
+    ? [
+        'STAFF / PLATFORM MODE (caller is recognised staff or platform owner — stay named Sally):',
+        `- Caller: ${input.staffName || safeName || 'colleague'} · role ${input.staffRole || 'staff'}.`,
+        input.phoneAuthVerified
+          ? '- PIN verified for this call — use CRM / account / quote / callback / sendToStaffCynthia tools freely; speak real tool results.'
+          : '- Ask for their 4-digit security code when needed; call verifyStaffPhonePin. Until verified: no internal CRM leaks; still help with sales questions.',
+        '- Prefer staff CRM tools over the sales close script. You may still answer product/pricing with getOfferTerms.',
+        '- Do not take diner food orders on this line.',
+      ].join('\n')
+    : '';
   const instructions = [
     SALLY_SALES_OS,
     buildSallyPhoneVoiceOverlay(),
@@ -352,8 +370,12 @@ export function buildSallyBrainPrompt(input: {
     formatObjectionPlaybook(),
     SALLY_PHONE_CLOSE_SCRIPT,
     approvedBrain,
+    productKb,
+    staffBlock,
     '- CLARITY: Postcode NATO readback only when newly spoken or corrected — skip if CRM/brief already has venue + postcode.',
-    isMeetingConfirm
+    input.staffMode
+      ? '- This caller is staff/platform — prioritise their ops/CRM ask; sales close only if they want it.'
+      : isMeetingConfirm
       ? '- THIS IS A T−30 MEETING CONFIRM CALL: Keep under 60 seconds. Confirm the 20-minute install/integration meeting. If they cancel, acknowledge. Do not re-pitch packages.'
       : input.direction === 'outbound'
         ? '- This is an outbound sales call you placed — work the close script toward bookIntegrationMeeting.'
@@ -368,7 +390,9 @@ export function buildSallyBrainPrompt(input: {
         : ' (treat as landline for SMS — ask for a mobile before texting).'),
     input.outboundBrief
       ? `- SALES BRIEF FOR THIS CALL (follow this): ${String(input.outboundBrief).slice(0, 900)}`
-      : '- Pitch Sync2Dine: Judie (me) answers the phone; Atmosphere runs the room; Complete does both — this call is the demo — then book the 20-minute install meeting.',
+      : input.staffMode
+        ? '- Help the staff/platform caller with tools; sales pitch only if they ask.'
+        : '- Pitch Sync2Dine: Judie (me) answers the phone; Atmosphere runs the room; Complete does both — this call is the demo — then book the 20-minute install meeting.',
   ].filter(Boolean).join('\n');
 
   return { instructions, language: 'en' };

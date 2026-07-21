@@ -139,17 +139,39 @@ export async function buildVapiAssistantForParty(opts: {
   let functionTools: Array<Record<string, unknown>>;
 
   if (sally) {
+    const staffMode =
+      identity.kind === 'staff'
+      || identity.kind === 'foreman'
+      || /platform_owner|super_admin/i.test(identity.role);
+    // #region agent log
+    debugLog('D', 'vapi-assistant.ts:sally', 'Sally branch', {
+      staffMode,
+      identityKind: identity.kind,
+      identityRole: identity.role,
+      verified,
+      direction: opts.direction,
+    }, 'plan-gap-fix');
+    // #endregion
+    void import('./sally-product-kb/inject').then((m) => m.warmSallyKnowledgeCache()).catch(() => {});
     const sallyPrompt = buildSallyBrainPrompt({
       partyPhone: opts.partyPhone,
       direction: opts.direction,
       outboundBrief,
       contactName: opts.contactName || identity.name,
       companyHint: callMeta.company != null ? String(callMeta.company) : undefined,
+      staffMode,
+      staffName: identity.name,
+      staffRole: identity.role,
+      phoneAuthVerified: verified,
     });
     instructions = sallyPrompt.instructions;
     language = sallyPrompt.language;
-    assistantName = 'Sally Sync2Dine';
-    if (opts.direction === 'outbound') {
+    assistantName = staffMode ? `Sally Sync2Dine (${identity.role})` : 'Sally Sync2Dine';
+    if (staffMode) {
+      firstMessage = verified
+        ? `Alright ${firstName || 'love'}, Sally here — you're unlocked, what do you need?`
+        : `Alright ${firstName || 'love'}, Sally here — say your four-digit security code when you can and I'll unlock the staff tools.`;
+    } else if (opts.direction === 'outbound') {
       firstMessage = firstName && !/^guest$/i.test(firstName)
         ? `Alright ${firstName}, it's Sally from Sync2Dine — you got a minute?`
         : `Alright love, it's Sally from Sync2Dine — who am I speaking with?`;
@@ -158,7 +180,11 @@ export async function buildVapiAssistantForParty(opts: {
         ? `Alright ${firstName}, Sally from Sync2Dine — what can I do you for?`
         : `Alright, Sally from Sync2Dine — who am I speaking with?`;
     }
-    functionTools = getSallyPhoneSessionChatTools()
+    const sallyTools = getSallyPhoneSessionChatTools();
+    const staffTools = staffMode ? getPhoneSessionChatTools(identity, verified) : [];
+    const byName = new Map<string, (typeof sallyTools)[number]>();
+    for (const t of [...sallyTools, ...staffTools]) byName.set(t.function.name, t);
+    functionTools = Array.from(byName.values())
       .filter((tool) => tool.function.name !== 'endCall')
       .map((tool) => ({
         type: 'function',
@@ -166,6 +192,14 @@ export async function buildVapiAssistantForParty(opts: {
         async: false,
         server: toolServerCfg,
       }));
+    if (staffMode && !functionTools.some((t) => t.function.name === 'verifyStaffPhonePin')) {
+      functionTools.unshift({
+        type: 'function',
+        function: VERIFY_PIN_TOOL.function,
+        async: false,
+        server: toolServerCfg,
+      });
+    }
   } else {
     const built = buildPhoneBrainPrompt({
       orgId: DEFAULT_ORG_ID,
@@ -184,8 +218,8 @@ export async function buildVapiAssistantForParty(opts: {
 
     if (identity.kind === 'staff' || identity.kind === 'foreman') {
       firstMessage = verified
-        ? `Hi ${firstName || 'there'}, Cynthia here — you're unlocked, what do you need?`
-        : `Hi ${firstName || 'there'}, Cynthia here — when you can, say your four-digit security code and I'll unlock your tools.`;
+        ? `Hi ${firstName || 'there'}, Judie here — you're unlocked, what do you need?`
+        : `Hi ${firstName || 'there'}, Judie here — when you can, say your four-digit security code and I'll unlock your tools.`;
       assistantName = `Judie (${identity.role})`;
     } else if (opts.direction === 'outbound') {
       firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Judie from Sync2Dine — how are you getting on?`;
