@@ -221,16 +221,22 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
   }
 
   const allergenWarnings: string[] = [];
+  const channelLower = (firstString(input.channel) ?? 'phone').toLowerCase();
+  const staffChannel = channelLower === 'staff' || channelLower === 'sync2dine';
   for (const line of expanded.items) {
     const match = catalog.find((c) => c.name.toLowerCase() === String(line.name).toLowerCase());
     if (!match) continue;
-    const safety = allergenSafetyHint(match);
-    if (safety) allergenWarnings.push(safety);
-    if (customerAllergies) {
+    // Phone: undeclared allergens hard-fail. Staff till: allergyConfirmed already required.
+    if (!staffChannel) {
+      const safety = allergenSafetyHint(match);
+      if (safety) allergenWarnings.push(safety);
+    }
+    const allergyNote = (customerAllergies || '').trim().toLowerCase();
+    if (allergyNote && allergyNote !== 'none') {
       const conflicts = customerAllergenConflict(customerAllergies, match.allergensContains ?? []);
       if (conflicts.length) {
         allergenWarnings.push(
-          `${match.name} contains ${conflicts.join(', ')} which matches the caller allergies ù suggest alternatives or kitchen check.`,
+          `${match.name} contains ${conflicts.join(', ')} which matches the caller allergies - suggest alternatives or kitchen check.`,
         );
       }
     }
