@@ -3,8 +3,8 @@
  * Never reads Studio / Judie knowledgeChunks.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { resolveOrgUuid } from '../supabase-admin';
 import { debugLog } from '../debug-session-log';
+import { resolveSallyOrgId } from './store';
 
 let admin: SupabaseClient | null | undefined;
 
@@ -22,7 +22,7 @@ function getAdmin(): SupabaseClient | null {
   return admin;
 }
 
-/** Sync helper for prompt build ó returns capped approved talking points. */
+/** Sync helper for prompt build ù returns capped approved talking points. */
 export async function buildSallyKnowledgePromptBlock(maxChars = 1200): Promise<string> {
   const sb = getAdmin();
   if (!sb) {
@@ -32,7 +32,8 @@ export async function buildSallyKnowledgePromptBlock(maxChars = 1200): Promise<s
     return '';
   }
   try {
-    const orgId = await resolveOrgUuid(undefined);
+    // Must match store/routes org (HOME_ORG), not resolveOrgUuid(undefined) ? DEFAULT_ORG_UUID
+    const orgId = await resolveSallyOrgId();
     const { data, error } = await sb
       .from('sally_knowledge_chunks')
       .select('category,title,body,source_url')
@@ -57,7 +58,7 @@ export async function buildSallyKnowledgePromptBlock(maxChars = 1200): Promise<s
       total += bit.length + 1;
     }
     const block = lines.length
-      ? `SALLY PRODUCT KNOWLEDGE (approved ó weave naturally, do not recite; prices still only via getOfferTerms):\n${lines.join('\n')}`
+      ? `SALLY PRODUCT KNOWLEDGE (approved ù weave naturally, do not recite; prices still only via getOfferTerms):\n${lines.join('\n')}`
       : '';
     // #region agent log
     debugLog('E', 'sally-product-kb/inject.ts', 'inject block', {
