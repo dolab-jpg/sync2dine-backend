@@ -26,6 +26,7 @@ import {
 import { resolveOrgIdForRequest, isAuthEnforced, requireAuth } from './auth';
 import { OpenAIConnectionError } from './openai-connection';
 import { getOrganizationByPhoneDid } from './organizations';
+import { resolveOrgIdForInboundDid } from './phone-lines';
 import { handleChannelInbound } from './channel-inbound-handler';
 import { buildPhoneBrainPrompt } from './phone-brain';
 import {
@@ -78,8 +79,8 @@ function headersToRecord(req: IncomingMessage): Record<string, string> {
 }
 
 function resolvePhoneOrgId(toDid: string): string {
-  const byDid = getOrganizationByPhoneDid(toDid);
-  if (byDid?.id) return byDid.id;
+  const resolved = resolveOrgIdForInboundDid(toDid) || getOrganizationByPhoneDid(toDid)?.id;
+  if (resolved) return resolved;
   // Keep CRM on the default local store — never switch to a cloud org UUID just because it has an OpenAI key.
   const current = getRequestOrgId();
   if (current && current !== DEFAULT_ORG_ID && current !== 'default') {

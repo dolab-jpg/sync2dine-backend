@@ -15,6 +15,20 @@ import { getGlobalUsageThisMonth, getTokensUsedThisMonth, getUsageSummaryForOrg 
 import { getPhoneUsageSummary } from './phone-billing';
 import { getOrgElevenLabsStatus } from './org-elevenlabs';
 import { isAuthEnforced, requireAuth } from './auth';
+import {
+  deletePlatformPhoneLine,
+  getPlatformPhoneLine,
+  listAllPlatformPhoneLines,
+  savePlatformPhoneLine,
+  type PhoneLineConnectionType,
+} from './phone-lines';
+import {
+  getPhoneLineById,
+  withOrgContext,
+  withOrgContextAsync,
+  type PhoneLinePurpose,
+} from './data-store';
+import { testLineConnection, registerAllEnabledLines, unregisterLine } from './telephony/lineRegistry';
 
 function assertPlatformAccess(req: IncomingMessage, res: ServerResponse): boolean {
   if (!isAuthEnforced()) return true;
@@ -336,6 +350,150 @@ export async function handlePlatformRoutes(
     } catch (err) {
       sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
+    return true;
+  }
+
+  // ── Platform phone lines (one DID + SIP creds per restaurant / purpose) ──
+  if (pathname === '/api/platform/phone-lines' && req.method === 'GET') {
+    sendJson(res, 200, { lines: listAllPlatformPhoneLines() });
+    return true;
+  }
+
+  if (pathname === '/api/platform/phone-lines' && req.method === 'POST') {
+    try {
+      const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+      const orgId = String(body.orgId ?? '').trim();
+      const label = String(body.label ?? '').trim();
+      const sipUsername = String(body.sipUsername ?? '').trim();
+      const sipPassword = String(body.sipPassword ?? '').trim();
+      const did = String(body.did ?? '').trim();
+      if (!orgId || !label || !sipUsername || !sipPassword || !did) {
+        sendJson(res, 400, { error: 'orgId, label, sipUsername, sipPassword, and did are required' });
+        return true;
+      }
+      const purpose: PhoneLinePurpose = body.purpose === 'staff' ? 'staff' : 'aria';
+      const line = savePlatformPhoneLine({
+        orgId,
+        label,
+        sipUsername,
+        sipPassword,
+        sipDomain: typeof body.sipDomain === 'string' ? body.sipDomain : undefined,
+        did,
+        enabled: body.enabled !== false,
+        purpose,
+        connectionType: body.connectionType as PhoneLineConnectionType | undefined,
+        assignedUserId: typeof body.assignedUserId === 'string' ? body.assignedUserId : null,
+      });
+      sendJson(res, 201, { line });
+    } catch (err) {
+      sendJson(res, 400, { error: err instanceof Error ? err.message : 'Failed to create phone line' });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/platform/phone-lines/register-all' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req).catch(() => '{}') || '{}') as Record<string, unknown>;
+    const orgId = String(body.orgId ?? '').trim();
+    if (!orgId) {
+      sendJson(res, 400, { error: 'orgId is required' });
+      return true;
+    }
+    const result = await withOrgContextAsync(orgId, () => registerAllEnabledLines());
+    sendJson(res, 200, { ...result, lines: listAllPlatformPhoneLines().filter((l) => l.orgId === orgId) });
+    return true;
+  }
+
+  const lineMatch = pathname.match(/^\/api\/platform\/phone-lines\/([^/]+)$/);
+  if (lineMatch) {
+    const lineId = decodeURIComponent(lineMatch[1]);
+
+    if (req.method === 'GET') {
+      const url = new URL(req.url || '', 'http://localhost');
+      const orgId = String(url.searchParams.get('orgId') || '').trim();
+      if (!orgId) {
+        sendJson(res, 400, { error: 'orgId query param is required' });
+        return true;
+      }
+      const line = getPlatformPhoneLine(orgId, lineId);
+      if (!line) {
+        sendJson(res, 404, { error: 'Line not found' });
+        return true;
+      }
+      sendJson(res, 200, { line });
+      return true;
+    }
+
+    if (req.method === 'PATCH') {
+      try {
+        const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+        const orgId = String(body.orgId ?? '').trim();
+        if (!orgId) {
+          sendJson(res, 400, { error: 'orgId is required' });
+          return true;
+        }
+        const existing = getPlatformPhoneLine(orgId, lineId);
+        if (!existing) {
+          sendJson(res, 404, { error: 'Line not found' });
+          return true;
+        }
+        const line = savePlatformPhoneLine({
+          orgId,
+          id: lineId,
+          label: typeof body.label === 'string' ? body.label : existing.label,
+          sipUsername: typeof body.sipUsername === 'string' ? body.sipUsername : existing.sipUsername,
+          sipPassword: typeof body.sipPassword === 'string' ? body.sipPassword : undefined,
+          sipDomain: typeof body.sipDomain === 'string' ? body.sipDomain : existing.sipDomain,
+          did: typeof body.did === 'string' ? body.did : existing.did,
+          enabled: typeof body.enabled === 'boolean' ? body.enabled : existing.enabled,
+          purpose: body.purpose === 'staff' || body.purpose === 'aria'
+            ? body.purpose
+            : (existing.purpose ?? 'aria'),
+          connectionType: (body.connectionType as PhoneLineConnectionType | undefined)
+            ?? existing.connectionType,
+          assignedUserId: body.assignedUserId === null
+            ? null
+            : (typeof body.assignedUserId === 'string' ? body.assignedUserId : existing.assignedUserId),
+        });
+        if (body.enabled === false) {
+          await withOrgContextAsync(orgId, () => unregisterLine(lineId));
+        }
+        sendJson(res, 200, { line });
+      } catch (err) {
+        sendJson(res, 400, { error: err instanceof Error ? err.message : 'Failed to update phone line' });
+      }
+      return true;
+    }
+
+    if (req.method === 'DELETE') {
+      const url = new URL(req.url || '', 'http://localhost');
+      const orgId = String(url.searchParams.get('orgId') || '').trim();
+      if (!orgId) {
+        sendJson(res, 400, { error: 'orgId query param is required' });
+        return true;
+      }
+      await withOrgContextAsync(orgId, () => unregisterLine(lineId));
+      const ok = deletePlatformPhoneLine(orgId, lineId);
+      sendJson(res, ok ? 200 : 404, { success: ok });
+      return true;
+    }
+  }
+
+  const lineTestMatch = pathname.match(/^\/api\/platform\/phone-lines\/([^/]+)\/test$/);
+  if (lineTestMatch && req.method === 'POST') {
+    const lineId = decodeURIComponent(lineTestMatch[1]);
+    const body = JSON.parse(await readBody(req).catch(() => '{}') || '{}') as Record<string, unknown>;
+    const orgId = String(body.orgId ?? '').trim();
+    if (!orgId) {
+      sendJson(res, 400, { error: 'orgId is required' });
+      return true;
+    }
+    const line = withOrgContext(orgId, () => getPhoneLineById(lineId));
+    if (!line) {
+      sendJson(res, 404, { error: 'Line not found' });
+      return true;
+    }
+    const result = await testLineConnection(line);
+    sendJson(res, result.ok ? 200 : 400, result);
     return true;
   }
 

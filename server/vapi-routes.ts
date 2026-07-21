@@ -17,6 +17,7 @@ import {
   getCallByProviderId,
   getDataStore,
   isAgentActive,
+  getRequestOrgId,
   resolveContactByPhone,
   saveCall,
   setRequestOrgId,
@@ -39,6 +40,7 @@ import {
 import { ingestCallRecording } from './call-recording-store';
 import type { OrchestratorRequest } from './orchestrator-types';
 import { getDemoKitchenOrgId } from './home-org';
+import { resolveOrgIdForInboundDid } from './phone-lines';
 import {
   getVapiServerSecret,
   getVapiPublicKey,
@@ -157,7 +159,12 @@ function partyPhoneFromCall(call: Record<string, unknown> | undefined): string {
   return toE164Uk(from || customerNumber || to);
 }
 
-function phoneOrgId(): string {
+/** Resolve restaurant from the line DID; fall back to request org / home kitchen. */
+function phoneOrgId(lineDid?: string): string {
+  const fromDid = resolveOrgIdForInboundDid(lineDid);
+  if (fromDid) return fromDid;
+  const current = getRequestOrgId();
+  if (current) return current;
   return getDemoKitchenOrgId();
 }
 
@@ -234,8 +241,16 @@ function backfillCallIdentity(
 }
 
 function ensureCallFromVapi(message: Record<string, unknown>): Record<string, unknown> {
-  setRequestOrgId(phoneOrgId());
   const call = (message.call || message) as Record<string, unknown>;
+  const directionHint = String(call.type || call.direction || '').toLowerCase();
+  const directionForDid = directionHint.includes('outbound') ? 'outbound' : 'inbound';
+  const earlyLineDid = lineDidForDirection(
+    directionForDid,
+    call,
+    String(process.env.SOHO66_FROM_NUMBER || ''),
+  );
+  setRequestOrgId(phoneOrgId(earlyLineDid));
+
   const vapiId = String(call.id || message.callId || `vapi-${Date.now()}`);
   const metaIn = (call.metadata || message.metadata || {}) as Record<string, unknown>;
   const tradeproCallId = String(metaIn.tradeproCallId || '').trim();
@@ -265,7 +280,7 @@ function ensureCallFromVapi(message: Record<string, unknown>): Record<string, un
   const resolved = resolveContactByPhone(partyPhone);
   const directionRaw = String(call.type || '').toLowerCase();
   const direction = directionRaw.includes('outbound') ? 'outbound' : 'inbound';
-  const lineDid = lineDidForDirection(direction, call, String(process.env.SOHO66_FROM_NUMBER || ''));
+  const lineDid = earlyLineDid || lineDidForDirection(direction, call, String(process.env.SOHO66_FROM_NUMBER || ''));
   const localCallId = tradeproCallId || vapiId;
 
   // Judie inbound diners always get a CRM guest/customer card on ring.

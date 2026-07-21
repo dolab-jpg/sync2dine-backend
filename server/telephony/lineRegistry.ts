@@ -3,6 +3,7 @@ import {
   updatePhoneLineStatus,
   type PhoneLine,
 } from '../data-store';
+import { decryptPhoneLineSipPassword } from '../phone-lines';
 
 export function getSipBridgeUrl(): string | null {
   const url = (process.env.SOHO66_SIP_BRIDGE_URL ?? '').replace(/\/$/, '');
@@ -43,7 +44,7 @@ export async function registerLine(line: PhoneLine, bridgeUrl?: string): Promise
       body: JSON.stringify({
         lineId: line.id,
         sipUsername: line.sipUsername,
-        sipPassword: line.sipPassword,
+        sipPassword: decryptPhoneLineSipPassword(line.sipPassword),
         sipDomain: line.sipDomain,
         did: line.did,
         webhookBaseUrl: getWebhookBaseUrl(),
@@ -107,7 +108,8 @@ export async function registerAllEnabledLines(bridgeUrl?: string): Promise<{
 }
 
 export async function testLineConnection(line: PhoneLine, bridgeUrl?: string): Promise<{ ok: boolean; message: string }> {
-  if (!line.sipUsername || !line.sipPassword || !line.sipDomain) {
+  const sipPassword = decryptPhoneLineSipPassword(line.sipPassword);
+  if (!line.sipUsername || !sipPassword || !line.sipDomain) {
     return { ok: false, message: 'SIP username, password, and domain are required' };
   }
   if (!line.did?.trim()) {
