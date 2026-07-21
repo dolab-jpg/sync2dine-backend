@@ -142,4 +142,26 @@ describe('phone-lines platform provisioning', () => {
     const enc = encryptSecret('x');
     assert.equal(decryptSecret(enc), 'x');
   });
+
+  it('clears org.phoneDid when the last Judie line is deleted', () => {
+    const org = createOrganization({
+      name: `Phone Line Test C ${Date.now()}`,
+      contactName: 'Owner',
+      contactEmail: `pline-c-${Date.now()}@example.com`,
+      contactPhone: '02000000003',
+      plan: 'starter',
+    });
+    createdOrgIds.push(org.id);
+    const line = savePlatformPhoneLine({
+      orgId: org.id,
+      label: 'Temp Judie',
+      sipUsername: 'userC',
+      sipPassword: 'passwordC-secret',
+      did: '02039990003',
+      purpose: 'aria',
+    });
+    assert.ok(listOrganizations().find((o) => o.id === org.id)?.phoneDid);
+    assert.equal(deletePlatformPhoneLine(org.id, line.id), true);
+    assert.equal(listOrganizations().find((o) => o.id === org.id)?.phoneDid || '', '');
+  });
 });

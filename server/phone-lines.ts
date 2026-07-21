@@ -195,7 +195,26 @@ export function savePlatformPhoneLine(input: {
 }
 
 export function deletePlatformPhoneLine(orgId: string, lineId: string): boolean {
-  return withOrgContext(orgId, () => deletePhoneLine(lineId));
+  const existing = withOrgContext(orgId, () => getPhoneLineById(lineId));
+  const ok = withOrgContext(orgId, () => deletePhoneLine(lineId));
+  if (!ok) return false;
+
+  // Keep organizations.phoneDid pointing at a live Judie line (or clear if none).
+  const org = getOrganizationById(orgId);
+  if (org?.phoneDid) {
+    const remainingAria = withOrgContext(orgId, () =>
+      listPhoneLines().filter((l) => l.enabled && (l.purpose ?? 'staff') === 'aria'),
+    );
+    if (remainingAria[0]) {
+      syncOrgPhoneDidFromLine(orgId, remainingAria[0]);
+    } else if (
+      !existing
+      || normalizePhoneExport(org.phoneDid) === normalizePhoneExport(existing.did)
+    ) {
+      updateOrganization(orgId, { phoneDid: '' });
+    }
+  }
+  return true;
 }
 
 export function getPlatformPhoneLine(orgId: string, lineId: string): PlatformPhoneLine | undefined {

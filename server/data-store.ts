@@ -1191,6 +1191,27 @@ export function markCustomerDialling(customerId: string, callId?: string): void 
   syncData(store);
 }
 
+/** Stamp the latest call recording URL onto the CRM customer card. */
+export function stampCustomerLastRecording(
+  customerId: string,
+  recordingUrl: string | undefined | null,
+  callId?: string,
+): void {
+  const url = String(recordingUrl ?? '').trim();
+  if (!customerId || !url) return;
+  const store = getDataStore();
+  const idx = store.customers.findIndex((c) => String(c.id) === customerId);
+  if (idx < 0) return;
+  const customer = store.customers[idx] as Record<string, unknown>;
+  store.customers[idx] = {
+    ...customer,
+    lastRecordingUrl: url,
+    lastCallId: callId ?? customer.lastCallId,
+    updatedAt: new Date().toISOString(),
+  };
+  syncData(store);
+}
+
 export function resolveCandidateByPhone(phone: string): {
   candidateId: string | null;
   candidateName: string;
