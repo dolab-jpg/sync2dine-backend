@@ -10,6 +10,7 @@ import {
 import { ensureDefaultSallySources } from './ingest';
 import { enqueueSallyKnowledgeIngest } from './worker';
 import { warmSallyKnowledgeCache } from './inject';
+import { debugLog } from '../debug-session-log';
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -39,6 +40,14 @@ export async function handleSallyKnowledgeRoutes(
 ): Promise<boolean> {
   if (!pathname.startsWith('/api/sally-knowledge')) return false;
 
+  // #region agent log
+  debugLog('C', 'sally-product-kb/routes.ts', 'route hit', {
+    method: req.method || '',
+    pathname,
+    configured: isSallyKbConfigured(),
+  }, 'live-debug');
+  // #endregion
+
   if (!isSallyKbConfigured()) {
     sendJson(res, 503, { ok: false, error: 'supabase_not_configured' });
     return true;
@@ -50,14 +59,24 @@ export async function handleSallyKnowledgeRoutes(
       listSallyChunks(),
       listIngestJobs(10),
     ]);
-    sendJson(res, 200, {
+    const body = {
       ok: true,
       sources: sources.length,
       chunks: chunks.length,
       pending: chunks.filter((c) => c.status === 'pending').length,
       approved: chunks.filter((c) => c.status === 'approved').length,
       lastJob: jobs[0] || null,
-    });
+    };
+    // #region agent log
+    debugLog('C', 'sally-product-kb/routes.ts:status', 'status ok', {
+      sources: body.sources,
+      chunks: body.chunks,
+      pending: body.pending,
+      approved: body.approved,
+      lastJobStatus: body.lastJob ? String((body.lastJob as { status?: string }).status || '') : null,
+    }, 'live-debug');
+    // #endregion
+    sendJson(res, 200, body);
     return true;
   }
 
@@ -102,12 +121,23 @@ export async function handleSallyKnowledgeRoutes(
       return true;
     }
     await warmSallyKnowledgeCache();
+    // #region agent log
+    debugLog('D', 'sally-product-kb/routes.ts:decide', 'decide+warm', {
+      id,
+      decision,
+      status: String(row.status || ''),
+      active: Boolean(row.active),
+    }, 'live-debug');
+    // #endregion
     sendJson(res, 200, { ok: true, chunk: row });
     return true;
   }
 
   if (pathname === '/api/sally-knowledge/ingest' && req.method === 'POST') {
     const { jobId } = await enqueueSallyKnowledgeIngest({ runNow: true });
+    // #region agent log
+    debugLog('E', 'sally-product-kb/routes.ts:ingest', 'ingest enqueued', { jobId }, 'live-debug');
+    // #endregion
     sendJson(res, 200, { ok: true, jobId });
     return true;
   }

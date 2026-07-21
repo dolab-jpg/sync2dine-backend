@@ -83,15 +83,35 @@ const CACHE_MS = 60_000;
 
 export function getSallyKnowledgePromptBlockCached(): string {
   const now = Date.now();
-  if (cache && now - cache.at < CACHE_MS) return cache.body;
+  if (cache && now - cache.at < CACHE_MS) {
+    // #region agent log
+    debugLog('A', 'sally-product-kb/inject.ts:cached', 'cache hit', {
+      bodyLen: cache.body.length,
+      ageMs: now - cache.at,
+    }, 'live-debug');
+    // #endregion
+    return cache.body;
+  }
   // Kick async refresh; return previous or empty
   void buildSallyKnowledgePromptBlock().then((body) => {
     cache = { at: Date.now(), body };
   });
-  return cache?.body || '';
+  const out = cache?.body || '';
+  // #region agent log
+  debugLog('A', 'sally-product-kb/inject.ts:cached', 'cache miss/stale', {
+    bodyLen: out.length,
+    hadCache: Boolean(cache),
+  }, 'live-debug');
+  // #endregion
+  return out;
 }
 
 export async function warmSallyKnowledgeCache(): Promise<void> {
   const body = await buildSallyKnowledgePromptBlock();
   cache = { at: Date.now(), body };
+  // #region agent log
+  debugLog('A', 'sally-product-kb/inject.ts:warm', 'cache warmed', {
+    bodyLen: body.length,
+  }, 'live-debug');
+  // #endregion
 }

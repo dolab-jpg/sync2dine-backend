@@ -2,6 +2,7 @@ import { isSallySalesCall } from '../sally-sales-phone';
 import type { BrainBuildInput, BrainId, BrainPackage, BrainSession } from './types';
 import { sallyBrain } from './sally/index';
 import { judieBrain } from './judie/index';
+import { debugLog } from '../debug-session-log';
 
 const PACKAGES: Record<BrainId, BrainPackage> = {
   sally: sallyBrain,
@@ -37,7 +38,21 @@ export async function buildBrainSession(input: BrainBuildInput): Promise<BrainSe
     campaignTemplate: input.campaignTemplate,
     agentPersona: input.agentPersona,
   });
-  return PACKAGES[id].buildSession(input);
+  const session = await PACKAGES[id].buildSession(input);
+  // #region agent log
+  debugLog('B', 'brains/index.ts:buildBrainSession', 'session built', {
+    resolvedId: id,
+    silencePersona: session.silencePersona,
+    toolCount: session.chatTools.length,
+    allowTransfer: session.allowTransfer,
+    instructionsLen: session.instructions.length,
+    hasProductKb: /SALLY PRODUCT KNOWLEDGE/i.test(session.instructions),
+    direction: input.direction,
+    identityKind: input.identity.kind,
+    agentPersona: String(input.agentPersona || ''),
+  }, 'live-debug');
+  // #endregion
+  return session;
 }
 
 export type { BrainId, BrainSession, BrainBuildInput, BrainPackage, SilencePersona } from './types';
