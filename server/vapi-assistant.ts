@@ -1,12 +1,8 @@
 /**
  * Shared builders for Vapi assistant payloads (outbound + assistant-request).
+ * Session brains load from server/brains/{sally|judie}.
  */
 import { DEFAULT_ORG_ID, getCallById, hydrateCallerFromCloud } from './data-store';
-import {
-  buildPhoneBrainPrompt,
-  getPhoneSessionChatTools,
-  VERIFY_PIN_TOOL,
-} from './phone-brain';
 import {
   isPhoneAuthVerified,
   resolvePhoneCallerIdentity,
@@ -17,17 +13,13 @@ import { getVapiVoiceConfigForLang } from './phone-voices';
 import { getVapiServerSecret, getVapiWebhookBaseUrl } from './vapi-client';
 export { resolveTransferNumber, transferDestinationsFromEnv } from './transfer-numbers';
 import { transferDestinationsFromEnv } from './transfer-numbers';
-import {
-  buildSallyBrainPrompt,
-  getSallyPhoneSessionChatTools,
-  isSallySalesCall,
-  SALLY_PERSONA,
-} from './sally-sales-phone';
+import { SALLY_PERSONA } from './sally-sales-phone';
+import { buildBrainSession, type SilencePersona } from './brains/index';
 import { getHomeOrgId } from './home-org';
 import { buildVapiModelBlock } from './vapi-llm-model';
 import { debugLog } from './debug-session-log';
 
-type SilencePersona = 'sally' | 'judie' | 'staff';
+export type { SilencePersona };
 
 /** Shared dead-air ladder for every Vapi phone agent (check → re-ask → hang up). */
 export function buildSilenceHooks(persona: SilencePersona): Array<Record<string, unknown>> {
@@ -119,11 +111,6 @@ export async function buildVapiAssistantForParty(opts: {
       ? String(callMeta.aim)
       : undefined;
 
-  const sally = isSallySalesCall(callMeta, {
-    campaignTemplate: opts.campaignTemplate,
-    agentPersona: opts.agentPersona || String(callMeta.agentPersona || ''),
-  });
-
   const webhookBase = getVapiWebhookBaseUrl();
   const toolServer = `${webhookBase}/webhooks/vapi`;
   const webhookSecret = getVapiServerSecret() || undefined;
@@ -132,127 +119,35 @@ export async function buildVapiAssistantForParty(opts: {
     : { url: toolServer };
   const firstName = (opts.contactName || identity.name || String(callMeta.company || '')).split(/\s+/)[0];
 
-  let instructions: string;
-  let language: string;
-  let firstMessage: string;
-  let assistantName: string;
-  let functionTools: Array<Record<string, unknown>>;
+  const session = await buildBrainSession({
+    partyPhone: opts.partyPhone,
+    direction: opts.direction,
+    identity,
+    verified,
+    callId: opts.callId,
+    campaignTemplate: opts.campaignTemplate,
+    outboundBrief,
+    contactName: opts.contactName || identity.name,
+    companyHint: callMeta.company != null ? String(callMeta.company) : undefined,
+    languageOverride,
+    callMeta,
+    agentPersona: opts.agentPersona || String(callMeta.agentPersona || ''),
+  });
+  const sally = session.id === 'sally';
+  let { instructions, language, firstMessage, assistantName } = session;
+  const silencePersona: SilencePersona = session.silencePersona;
 
-  if (sally) {
-    const staffMode =
-      identity.kind === 'staff'
-      || identity.kind === 'foreman'
-      || /platform_owner|super_admin/i.test(identity.role);
-    // #region agent log
-    debugLog('D', 'vapi-assistant.ts:sally', 'Sally branch', {
-      staffMode,
-      identityKind: identity.kind,
-      identityRole: identity.role,
-      verified,
-      direction: opts.direction,
-    }, 'plan-gap-fix');
-    // #endregion
-    void import('./sally-product-kb/inject').then((m) => m.warmSallyKnowledgeCache()).catch(() => {});
-    const sallyPrompt = buildSallyBrainPrompt({
-      partyPhone: opts.partyPhone,
-      direction: opts.direction,
-      outboundBrief,
-      contactName: opts.contactName || identity.name,
-      companyHint: callMeta.company != null ? String(callMeta.company) : undefined,
-      staffMode,
-      staffName: identity.name,
-      staffRole: identity.role,
-      phoneAuthVerified: verified,
-    });
-    instructions = sallyPrompt.instructions;
-    language = sallyPrompt.language;
-    assistantName = staffMode ? `Sally Sync2Dine (${identity.role})` : 'Sally Sync2Dine';
-    if (staffMode) {
-      firstMessage = verified
-        ? `Alright ${firstName || 'love'}, Sally here — you're unlocked, what do you need?`
-        : `Alright ${firstName || 'love'}, Sally here — say your four-digit security code when you can and I'll unlock the staff tools.`;
-    } else if (opts.direction === 'outbound') {
-      firstMessage = firstName && !/^guest$/i.test(firstName)
-        ? `Alright ${firstName}, it's Sally from Sync2Dine — you got a minute?`
-        : `Alright love, it's Sally from Sync2Dine — who am I speaking with?`;
-    } else {
-      firstMessage = firstName && !/^guest$/i.test(firstName)
-        ? `Alright ${firstName}, Sally from Sync2Dine — what can I do you for?`
-        : `Alright, Sally from Sync2Dine — who am I speaking with?`;
-    }
-    const sallyTools = getSallyPhoneSessionChatTools();
-    const staffTools = staffMode ? getPhoneSessionChatTools(identity, verified) : [];
-    const byName = new Map<string, (typeof sallyTools)[number]>();
-    for (const t of [...sallyTools, ...staffTools]) byName.set(t.function.name, t);
-    functionTools = Array.from(byName.values())
-      .filter((tool) => tool.function.name !== 'endCall')
-      .map((tool) => ({
-        type: 'function',
-        function: tool.function,
-        async: false,
-        server: toolServerCfg,
-      }));
-    if (staffMode && !functionTools.some((t) => t.function.name === 'verifyStaffPhonePin')) {
-      functionTools.unshift({
-        type: 'function',
-        function: VERIFY_PIN_TOOL.function,
-        async: false,
-        server: toolServerCfg,
-      });
-    }
-  } else {
-    const built = buildPhoneBrainPrompt({
-      orgId: DEFAULT_ORG_ID,
-      partyPhone: opts.partyPhone,
-      direction: opts.direction,
-      campaignTemplate: opts.campaignTemplate,
-      outboundBrief,
-      contactName: opts.contactName || identity.name,
-      identity,
-      callId: opts.callId,
-      phoneAuthVerified: verified,
-      languageOverride,
-    });
-    instructions = built.instructions;
-    language = built.language;
-
-    if (identity.kind === 'staff' || identity.kind === 'foreman') {
-      firstMessage = verified
-        ? `Hi ${firstName || 'there'}, Judie here — you're unlocked, what do you need?`
-        : `Hi ${firstName || 'there'}, Judie here — when you can, say your four-digit security code and I'll unlock your tools.`;
-      assistantName = `Judie (${identity.role})`;
-    } else if (opts.direction === 'outbound') {
-      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Judie from Sync2Dine — how are you getting on?`;
-      assistantName = 'Judie Sync2Dine';
-    } else {
-      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Judie from Sync2Dine here — how can I help?`;
-      assistantName = 'Judie Sync2Dine';
-    }
-
-    functionTools = getPhoneSessionChatTools(identity, verified)
-      .filter((tool) => tool.function.name !== 'endCall')
-      .map((tool) => ({
-        type: 'function',
-        function: tool.function,
-        async: false,
-        server: toolServerCfg,
-      }));
-
-    if (identity.kind !== 'customer' && !functionTools.some((t) => t.function.name === 'verifyStaffPhonePin')) {
-      functionTools.unshift({
-        type: 'function',
-        function: VERIFY_PIN_TOOL.function,
-        async: false,
-        server: toolServerCfg,
-      });
-    }
-  }
+  const functionTools = session.chatTools.map((tool) => ({
+    type: 'function' as const,
+    function: tool.function,
+    async: false,
+    server: toolServerCfg,
+  }));
 
   const nativeTools: Array<Record<string, unknown>> = [
     { type: 'endCall' },
   ];
-  // Sally sales: callback only — no warm transfer destinations.
-  if (!sally) {
+  if (session.allowTransfer) {
     const xfer = transferDestinationsFromEnv();
     if (xfer.length) {
       nativeTools.push({
@@ -272,12 +167,6 @@ export async function buildVapiAssistantForParty(opts: {
     instructions,
     tools: [...nativeTools, ...functionTools],
   });
-
-  const silencePersona: SilencePersona = sally
-    ? 'sally'
-    : identity.kind === 'staff' || identity.kind === 'foreman'
-      ? 'staff'
-      : 'judie';
 
   const isMeetingConfirm = String(callMeta.aim || '').toLowerCase() === 'meeting_confirm';
   if (sally && isMeetingConfirm && opts.direction === 'outbound') {

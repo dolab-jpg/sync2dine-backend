@@ -43,6 +43,9 @@ import { startOutboundWorker } from './outbound-worker';
 import { ensureBdiddiesHomeOrg } from './organizations';
 import { handleSalesBrainRoutes } from './sales-brain/routes';
 import { startSalesBrainWorker } from './sales-brain/worker';
+import { handleSallyKnowledgeRoutes } from './sally-product-kb/routes';
+import { startSallyKnowledgeWorker } from './sally-product-kb/worker';
+import { warmSallyKnowledgeCache } from './sally-product-kb/inject';
 
 const PORT = Number(process.env.PORT) || 3001;
 const ALLOWED_ORIGIN = process.env.APP_BASE_URL?.trim() || '*';
@@ -82,6 +85,8 @@ const server = createServer(async (req, res) => {
     if (await handleAIStudioRoutes(req, res, pathname)) return;
 
     if (await handleSalesBrainRoutes(req, res, pathname)) return;
+
+    if (await handleSallyKnowledgeRoutes(req, res, pathname)) return;
 
     if (await handleConversationAudit(req, res, pathname)) return;
 
@@ -173,6 +178,8 @@ server.listen(PORT, async () => {
   startMailboxPoller();
   startOutboundWorker();
   startSalesBrainWorker();
+  startSallyKnowledgeWorker();
+  void warmSallyKnowledgeCache().catch(() => {});
   void import('./scheduled-message-worker').then(({ startScheduledMessageWorker }) => {
     startScheduledMessageWorker();
   });
