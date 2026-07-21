@@ -40,7 +40,8 @@ function resolveUserIdFromRequest(req: IncomingMessage): string | null {
 }
 
 function parsePurpose(value: unknown, fallback: PhoneLinePurpose = 'staff'): PhoneLinePurpose {
-  return value === 'aria' ? 'aria' : value === 'staff' ? 'staff' : fallback;
+  if (value === 'aria' || value === 'staff' || value === 'sally') return value;
+  return fallback;
 }
 
 function parseConnectionType(

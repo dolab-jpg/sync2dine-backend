@@ -17,9 +17,12 @@ import { getOrgElevenLabsStatus } from './org-elevenlabs';
 import { isAuthEnforced, requireAuth } from './auth';
 import {
   deletePlatformPhoneLine,
+  getJudiePhoneLineForOrg,
   getPlatformPhoneLine,
+  getSallyPlatformPhoneLine,
   listAllPlatformPhoneLines,
   savePlatformPhoneLine,
+  saveSallyPlatformPhoneLine,
   type PhoneLineConnectionType,
 } from './phone-lines';
 import {
@@ -371,7 +374,8 @@ export async function handlePlatformRoutes(
         sendJson(res, 400, { error: 'orgId, label, sipUsername, sipPassword, and did are required' });
         return true;
       }
-      const purpose: PhoneLinePurpose = body.purpose === 'staff' ? 'staff' : 'aria';
+      const purpose: PhoneLinePurpose =
+        body.purpose === 'staff' || body.purpose === 'sally' ? body.purpose : 'aria';
       const line = savePlatformPhoneLine({
         orgId,
         label,
@@ -387,6 +391,95 @@ export async function handlePlatformRoutes(
       sendJson(res, 201, { line });
     } catch (err) {
       sendJson(res, 400, { error: err instanceof Error ? err.message : 'Failed to create phone line' });
+    }
+    return true;
+  }
+
+  // Platform-owner Sally sales line (home org only — not a restaurant Judie line)
+  if (pathname === '/api/platform/sally-phone-line' && req.method === 'GET') {
+    sendJson(res, 200, { line: getSallyPlatformPhoneLine() ?? null });
+    return true;
+  }
+
+  if (pathname === '/api/platform/sally-phone-line' && (req.method === 'PUT' || req.method === 'POST')) {
+    try {
+      const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+      const sipUsername = String(body.sipUsername ?? '').trim();
+      const did = String(body.did ?? '').trim();
+      const sipPassword = String(body.sipPassword ?? '').trim();
+      const existing = getSallyPlatformPhoneLine();
+      if (!sipUsername || !did) {
+        sendJson(res, 400, { error: 'sipUsername and did are required' });
+        return true;
+      }
+      if (!existing && !sipPassword) {
+        sendJson(res, 400, { error: 'sipPassword is required for a new Sally line' });
+        return true;
+      }
+      const line = saveSallyPlatformPhoneLine({
+        label: typeof body.label === 'string' ? body.label : undefined,
+        sipUsername,
+        sipPassword: sipPassword || undefined,
+        sipDomain: typeof body.sipDomain === 'string' ? body.sipDomain : undefined,
+        did,
+        enabled: body.enabled !== false,
+        connectionType: body.connectionType as PhoneLineConnectionType | undefined,
+      });
+      sendJson(res, existing ? 200 : 201, { line });
+    } catch (err) {
+      sendJson(res, 400, { error: err instanceof Error ? err.message : 'Failed to save Sally phone line' });
+    }
+    return true;
+  }
+
+  // Convenience: Judie line for one restaurant client
+  const orgJudieMatch = pathname.match(/^\/api\/platform\/organizations\/([^/]+)\/judie-phone-line$/);
+  if (orgJudieMatch && req.method === 'GET') {
+    const orgId = decodeURIComponent(orgJudieMatch[1]);
+    if (!getOrganizationById(orgId)) {
+      sendJson(res, 404, { error: 'Organization not found' });
+      return true;
+    }
+    sendJson(res, 200, { line: getJudiePhoneLineForOrg(orgId) ?? null });
+    return true;
+  }
+
+  if (orgJudieMatch && (req.method === 'PUT' || req.method === 'POST')) {
+    const orgId = decodeURIComponent(orgJudieMatch[1]);
+    if (!getOrganizationById(orgId)) {
+      sendJson(res, 404, { error: 'Organization not found' });
+      return true;
+    }
+    try {
+      const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+      const existing = getJudiePhoneLineForOrg(orgId);
+      const label = String(body.label ?? existing?.label ?? `${getOrganizationById(orgId)?.name || 'Restaurant'} Judie`).trim();
+      const sipUsername = String(body.sipUsername ?? existing?.sipUsername ?? '').trim();
+      const sipPassword = String(body.sipPassword ?? '').trim();
+      const did = String(body.did ?? existing?.did ?? '').trim();
+      if (!sipUsername || !did) {
+        sendJson(res, 400, { error: 'sipUsername and did are required' });
+        return true;
+      }
+      if (!existing && !sipPassword) {
+        sendJson(res, 400, { error: 'sipPassword is required for a new Judie line' });
+        return true;
+      }
+      const line = savePlatformPhoneLine({
+        orgId,
+        id: existing?.id,
+        label,
+        sipUsername,
+        sipPassword: sipPassword || undefined,
+        sipDomain: typeof body.sipDomain === 'string' ? body.sipDomain : existing?.sipDomain,
+        did,
+        enabled: body.enabled !== false,
+        purpose: 'aria',
+        connectionType: (body.connectionType as PhoneLineConnectionType | undefined) ?? existing?.connectionType ?? 'soho66',
+      });
+      sendJson(res, existing ? 200 : 201, { line });
+    } catch (err) {
+      sendJson(res, 400, { error: err instanceof Error ? err.message : 'Failed to save Judie phone line' });
     }
     return true;
   }
@@ -445,7 +538,7 @@ export async function handlePlatformRoutes(
           sipDomain: typeof body.sipDomain === 'string' ? body.sipDomain : existing.sipDomain,
           did: typeof body.did === 'string' ? body.did : existing.did,
           enabled: typeof body.enabled === 'boolean' ? body.enabled : existing.enabled,
-          purpose: body.purpose === 'staff' || body.purpose === 'aria'
+          purpose: body.purpose === 'staff' || body.purpose === 'aria' || body.purpose === 'sally'
             ? body.purpose
             : (existing.purpose ?? 'aria'),
           connectionType: (body.connectionType as PhoneLineConnectionType | undefined)

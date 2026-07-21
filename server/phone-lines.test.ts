@@ -5,11 +5,15 @@ import {
   decryptPhoneLineSipPassword,
   encryptPhoneLineSipPassword,
   findDidConflict,
+  getSallyPlatformPhoneLine,
   resolveOrgIdForInboundDid,
   savePlatformPhoneLine,
+  saveSallyPlatformPhoneLine,
   listAllPlatformPhoneLines,
   deletePlatformPhoneLine,
 } from './phone-lines';
+import { getHomeOrgId } from './home-org';
+import { getOrganizationById } from './organizations';
 import { createOrganization, deleteOrganization, listOrganizations } from './organizations';
 import { withOrgContext, listPhoneLines, maskPhoneLine } from './data-store';
 
@@ -141,6 +145,23 @@ describe('phone-lines platform provisioning', () => {
   it('crypto helpers round-trip via encryptSecret', () => {
     const enc = encryptSecret('x');
     assert.equal(decryptSecret(enc), 'x');
+  });
+
+  it('keeps Sally platform line separate from restaurant Judie phoneDid', () => {
+    const homeId = getHomeOrgId();
+    const beforeDid = getOrganizationById(homeId)?.phoneDid || '';
+    const sally = saveSallyPlatformPhoneLine({
+      sipUsername: 'sally_user',
+      sipPassword: 'sally_secret_pass',
+      did: '02080505029',
+      connectionType: 'soho66',
+    });
+    createdLines.push({ orgId: homeId, lineId: sally.id });
+    assert.equal(sally.purpose, 'sally');
+    assert.equal(sally.orgId, homeId);
+    assert.ok(getSallyPlatformPhoneLine()?.id === sally.id);
+    // Sally must not overwrite Judie org.phoneDid routing for restaurants
+    assert.equal(getOrganizationById(homeId)?.phoneDid || '', beforeDid);
   });
 
   it('clears org.phoneDid when the last Judie line is deleted', () => {

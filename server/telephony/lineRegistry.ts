@@ -91,8 +91,12 @@ export async function registerAllEnabledLines(bridgeUrl?: string): Promise<{
   failed: number;
   results: Array<{ lineId: string; label: string; ok: boolean; message: string }>;
 }> {
-  // Only Cynthia AI lines (purpose: aria compat) register with the bridge — staff softphones use browser JsSIP.
-  const lines = listPhoneLines().filter(l => l.enabled && (l.purpose ?? 'staff') === 'aria');
+  // AI trunk lines (Judie + Sally) register with the bridge — staff softphones use browser JsSIP.
+  const lines = listPhoneLines().filter((l) => {
+    if (!l.enabled) return false;
+    const purpose = l.purpose ?? 'staff';
+    return purpose === 'aria' || purpose === 'sally';
+  });
   const results: Array<{ lineId: string; label: string; ok: boolean; message: string }> = [];
   let registered = 0;
   let failed = 0;

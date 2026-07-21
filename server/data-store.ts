@@ -124,7 +124,7 @@ export interface PendingConfirmationRecord {
 
 export type PhoneLineStatus = 'disconnected' | 'registering' | 'registered' | 'error';
 
-export type PhoneLinePurpose = 'staff' | 'aria';
+export type PhoneLinePurpose = 'staff' | 'aria' | 'sally';
 
 /** How this DID is connected (credentials still stored as SIP fields for soho66/sip). */
 export type PhoneLineConnectionType = 'soho66' | 'sip' | 'twilio' | 'other';
@@ -144,7 +144,7 @@ export interface PhoneLine {
   updatedAt: string;
   /** Profile / platform user id that owns this softphone extension */
   assignedUserId?: string;
-  /** staff = human softphone; aria = Judie AI bridge registration */
+  /** staff = human softphone; aria = Judie diner AI; sally = platform sales AI */
   purpose?: PhoneLinePurpose;
   /** Carrier / trunk flavour for platform provisioning UI */
   connectionType?: PhoneLineConnectionType;
@@ -1537,7 +1537,7 @@ export function savePhoneLine(
       ? undefined
       : (typeof input.assignedUserId === 'string' ? input.assignedUserId.trim() : undefined) || prev?.assignedUserId;
   const purpose: PhoneLinePurpose =
-    input.purpose === 'aria' || input.purpose === 'staff'
+    input.purpose === 'aria' || input.purpose === 'staff' || input.purpose === 'sally'
       ? input.purpose
       : (prev?.purpose ?? 'staff');
   const connectionType: PhoneLineConnectionType | undefined =

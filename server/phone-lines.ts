@@ -22,6 +22,8 @@ import {
   listOrganizations,
   updateOrganization,
 } from './organizations';
+import { getHomeOrgId } from './home-org';
+import { updateSallyOfferStored } from './sally-offer-store';
 
 export type PhoneLineConnectionType = 'soho66' | 'sip' | 'twilio' | 'other';
 
@@ -227,4 +229,55 @@ export function getPlatformPhoneLine(orgId: string, lineId: string): PlatformPho
     orgName: org?.name,
     connectionType: parseConnectionType(line.connectionType),
   };
+}
+
+/** Primary Judie (aria) line for a restaurant org, if any. */
+export function getJudiePhoneLineForOrg(orgId: string): PlatformPhoneLine | undefined {
+  const lines = withOrgContext(orgId, () =>
+    listPhoneLines().filter((l) => (l.purpose ?? 'staff') === 'aria'),
+  );
+  const primary = lines.find((l) => l.enabled) || lines[0];
+  if (!primary) return undefined;
+  return getPlatformPhoneLine(orgId, primary.id);
+}
+
+/** Platform-owner Sally sales line — always on the home Sync2Dine org. */
+export function getSallyPlatformPhoneLine(): PlatformPhoneLine | undefined {
+  const orgId = getHomeOrgId();
+  const lines = withOrgContext(orgId, () =>
+    listPhoneLines().filter((l) => l.purpose === 'sally'),
+  );
+  const primary = lines.find((l) => l.enabled) || lines[0];
+  if (!primary) return undefined;
+  return getPlatformPhoneLine(orgId, primary.id);
+}
+
+export function saveSallyPlatformPhoneLine(input: {
+  label?: string;
+  sipUsername: string;
+  sipPassword?: string;
+  sipDomain?: string;
+  did: string;
+  enabled?: boolean;
+  connectionType?: PhoneLineConnectionType;
+}): PlatformPhoneLine {
+  const orgId = getHomeOrgId();
+  const existing = getSallyPlatformPhoneLine();
+  const line = savePlatformPhoneLine({
+    orgId,
+    id: existing?.id,
+    label: input.label?.trim() || existing?.label || 'Sally sales',
+    sipUsername: input.sipUsername,
+    sipPassword: input.sipPassword,
+    sipDomain: input.sipDomain,
+    did: input.did,
+    enabled: input.enabled,
+    purpose: 'sally',
+    connectionType: input.connectionType ?? 'soho66',
+  });
+  // Keep Sally offer demo phone aligned with the live sales DID.
+  if (line.did?.trim()) {
+    updateSallyOfferStored({ demoPhone: line.did.trim() }, 'sally-phone-line');
+  }
+  return line;
 }
