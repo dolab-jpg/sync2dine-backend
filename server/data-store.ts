@@ -569,7 +569,7 @@ export function resolveContactByPhone(phone: string): {
   );
   let customerId = contact ? String(contact.customerId) : null;
   // Restaurant / takeaway customers often exist only on `customers` (no contacts row).
-  // Fall back so phone Lizzie can load specials, history, and greet by name.
+  // Fall back so phone Judie can load specials, history, and greet by name.
   let customerFromPhone: Record<string, unknown> | undefined;
   if (!customerId && normalized) {
     customerFromPhone = store.customers.find(
@@ -659,7 +659,7 @@ export function ensureGuestCustomerForCall(
 }
 
 /**
- * Ensure phone Lizzie sees Customers-tab rows (specials live in Supabase when UI saves there).
+ * Ensure phone Judie sees Customers-tab rows (specials live in Supabase when UI saves there).
  * Call before building the inbound prompt.
  */
 export async function hydrateCallerFromCloud(phone: string): Promise<ReturnType<typeof resolveContactByPhone>> {

@@ -81,7 +81,7 @@ function normalizePhoneDigits(phone: string): string {
 }
 
 /**
- * Find a CRM customer by phone for inbound Lizzie (UI often writes specials only to Supabase).
+ * Find a CRM customer by phone for inbound Judie (UI often writes specials only to Supabase).
  */
 export async function findCustomerByPhoneFromSupabase(
   phone: string,

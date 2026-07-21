@@ -27,7 +27,7 @@ import { getHomeOrgId } from './home-org';
 import { buildVapiModelBlock } from './vapi-llm-model';
 import { debugLog } from './debug-session-log';
 
-type SilencePersona = 'sally' | 'lizzie' | 'staff';
+type SilencePersona = 'sally' | 'judie' | 'staff';
 
 /** Shared dead-air ladder for every Vapi phone agent (check → re-ask → hang up). */
 export function buildSilenceHooks(persona: SilencePersona): Array<Record<string, unknown>> {
@@ -186,13 +186,13 @@ export async function buildVapiAssistantForParty(opts: {
       firstMessage = verified
         ? `Hi ${firstName || 'there'}, Cynthia here — you're unlocked, what do you need?`
         : `Hi ${firstName || 'there'}, Cynthia here — when you can, say your four-digit security code and I'll unlock your tools.`;
-      assistantName = `Lizzie (${identity.role})`;
+      assistantName = `Judie (${identity.role})`;
     } else if (opts.direction === 'outbound') {
-      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Lizzie from Sync2Dine — how are you getting on?`;
-      assistantName = 'Lizzie Sync2Dine';
+      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Judie from Sync2Dine — how are you getting on?`;
+      assistantName = 'Judie Sync2Dine';
     } else {
-      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Lizzie from Sync2Dine here — how can I help?`;
-      assistantName = 'Lizzie Sync2Dine';
+      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Judie from Sync2Dine here — how can I help?`;
+      assistantName = 'Judie Sync2Dine';
     }
 
     functionTools = getPhoneSessionChatTools(identity, verified)
@@ -243,7 +243,7 @@ export async function buildVapiAssistantForParty(opts: {
     ? 'sally'
     : identity.kind === 'staff' || identity.kind === 'foreman'
       ? 'staff'
-      : 'lizzie';
+      : 'judie';
 
   const isMeetingConfirm = String(callMeta.aim || '').toLowerCase() === 'meeting_confirm';
   if (sally && isMeetingConfirm && opts.direction === 'outbound') {

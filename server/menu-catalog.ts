@@ -2,7 +2,7 @@
  * Sync2Dine food menu ↔ Supabase public.products (service role).
  * The FE Menu tab and demo seed write rows as { org_id, id, data jsonb }.
  * The phone/kiosk agent reads the same rows through getMenu so editing
- * /menu changes what Lizzie offers on the next call.
+ * /menu changes what Judie offers on the next call.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';

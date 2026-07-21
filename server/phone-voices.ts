@@ -1,11 +1,11 @@
 /**
- * Per-language ElevenLabs voices for Lizzie phone (Vapi).
- * English / UK always uses Lizzie from env — never remapped by this module.
+ * Per-language ElevenLabs voices for Judie phone (Vapi).
+ * English / UK always uses Judie from env — never remapped by this module.
  */
 import { type SupportedLang, normalizeLang } from './language-packs';
 import { getVapiVoiceConfig } from './vapi-client';
 
-/** Lizzie — Cockney Character (dev fallback only when env unset). */
+/** Judie — Cockney Character (dev fallback only when env unset). */
 export const LIZZIE_VOICE_ID = 'EQx6HGDYjkDpcli6vorJ';
 
 /**
@@ -65,7 +65,7 @@ function parseVoiceMapEnv(): Partial<Record<SupportedLang, string>> {
   }
 }
 
-/** Resolve ElevenLabs voice id for a spoken call language. English always = Lizzie env. */
+/** Resolve ElevenLabs voice id for a spoken call language. English always = Judie env. */
 export function voiceIdForLang(lang: SupportedLang | string | null | undefined): string {
   const normalized = normalizeLang(lang);
   const englishId = process.env.VAPI_ELEVENLABS_VOICE_ID?.trim()

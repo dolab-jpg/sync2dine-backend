@@ -1,6 +1,6 @@
 /**
  * Spoken identity names for mid-call language switches (same session).
- * English stays Lizzie / Cynthia — other langs use local persona names.
+ * English stays Judie / Cynthia — other langs use local persona names.
  */
 import { normalizeLang, type SupportedLang } from './language-packs';
 

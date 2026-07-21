@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKS_PATH = join(__dirname, 'data', 'language-packs.json');
 
-/** Phone + CRM spoken languages (Lizzie-first; preferredLanguage unlocks non-en dial). */
+/** Phone + CRM spoken languages (Judie-first; preferredLanguage unlocks non-en dial). */
 export const SUPPORTED_LANGS = [
   'en',
   'es',

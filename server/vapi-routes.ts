@@ -572,7 +572,7 @@ function finalizeVapiCall(
     void import('./sales-brain/enqueue').then(({ enqueueSalesBrainJob }) => {
       enqueueSalesBrainJob({
         callId,
-        agentPersona: isSally ? 'sally' : String(afterMeta.agentPersona || 'lizzie'),
+        agentPersona: isSally ? 'sally' : String(afterMeta.agentPersona || 'judie'),
         aim: aim || null,
       });
     }).catch(() => {});

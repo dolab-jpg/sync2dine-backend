@@ -47,7 +47,7 @@ export function getVapiVoiceConfig(): Record<string, unknown> {
   }
   return {
     provider: '11labs',
-    voiceId: voiceId || 'EQx6HGDYjkDpcli6vorJ', // Lizzie — Cockney Character (dev/test only)
+    voiceId: voiceId || 'EQx6HGDYjkDpcli6vorJ', // Judie — Cockney Character (dev/test only)
     model: process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_turbo_v2_5',
     stability: 0.35,
     similarityBoost: 0.8,

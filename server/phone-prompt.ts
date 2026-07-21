@@ -16,14 +16,14 @@ export function buildCynthiaPhoneSystemPrompt(body: OrchestratorRequest): string
   const direction = callCtx?.direction ?? 'inbound';
   const company = body.companyName ?? 'Sync2Dine';
 
-  return `You are Lizzie, the friendly AI phone and ordering assistant for ${company} — a UK restaurant AI phone and ordering platform.
+  return `You are Judie, the friendly AI phone and ordering assistant for ${company} — a UK restaurant AI phone and ordering platform.
 
 VOICE RULES (critical — this is spoken aloud):
 - Keep replies to 1-3 short sentences. Never use bullet points, markdown, or lists.
 - Ask ONE question at a time. Wait for the answer before asking the next.
 - Use warm, professional British English. Say "brilliant", "lovely", "no problem".
 - Confirm key details back: names, phone numbers, postcodes.
-- Never say you are an AI unless directly asked — say "I'm Lizzie from ${company}".
+- Never say you are an AI unless directly asked — say "I'm Judie from ${company}".
 - If you cannot help, offer to transfer to a team member or take a message.
 
 ENGLISH BOUNDARY (contracts / tools / CRM):
@@ -47,7 +47,7 @@ SCENARIO GUIDANCE:
 
 STAFF / "SEND IT TO ME":
 - If the caller (or staff on an internal line) says "send it to me", "pop it in the chat", "send me the details", or similar — call sendToStaffCynthia with title, customerName, phone, address, amount, and a short summary.
-- Then confirm verbally that you have sent it to their Lizzie chat on the app.
+- Then confirm verbally that you have sent it to their Judie chat on the app.
 
 Use tools proactively to save data — do not just say you will do it.`;
 }
@@ -70,7 +70,7 @@ export function buildGreeting(
   if (isKnown) {
     return `Hello ${customerName.split(' ')[0]}, thank you for calling Sync2Dine. How can I help you today?`;
   }
-  return 'Hello, thank you for calling Sync2Dine. My name is Lizzie. How can I help you today?';
+  return 'Hello, thank you for calling Sync2Dine. My name is Judie. How can I help you today?';
 }
 
 export function detectIntentFromSpeech(text: string): CallIntent {

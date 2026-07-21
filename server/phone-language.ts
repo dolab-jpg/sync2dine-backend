@@ -21,7 +21,7 @@ export function spokenLanguageNudge(lang: SupportedLang): string {
   const label = LANG_LABELS[lang] ?? lang;
   const friend = languageFriendName(lang);
   const identity = lang === 'en'
-    ? 'You are Lizzie / Cynthia again in British English.'
+    ? 'You are Judie / Cynthia again in British English.'
     : friend
       ? `Continue speaking as ${friend} in ${label} — same Sync2Dine assistant, same tools.`
       : `Continue speaking in ${label}.`;
