@@ -579,12 +579,32 @@ function finalizeVapiCall(
 
 async function buildTransientAssistant(message: Record<string, unknown>) {
   const call = ensureCallFromVapi(message);
-  const partyPhone = String((call.metadata as Record<string, unknown> | undefined)?.partyPhone
-    || partyPhoneFromCall(message.call as Record<string, unknown>)
+  const vapiCall = (message.call || {}) as Record<string, unknown>;
+  const existingMeta = (call.metadata as Record<string, unknown> | undefined) || {};
+  // Prefer live Vapi call type — never default missing direction to outbound (that skips Sally inbound).
+  const directionRaw = String(vapiCall.type || call.direction || '').toLowerCase();
+  const direction: 'inbound' | 'outbound' = directionRaw.includes('outbound')
+    ? 'outbound'
+    : 'inbound';
+  const lineDid = lineDidForDirection(
+    direction,
+    vapiCall,
+    String(existingMeta.lineDid || process.env.SOHO66_FROM_NUMBER || ''),
+  );
+  const partyPhone = String(existingMeta.partyPhone
+    || partyPhoneFromCall(vapiCall)
     || '');
-  const direction = (call.direction as 'inbound' | 'outbound') || 'outbound';
+  const { isSallyInboundLine, isSallySalesCall, SALLY_PERSONA } = await import('./sally-sales-phone');
+  const forceSally = direction === 'inbound' && (
+    isSallyInboundLine(lineDid)
+    || isSallyInboundLine(String(existingMeta.lineDid || ''))
+    || isSallySalesCall(existingMeta, { lineDid })
+  );
+  const agentPersona = forceSally
+    ? SALLY_PERSONA
+    : (existingMeta.agentPersona != null ? String(existingMeta.agentPersona) : undefined);
   const identity = resolvePhoneCallerIdentity(partyPhone);
-  const { assistant } = await buildVapiAssistantForParty({
+  const { assistant, agentPersona: builtPersona } = await buildVapiAssistantForParty({
     partyPhone,
     direction,
     campaignTemplate: call.campaignTemplate ? String(call.campaignTemplate) : undefined,
@@ -592,16 +612,20 @@ async function buildTransientAssistant(message: Record<string, unknown>) {
     contactName: identity.kind !== 'customer'
       ? identity.name
       : String(call.contactName || ''),
+    agentPersona,
   });
+  const persona = builtPersona || agentPersona;
   saveCall({
     id: String(call.id),
     metadata: {
-      ...((call.metadata as Record<string, unknown> | undefined) || {}),
+      ...existingMeta,
       callerKind: identity.kind,
       callerRole: identity.role,
       phoneAuth: isPhoneAuthVerified(String(call.id))
         ? 'verified'
         : (identity.needsPin ? 'pending' : 'n/a'),
+      ...(lineDid ? { lineDid } : {}),
+      ...(persona ? { agentPersona: persona } : {}),
     },
     contactName: identity.kind !== 'customer' ? identity.name : (call.contactName as string | undefined),
   });
@@ -783,8 +807,15 @@ async function executeTool(
     };
   }
 
+  const callMetaEarly = (call?.metadata as Record<string, unknown> | undefined) || {};
+  const { isSallySalesCall, executeSallySalesPhoneTool, isSallyTransferAllowed } = await import('./sally-sales-phone');
+  const sallyCall = isSallySalesCall(callMetaEarly, {
+    lineDid: callMetaEarly.lineDid != null ? String(callMetaEarly.lineDid) : undefined,
+  });
+
   if (name === 'transferToHuman') {
-    const takeMessage = Boolean(args.takeMessage);
+    // Sally sales/demo line: humans are not staffed. Dial only if SALLY_ALLOW_TRANSFER=1.
+    const takeMessage = Boolean(args.takeMessage) || (sallyCall && !isSallyTransferAllowed());
     const department = String(args.department || 'general');
     const transferNumber = resolveTransferNumber(department);
     const destination = !takeMessage
@@ -805,6 +836,7 @@ async function executeTool(
         ...((fresh?.metadata as Record<string, unknown> | undefined) || {}),
         transferNumber: transferNumber || undefined,
         transferMode: willTransfer ? 'warm-transfer-experimental' : undefined,
+        ...(sallyCall && !willTransfer ? { sallyTransferBlocked: true } : {}),
       },
     });
     return {
@@ -814,13 +846,18 @@ async function executeTool(
       message: args.message ?? args.reason,
       takeMessage: takeMessage || !destination,
       destination: destination || undefined,
+      ...(sallyCall && !willTransfer
+        ? {
+            spokenHint:
+              'Staff are not available on this sales line. Take a message or book a callback and keep closing yourself — do not say you will transfer.',
+          }
+        : {}),
     };
   }
 
   const orchBody = buildStaffOrchBodyFromCall(call, callId, partyPhone, identity);
 
-  const callMeta = (call?.metadata as Record<string, unknown> | undefined) || {};
-  const { isSallySalesCall, executeSallySalesPhoneTool } = await import('./sally-sales-phone');
+  const callMeta = callMetaEarly;
   if (isSallySalesCall(callMeta) && (name === 'getOfferTerms' || name === 'bookDemo' || name === 'sendSalesFollowUp')) {
     return executeSallySalesPhoneTool(name, args, {
       callId,
@@ -1011,7 +1048,20 @@ async function handleVapiMessage(
     const capacity = getAgentCapacitySnapshot();
     const directionRaw = String(((message.call || {}) as Record<string, unknown>).type || '').toLowerCase();
     const isOutbound = directionRaw.includes('outbound');
-    if (!isOutbound && capacity.overflowArmed && !capacity.canAcceptInboundAi) {
+    const vapiCallPreviewObj = (message.call || {}) as Record<string, unknown>;
+    const inboundLineDid = lineDidForDirection(
+      isOutbound ? 'outbound' : 'inbound',
+      vapiCallPreviewObj,
+      String(
+        ((vapiCallPreviewObj.metadata as Record<string, unknown> | undefined)?.lineDid as string | undefined)
+        || process.env.SOHO66_FROM_NUMBER
+        || '',
+      ),
+    );
+    const { isSallyInboundLine } = await import('./sally-sales-phone');
+    const sallyInboundLine = !isOutbound && isSallyInboundLine(inboundLineDid);
+    // Never dump Sally sales/demo callers onto restaurant overflow humans.
+    if (!isOutbound && !sallyInboundLine && capacity.overflowArmed && !capacity.canAcceptInboundAi) {
       const overflow = capacity.overflowNumber
         || getAgentSettings().overflowNumber
         || getAgentSettings().transferNumbers?.general

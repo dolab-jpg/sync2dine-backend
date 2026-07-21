@@ -21,6 +21,7 @@ import {
   buildSallyBrainPrompt,
   getSallyPhoneSessionChatTools,
   isSallySalesCall,
+  isSallyTransferAllowed,
   SALLY_PERSONA,
 } from './sally-sales-phone';
 import { getHomeOrgId } from './home-org';
@@ -56,6 +57,7 @@ export async function buildVapiAssistantForParty(opts: {
   const sally = isSallySalesCall(callMeta, {
     campaignTemplate: opts.campaignTemplate,
     agentPersona: opts.agentPersona || String(callMeta.agentPersona || ''),
+    lineDid: callMeta.lineDid != null ? String(callMeta.lineDid) : undefined,
   });
 
   const webhookBase = getVapiWebhookBaseUrl();
@@ -151,15 +153,14 @@ export async function buildVapiAssistantForParty(opts: {
   const nativeTools: Array<Record<string, unknown>> = [
     { type: 'endCall' },
   ];
-  // Sally sales: callback only — no warm transfer destinations.
-  if (!sally) {
-    const xfer = transferDestinationsFromEnv();
-    if (xfer.length) {
-      nativeTools.push({
-        type: 'transferCall',
-        destinations: xfer,
-      });
-    }
+  // Transfer destinations when VOICE_TRANSFER_* is set.
+  // Sally: only expose native transferCall if SALLY_ALLOW_TRANSFER=1 (default off — AI-staffed).
+  const xfer = transferDestinationsFromEnv();
+  if (xfer.length && (!sally || isSallyTransferAllowed())) {
+    nativeTools.push({
+      type: 'transferCall',
+      destinations: xfer,
+    });
   }
 
   const baseVoice = getVapiVoiceConfigForLang(language) as Record<string, unknown>;
