@@ -24,16 +24,21 @@ export function extractRecordingUrls(
   const artifact = asRecord(messageOrCall.artifact) || asRecord(messageOrCall);
   const nestedRecording = asRecord(artifact?.recording) || asRecord(messageOrCall.recording);
   const mono =
-    httpUrl(artifact?.recordingUrl)
+    httpUrl(artifact?.presignedMonoUrl)
+    || httpUrl(artifact?.recordingUrl)
     || httpUrl(messageOrCall.recordingUrl)
     || httpUrl(nestedRecording?.url)
     || httpUrl(nestedRecording?.monoUrl)
-    || httpUrl(nestedRecording?.recordingUrl);
+    || httpUrl(nestedRecording?.recordingUrl)
+    || httpUrl(asRecord(nestedRecording?.mono)?.url)
+    || httpUrl(asRecord(nestedRecording?.mono)?.presignedUrl);
   const stereo =
-    httpUrl(artifact?.stereoRecordingUrl)
+    httpUrl(artifact?.presignedStereoUrl)
+    || httpUrl(artifact?.stereoRecordingUrl)
     || httpUrl(messageOrCall.stereoRecordingUrl)
     || httpUrl(nestedRecording?.stereoUrl)
-    || httpUrl(nestedRecording?.stereoRecordingUrl);
+    || httpUrl(nestedRecording?.stereoRecordingUrl)
+    || httpUrl(nestedRecording?.presignedStereoUrl);
   return {
     ...(mono ? { recordingUrl: mono } : {}),
     ...(stereo ? { stereoRecordingUrl: stereo } : {}),

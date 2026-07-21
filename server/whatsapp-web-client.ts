@@ -11,6 +11,7 @@ type WAMessage = InstanceType<typeof pkg.Message>;
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { rm } from 'fs/promises';
+import { execSync } from 'child_process';
 import { handleChannelInbound } from './channel-inbound-handler';
 import {
   resolveContactByPhone,
@@ -43,6 +44,8 @@ export type WWebStatus =
 export interface InitWWebOptions {
   /** Keep Chromium available for screencast login UI. */
   browserLogin?: boolean;
+  /** Internal: already attempted orphan-chrome recovery once. */
+  _orphanRetry?: boolean;
 }
 
 interface ReadReceipt {
@@ -78,6 +81,51 @@ export function getWWebClient(): WAClient | null {
 
 export function getWWebLastError(): string | null {
   return lastError;
+}
+
+/** Status payload helper used by /api/whatsapp-web/status debug field. */
+export function getWWebDebug(): Record<string, unknown> {
+  return {
+    status: currentStatus,
+    hasClient: Boolean(client),
+    canSend: Boolean(client) && currentStatus === 'ready',
+    authDataPath: AUTH_DATA_PATH,
+    lastError,
+    info: clientInfo,
+    sessionBrowserSkippedReinit: currentStatus === 'ready' && !client,
+  };
+}
+
+/** Kill orphan Chromium that still holds Sync2Dine LocalAuth (not TradePro). */
+function killOrphanSync2DineWWebChrome(): void {
+  const marker = AUTH_DATA_PATH.replace(/\\/g, '/');
+  try {
+    if (process.platform === 'win32') return;
+    execSync(
+      `pkill -f "user-data-dir=${marker}" 2>/dev/null || true`,
+      { stdio: 'ignore' },
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Clear Chromium singleton locks so LocalAuth can reopen the saved session. */
+function clearWWebSingletonLocks(): void {
+  try {
+    if (process.platform === 'win32') return;
+    execSync(
+      `find "${AUTH_DATA_PATH}" -name 'Singleton*' -type f -delete 2>/dev/null || true`,
+      { stdio: 'ignore' },
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function reclaimSync2DineWWebSession(): void {
+  killOrphanSync2DineWWebChrome();
+  clearWWebSingletonLocks();
 }
 
 export function getWWebAuthDataPath(): string {
@@ -389,8 +437,90 @@ export async function initWWebClient(options?: InitWWebOptions): Promise<void> {
     currentQR = null;
     clientInfo = null;
 
+    // Free prior-process Chromium before first launch so LocalAuth can restore session.
+    reclaimSync2DineWWebSession();
+    await sleep(1200);
+    // #region agent log
+    void import('./debug-session-log').then(({ debugLog }) => {
+      debugLog('D', 'whatsapp-web-client.ts:init', 'pre-init reclaim done', {
+        authDataPath: AUTH_DATA_PATH,
+      }, 'post-fix');
+    }).catch(() => {});
+    // #endregion
+
     const webVersionCache = resolveWebVersionCache();
     console.log('WhatsApp Web version cache:', webVersionCache.remotePath);
+
+    const wireClientEvents = (c: WAClient) => {
+      c.on('qr', (qr: string) => {
+        currentStatus = 'qr_pending';
+        currentQR = qr;
+        lastError = null;
+        console.log('WhatsApp QR code received — scan from admin panel or terminal:');
+        try {
+          import('qrcode-terminal').then((m) => m.default.generate(qr, { small: true }));
+        } catch {
+          console.log('QR:', qr);
+        }
+      });
+      c.on('authenticated', () => {
+        currentStatus = 'authenticated';
+        currentQR = null;
+        lastError = null;
+        console.log('WhatsApp Web.js authenticated');
+      });
+      c.on('ready', () => {
+        currentStatus = 'ready';
+        currentQR = null;
+        lastError = null;
+        if (client) {
+          const info = (client as any).info;
+          clientInfo = info
+            ? {
+                pushname: info.pushname,
+                wid: info.wid?._serialized,
+                platform: info.platform,
+                phone: info.wid?.user,
+              }
+            : null;
+        }
+        console.log('WhatsApp Web.js client ready:', JSON.stringify(clientInfo));
+        // #region agent log
+        void import('./debug-session-log').then(({ debugLog }) => {
+          debugLog('D', 'whatsapp-web-client.ts:ready', 'client ready', {
+            hasClient: Boolean(client),
+            canSend: Boolean(client) && currentStatus === 'ready',
+            phone: clientInfo?.phone ?? null,
+          }, 'post-fix');
+        }).catch(() => {});
+        // #endregion
+      });
+      c.on('auth_failure', (errMsg: string) => {
+        currentStatus = 'error';
+        currentQR = null;
+        clientInfo = null;
+        lastError = `Auth failure: ${errMsg}`;
+        console.error('WhatsApp Web.js auth failure:', errMsg);
+      });
+      c.on('disconnected', (reason: string) => {
+        currentStatus = 'disconnected';
+        currentQR = null;
+        clientInfo = null;
+        lastError = `Disconnected: ${reason}`;
+        console.log('WhatsApp Web.js disconnected:', reason);
+      });
+      c.on('message', (msg: WAMessage) => {
+        void handleIncomingMessage(msg);
+      });
+      c.on('message_ack', (msg: WAMessage, ack: number) => {
+        readReceipts.set(msg.id._serialized, {
+          messageId: msg.id._serialized,
+          chatId: msg.from,
+          ack,
+          timestamp: new Date().toISOString(),
+        });
+      });
+    };
 
     client = new Client({
       authStrategy: new LocalAuth({
@@ -400,90 +530,83 @@ export async function initWWebClient(options?: InitWWebOptions): Promise<void> {
       userAgent: CHROME_UA,
       webVersionCache,
     } as any);
-
-    client.on('qr', (qr: string) => {
-      currentStatus = 'qr_pending';
-      currentQR = qr;
-      lastError = null;
-      console.log('WhatsApp QR code received — scan from admin panel or terminal:');
-      try {
-        import('qrcode-terminal').then((m) => m.default.generate(qr, { small: true }));
-      } catch {
-        console.log('QR:', qr);
-      }
-    });
-
-    client.on('authenticated', () => {
-      currentStatus = 'authenticated';
-      currentQR = null;
-      lastError = null;
-      console.log('WhatsApp Web.js authenticated');
-    });
-
-    client.on('ready', () => {
-      currentStatus = 'ready';
-      currentQR = null;
-      lastError = null;
-      if (client) {
-        const info = (client as any).info;
-        clientInfo = info
-          ? {
-              pushname: info.pushname,
-              wid: info.wid?._serialized,
-              platform: info.platform,
-              phone: info.wid?.user,
-            }
-          : null;
-      }
-      console.log('WhatsApp Web.js client ready:', JSON.stringify(clientInfo));
-    });
-
-    client.on('auth_failure', (err: string) => {
-      currentStatus = 'error';
-      currentQR = null;
-      clientInfo = null;
-      lastError = `Auth failure: ${err}`;
-      console.error('WhatsApp Web.js auth failure:', err);
-    });
-
-    client.on('disconnected', (reason: string) => {
-      currentStatus = 'disconnected';
-      currentQR = null;
-      clientInfo = null;
-      lastError = `Disconnected: ${reason}`;
-      console.log('WhatsApp Web.js disconnected:', reason);
-    });
-
-    client.on('message', (msg: WAMessage) => {
-      void handleIncomingMessage(msg);
-    });
-
-    client.on('message_ack', (msg: WAMessage, ack: number) => {
-      readReceipts.set(msg.id._serialized, {
-        messageId: msg.id._serialized,
-        chatId: msg.from,
-        ack,
-        timestamp: new Date().toISOString(),
-      });
-    });
+    wireClientEvents(client);
 
     try {
       await client.initialize();
     } catch (err) {
-      console.error('WhatsApp Web.js failed to initialize:', err);
-      currentStatus = 'error';
-      lastError = `Init failed: ${err instanceof Error ? err.message : String(err)}`;
-      const failed = client;
-      client = null;
-      if (failed) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Orphan Chromium from a prior API process still holds LocalAuth — free it and retry once.
+      if (/browser is already running/i.test(msg) && !options?._orphanRetry) {
+        // #region agent log
+        void import('./debug-session-log').then(({ debugLog }) => {
+          debugLog('D', 'whatsapp-web-client.ts:init', 'orphan chrome — kill + retry', {
+            authDataPath: AUTH_DATA_PATH,
+          }, 'post-fix');
+        }).catch(() => {});
+        // #endregion
+        console.log(
+          'WhatsApp Web.js orphan session browser detected — freeing Sync2Dine auth dir and re-attaching',
+        );
+        const failed = client;
+        client = null;
+        if (failed) {
+          try { await failed.destroy(); } catch { /* ignore */ }
+        }
+        reclaimSync2DineWWebSession();
+        await sleep(1500);
+        currentStatus = 'initializing';
+        client = new Client({
+          authStrategy: new LocalAuth({ dataPath: AUTH_DATA_PATH }),
+          puppeteer: resolvePuppeteerOptions(options?.browserLogin),
+          userAgent: CHROME_UA,
+          webVersionCache,
+        } as any);
+        wireClientEvents(client);
         try {
-          await failed.destroy();
-        } catch {
-          /* ignore */
+          await client.initialize();
+        } catch (retryErr) {
+          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          console.error('WhatsApp Web.js re-attach failed:', retryErr);
+          currentStatus = 'error';
+          lastError = `Re-attach failed: ${retryMsg}`;
+          const failedRetry = client;
+          client = null;
+          if (failedRetry) {
+            try { await failedRetry.destroy(); } catch { /* ignore */ }
+          }
+        }
+      } else if (/browser is already running/i.test(msg)) {
+        currentStatus = 'error';
+        lastError = 'Session browser still locked after orphan kill — manual reconnect needed';
+        client = null;
+        console.error('WhatsApp Web.js still locked after orphan recovery');
+      } else {
+        console.error('WhatsApp Web.js failed to initialize:', err);
+        currentStatus = 'error';
+        lastError = `Init failed: ${msg}`;
+        const failed = client;
+        client = null;
+        if (failed) {
+          try {
+            await failed.destroy();
+          } catch {
+            /* ignore */
+          }
         }
       }
     } finally {
       initInFlight = null;
+      // #region agent log
+      void import('./debug-session-log').then(({ debugLog }) => {
+        debugLog('D', 'whatsapp-web-client.ts:init:finally', 'init settled', {
+          status: currentStatus,
+          hasClient: Boolean(client),
+          canSend: Boolean(client) && currentStatus === 'ready',
+          lastError,
+        }, 'post-fix');
+      }).catch(() => {});
+      // #endregion
     }
   })();
 
@@ -495,6 +618,17 @@ export async function sendWWebMessage(
   body: string,
   options?: { media?: { data: string; mimetype: string; filename?: string } }
 ): Promise<string | null> {
+  // #region agent log
+  void import('./debug-session-log').then(({ debugLog }) => {
+    debugLog('D', 'whatsapp-web-client.ts:sendWWebMessage', 'send gate', {
+      status: currentStatus,
+      hasClient: Boolean(client),
+      sessionBrowserSkippedReinit: currentStatus === 'ready' && !client,
+      wouldBlock: !client || currentStatus !== 'ready',
+      canSend: Boolean(client) && currentStatus === 'ready',
+    }, 'post-fix');
+  }).catch(() => {});
+  // #endregion
   if (!client || currentStatus !== 'ready') {
     console.error('WhatsApp Web.js not ready — cannot send');
     return null;

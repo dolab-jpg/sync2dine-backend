@@ -1278,6 +1278,7 @@ export function appendCustomerCallActivity(input: {
   /** When true, also update lastCall* / callQueueStatus denormalised fields */
   updateCallQueue?: boolean;
   transferredTo?: string;
+  recordingUrl?: string;
 }): Record<string, unknown> {
   const store = getDataStore();
   const idx = store.customers.findIndex(c => String(c.id) === input.customerId);
@@ -1285,8 +1286,10 @@ export function appendCustomerCallActivity(input: {
   const detail = (input.detail ?? input.summary).trim();
   const aimBit = input.aim ? ` Aim: ${input.aim}.` : '';
   const dispositionBit = input.disposition ? ` Disposition: ${input.disposition}.` : '';
+  const by = String(input.createdBy || 'cynthia').toLowerCase();
+  const label = by === 'sally' ? 'Sally call' : 'Cynthia call';
   const line = [
-    `[Cynthia call ${stamp.slice(0, 16).replace('T', ' ')}]`,
+    `[${label} ${stamp.slice(0, 16).replace('T', ' ')}]`,
     detail,
     aimBit,
     dispositionBit,
@@ -1307,6 +1310,7 @@ export function appendCustomerCallActivity(input: {
     callId: input.callId ?? null,
     createdAt: stamp,
     createdBy: input.createdBy ?? 'cynthia',
+    ...(input.recordingUrl ? { recordingUrl: input.recordingUrl } : {}),
   };
 
   if (idx < 0) {
@@ -1354,6 +1358,28 @@ export function appendCustomerCallActivity(input: {
   store.customers[idx] = patch;
   syncData(store);
   return { ...activity, logged: true };
+}
+
+/** Stamp last recording URL on the customer card for Listen playback. */
+export function stampCustomerLastRecording(
+  customerId: string,
+  recordingUrl: string | undefined | null,
+  callId?: string,
+): void {
+  const url = String(recordingUrl ?? '').trim();
+  if (!customerId || !url || !/^https?:\/\//i.test(url)) return;
+  const store = getDataStore();
+  const idx = store.customers.findIndex((c) => String(c.id) === customerId);
+  if (idx < 0) return;
+  const customer = store.customers[idx] as Record<string, unknown>;
+  if (customer.lastRecordingUrl === url && (!callId || customer.lastCallId === callId)) return;
+  store.customers[idx] = {
+    ...customer,
+    lastRecordingUrl: url,
+    ...(callId ? { lastCallId: callId } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+  syncData(store);
 }
 
 /** Build a spoken/CRM brief from customer notes + activities for Cynthia. */

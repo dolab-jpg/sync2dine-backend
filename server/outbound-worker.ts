@@ -26,14 +26,36 @@ export function startOutboundWorker(): void {
 async function processOutboundQueue(): Promise<void> {
   const queueState = getOutboundQueueState();
   if (queueState !== 'running') return;
-  if (isWithinCallQueueQuietHours()) return;
 
+  const inQuietHours = isWithinCallQueueQuietHours();
   const capacity = getAgentCapacitySnapshot();
   if (capacity.outboundSlotsFree <= 0) return;
 
   const store = getDataStore();
   const queue = (store.outboundQueue ?? []).filter((j) => {
     if (String(j.status ?? '') !== 'queued') return false;
+    const ctx = (j.context && typeof j.context === 'object')
+      ? (j.context as Record<string, unknown>)
+      : {};
+    const bypassQuiet =
+      j.bypassQuietHours === true
+      || String(ctx.aim || '').toLowerCase() === 'meeting_confirm';
+    // #region agent log
+    if (String(ctx.aim || '').toLowerCase() === 'meeting_confirm' || j.bypassQuietHours === true) {
+      void import('./debug-session-log').then(({ debugLog }) => {
+        debugLog('B', 'outbound-worker.ts:filter', 'meeting_confirm queue eligibility', {
+          jobId: String(j.id || ''),
+          aim: String(ctx.aim || ''),
+          bypassQuietHours: j.bypassQuietHours === true,
+          bypassQuiet,
+          inQuietHours,
+          wouldSkipForQuiet: inQuietHours && !bypassQuiet,
+          scheduledAt: j.scheduledAt || null,
+        });
+      }).catch(() => {});
+    }
+    // #endregion
+    if (inQuietHours && !bypassQuiet) return false;
     const scheduled = j.scheduledAt ? Date.parse(String(j.scheduledAt)) : NaN;
     if (Number.isFinite(scheduled) && scheduled > Date.now()) return false;
     return true;

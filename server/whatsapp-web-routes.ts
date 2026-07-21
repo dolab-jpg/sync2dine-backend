@@ -8,6 +8,7 @@ import {
   getWWebQR,
   getWWebInfo,
   getWWebLastError,
+  getWWebDebug,
   getReadReceipts,
   logoutWWeb,
   reconnectWWeb,
@@ -45,10 +46,13 @@ export async function handleWWebRoutes(
 ): Promise<boolean> {
   if (pathname === '/api/whatsapp-web/status' && req.method === 'GET') {
     const error = getWWebLastError();
+    const debug = getWWebDebug();
     sendJson(res, 200, {
       status: getWWebStatus(),
       info: getWWebInfo(),
       browserLoginActive: isBrowserLoginActive(),
+      canSend: Boolean(debug.canSend),
+      debug,
       ...(error ? { error } : {}),
     });
     return true;

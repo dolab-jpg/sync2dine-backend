@@ -49,7 +49,13 @@ function extFromContentType(ct: string, url: string): string {
 async function downloadAudio(url: string): Promise<{ buffer: Buffer; contentType: string } | null> {
   const headers: Record<string, string> = { Accept: 'audio/*,*/*' };
   const vapiKey = getVapiPrivateKey();
-  if (vapiKey && /vapi\.ai|storage\.vapi/i.test(url)) {
+  // Private HIPAA R2 object URLs need Vapi Bearer; presigned URLs usually do not.
+  const looksPresigned = /[?&](X-Amz-|Signature=|Expires=)/i.test(url);
+  if (
+    vapiKey
+    && !looksPresigned
+    && /vapi\.ai|storage\.vapi|r2\.cloudflarestorage\.com|hipaa-recordings/i.test(url)
+  ) {
     headers.Authorization = `Bearer ${vapiKey}`;
   }
   try {
@@ -166,7 +172,6 @@ export async function ingestCallRecording(opts: {
     }
     const monoOrPreferred = recordingUrl || preferredRecordingUrl({ recordingUrl, stereoRecordingUrl });
     if (monoOrPreferred && !existing?.recordingStoragePath) {
-      // If we already stored stereo as the only source, also keep mono path from preferred
       const source = recordingUrl || monoOrPreferred;
       if (source !== stereoRecordingUrl || !result.stereoStoragePath) {
         const dl = await downloadAudio(source);
@@ -176,6 +181,42 @@ export async function ingestCallRecording(opts: {
         }
       } else if (result.stereoStoragePath) {
         result.recordingStoragePath = result.stereoStoragePath;
+      }
+    }
+
+    // If provider URLs failed (common for private R2), refresh artifact URLs from Vapi GET /call.
+    if (!result.recordingStoragePath && !result.stereoStoragePath) {
+      const vapiId = String(
+        existingMeta.vapiCallId
+        || existing?.providerCallId
+        || '',
+      ).trim();
+      if (vapiId && !vapiId.startsWith('out-') && !vapiId.startsWith('dbg-')) {
+        try {
+          const { vapiFetch } = await import('./vapi-client');
+          const { ok, json } = await vapiFetch(`/call/${encodeURIComponent(vapiId)}`);
+          if (ok) {
+            const refreshed = extractRecordingUrls(json);
+            const tryUrl = preferredRecordingUrl(refreshed) || refreshed.stereoRecordingUrl || refreshed.recordingUrl;
+            if (tryUrl) {
+              const dl = await downloadAudio(tryUrl);
+              if (dl) {
+                const path = await uploadBytes(orgId, callId, 'stereo', dl.buffer, dl.contentType, tryUrl);
+                if (path) {
+                  result.stereoStoragePath = path;
+                  result.recordingStoragePath = path;
+                  if (refreshed.recordingUrl) result.recordingUrl = refreshed.recordingUrl;
+                  if (refreshed.stereoRecordingUrl) result.stereoRecordingUrl = refreshed.stereoRecordingUrl;
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn(
+            '[call-recording-store] vapi refresh ingest failed:',
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
     }
   }

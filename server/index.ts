@@ -41,6 +41,8 @@ import { initDataFromSupabase } from './data-store';
 import { startMailboxPoller } from './mailbox/imapSyncService';
 import { startOutboundWorker } from './outbound-worker';
 import { ensureBdiddiesHomeOrg } from './organizations';
+import { handleSalesBrainRoutes } from './sales-brain/routes';
+import { startSalesBrainWorker } from './sales-brain/worker';
 
 const PORT = Number(process.env.PORT) || 3001;
 const ALLOWED_ORIGIN = process.env.APP_BASE_URL?.trim() || '*';
@@ -78,6 +80,8 @@ const server = createServer(async (req, res) => {
     if (await handleBuildingControlRoutes(req, res, pathname)) return;
 
     if (await handleAIStudioRoutes(req, res, pathname)) return;
+
+    if (await handleSalesBrainRoutes(req, res, pathname)) return;
 
     if (await handleConversationAudit(req, res, pathname)) return;
 
@@ -168,6 +172,7 @@ server.listen(PORT, async () => {
   ensureBdiddiesHomeOrg();
   startMailboxPoller();
   startOutboundWorker();
+  startSalesBrainWorker();
   void import('./scheduled-message-worker').then(({ startScheduledMessageWorker }) => {
     startScheduledMessageWorker();
   });

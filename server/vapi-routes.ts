@@ -529,23 +529,84 @@ function finalizeVapiCall(
       afterMeta.brief ? `Staff brief was: ${String(afterMeta.brief).slice(0, 200)}` : '',
     ].filter(Boolean);
     const finalRecordingUrl = recordingUrl || (after?.recordingUrl as string | undefined);
+    const aim = afterMeta.aim != null ? String(afterMeta.aim) : (afterMeta.brief != null ? 'callback' : undefined);
+    const isSally = String(afterMeta.agentPersona || '').toLowerCase() === 'sally'
+      || String(aim || '').toLowerCase() === 'sales_outreach'
+      || String(aim || '').toLowerCase() === 'meeting_confirm'
+      || String(aim || '').toLowerCase() === 'demo_book';
+    const crmLite = isSally
+      ? ' | CRM: DM? Pain? Budget? Supplier? Objection? Sentiment? Upsell/cross-sell? Next step?'
+      : '';
     appendCustomerCallActivity({
       customerId,
       callId,
       summary: fallbackSummary.slice(0, 400),
       outcome: endedReason || disposition,
       disposition,
-      aim: afterMeta.aim != null ? String(afterMeta.aim) : (afterMeta.brief != null ? 'callback' : undefined),
-      detail: `${detailParts.join(' ').slice(0, 800)}${noteHint ? '' : ''}`,
+      aim,
+      detail: `${detailParts.join(' ').slice(0, 700)}${crmLite}${noteHint ? '' : ''}`.slice(0, 900),
       type: 'call',
       updateCallQueue: true,
       transferredTo,
       recordingUrl: finalRecordingUrl,
+      createdBy: isSally ? 'sally' : 'cynthia',
     });
+    // #region agent log
+    void import('./debug-session-log').then(({ debugLog }) => {
+      const cust = getDataStore().customers.find((c) => String(c.id) === String(customerId));
+      const acts = Array.isArray(cust?.activities) ? cust!.activities! : [];
+      const forCall = acts.filter((a) => String((a as { callId?: string }).callId || '') === String(callId));
+      const callerSpam = acts.filter((a) => /^Caller:/i.test(String((a as { summary?: string }).summary || '')));
+      debugLog('E', 'vapi-routes.ts:finalize:crm', 'EOC CRM activity write', {
+        callId,
+        createdBy: isSally ? 'sally' : 'cynthia',
+        activitiesForCall: forCall.length,
+        callerSpamCount: callerSpam.length,
+        skipCrmOnNotify: true,
+      });
+    }).catch(() => {});
+    // #endregion
     stampCustomerLastRecording(customerId, finalRecordingUrl, callId);
+
+    // Sales Brain: enqueue only — never await scorer on the webhook path
+    void import('./sales-brain/enqueue').then(({ enqueueSalesBrainJob }) => {
+      enqueueSalesBrainJob({
+        callId,
+        agentPersona: isSally ? 'sally' : String(afterMeta.agentPersona || 'lizzie'),
+        aim: aim || null,
+      });
+    }).catch(() => {});
+
+    // T−30 meeting confirm: pickup = go ahead; no-answer/voicemail = cancel
+    if (String(aim || '').toLowerCase() === 'meeting_confirm') {
+      const answered = !/no-answer|no_answer|busy|voicemail|machine|silence-timed-out|customer-did-not-answer|failed/i.test(
+        `${endedReason} ${disposition}`,
+      ) && Boolean(durationSec && durationSec >= 3);
+      // #region agent log
+      void import('./debug-session-log').then(({ debugLog }) => {
+        debugLog('C', 'vapi-routes.ts:finalize:meeting_confirm', 'EOC meeting confirm branch', {
+          callId,
+          answered,
+          durationSec: durationSec ?? null,
+          endedReason: endedReason || null,
+          disposition: disposition || null,
+        });
+      }).catch(() => {});
+      // #endregion
+      void import('./sally-sales-phone').then(({ resolveMeetingConfirmOutcome }) => {
+        resolveMeetingConfirmOutcome({
+          customerId,
+          partyPhone,
+          callId,
+          endedReason,
+          disposition,
+          answered,
+        });
+      }).catch(() => {});
+    }
   }
 
-  // Sally sales: always notify staff with end-of-call summary (+ callback if nextFollowUp set)
+  // Sally sales: staff card only — CRM activity already written above (skipCrmActivity)
   void import('./sally-sales-phone')
     .then(({ isSallySalesCall, notifySallyCallEnded }) => {
       const sally = isSallySalesCall(afterMeta, { agentPersona: String(afterMeta.agentPersona || '') });
@@ -565,6 +626,7 @@ function finalizeVapiCall(
           partyPhone,
           summary: fallbackSummary,
           disposition: disposition || endedReason,
+          skipCrmActivity: true,
         });
       }
     })
@@ -821,7 +883,12 @@ async function executeTool(
 
   const callMeta = (call?.metadata as Record<string, unknown> | undefined) || {};
   const { isSallySalesCall, executeSallySalesPhoneTool } = await import('./sally-sales-phone');
-  if (isSallySalesCall(callMeta) && (name === 'getOfferTerms' || name === 'bookDemo' || name === 'sendSalesFollowUp')) {
+  if (isSallySalesCall(callMeta) && (
+    name === 'getOfferTerms'
+    || name === 'bookDemo'
+    || name === 'bookIntegrationMeeting'
+    || name === 'sendSalesFollowUp'
+  )) {
     return executeSallySalesPhoneTool(name, args, {
       callId,
       partyPhone,
@@ -906,14 +973,19 @@ function persistTranscriptTurn(
       durationSec: computeCallDurationSec(updated),
     });
   }
-  // Never append staff handset chatter onto a CRM customer row that shares the same phone.
-  if (!isStaffParty && resolved.customerId && role === 'user') {
-    appendCustomerCallActivity({
-      customerId: resolved.customerId,
-      callId,
-      summary: `Caller: ${trimmed.slice(0, 200)}`,
-    });
+  // Keep transcript on the call record only — do not spam customer.activities with every turn.
+  // #region agent log
+  if (role === 'user') {
+    void import('./debug-session-log').then(({ debugLog }) => {
+      debugLog('E', 'vapi-routes.ts:persistTranscriptTurn', 'transcript turn (no CRM append)', {
+        callId,
+        role,
+        textLen: trimmed.length,
+        crmAppendDisabled: true,
+      });
+    }).catch(() => {});
   }
+  // #endregion
 }
 
 function extractMonitorUrls(callOrMessage: Record<string, unknown>): {

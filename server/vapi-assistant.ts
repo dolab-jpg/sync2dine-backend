@@ -25,6 +25,72 @@ import {
 } from './sally-sales-phone';
 import { getHomeOrgId } from './home-org';
 import { buildVapiModelBlock } from './vapi-llm-model';
+import { debugLog } from './debug-session-log';
+
+type SilencePersona = 'sally' | 'lizzie' | 'staff';
+
+/** Shared dead-air ladder for every Vapi phone agent (check → re-ask → hang up). */
+export function buildSilenceHooks(persona: SilencePersona): Array<Record<string, unknown>> {
+  const lines =
+    persona === 'sally'
+      ? {
+          check: [
+            'You still with me, love?',
+            'You still there?',
+            'Can you still hear me?',
+          ],
+          reask:
+            "Look, I just need a quick yes or no on a twenty-minute install chat — otherwise I'll leave it there.",
+          bye: "Alright, I'll let you go — ring Sync2Dine when you're free. Cheers!",
+        }
+      : persona === 'staff'
+        ? {
+            check: ['You still there?', 'Can you still hear me?'],
+            reask: "Still need something, or shall I hang up?",
+            bye: "I'll leave it there — shout if you need me. Bye!",
+          }
+        : {
+            check: ['You still there?', 'Can you still hear me?'],
+            reask: 'Anything else I can help with, or shall I leave it there?',
+            bye: 'No worries — call back anytime. Bye for now!',
+          };
+
+  return [
+    {
+      on: 'customer.speech.timeout',
+      name: 'silence_check',
+      options: {
+        timeoutSeconds: 8,
+        triggerMaxCount: 3,
+        triggerResetMode: 'onUserSpeech',
+      },
+      do: [{ type: 'say', exact: lines.check }],
+    },
+    {
+      on: 'customer.speech.timeout',
+      name: 'silence_reask',
+      options: {
+        timeoutSeconds: 18,
+        triggerMaxCount: 3,
+        triggerResetMode: 'onUserSpeech',
+      },
+      do: [{ type: 'say', exact: lines.reask }],
+    },
+    {
+      on: 'customer.speech.timeout',
+      name: 'silence_hangup',
+      options: {
+        timeoutSeconds: 28,
+        triggerMaxCount: 3,
+        triggerResetMode: 'onUserSpeech',
+      },
+      do: [
+        { type: 'say', exact: lines.bye },
+        { type: 'tool', tool: { type: 'endCall' } },
+      ],
+    },
+  ];
+}
 
 export async function buildVapiAssistantForParty(opts: {
   partyPhone: string;
@@ -173,6 +239,19 @@ export async function buildVapiAssistantForParty(opts: {
     tools: [...nativeTools, ...functionTools],
   });
 
+  const silencePersona: SilencePersona = sally
+    ? 'sally'
+    : identity.kind === 'staff' || identity.kind === 'foreman'
+      ? 'staff'
+      : 'lizzie';
+
+  const isMeetingConfirm = String(callMeta.aim || '').toLowerCase() === 'meeting_confirm';
+  if (sally && isMeetingConfirm && opts.direction === 'outbound') {
+    firstMessage = firstName && !/^guest$/i.test(firstName)
+      ? `Alright ${firstName}, Sally from Sync2Dine — just confirming your twenty-minute install chat is still on.`
+      : `Alright love, Sally from Sync2Dine — just confirming your twenty-minute install chat is still on.`;
+  }
+
   const assistant: Record<string, unknown> = {
     name: assistantName,
     firstMessage,
@@ -184,18 +263,19 @@ export async function buildVapiAssistantForParty(opts: {
       model: process.env.VAPI_DEEPGRAM_MODEL?.trim() || 'nova-2',
       language: deepgramLanguageForPack(language),
     },
-    silenceTimeoutSeconds: sally ? 90 : 45,
+    silenceTimeoutSeconds: 35,
     maxDurationSeconds: Number(
       process.env.VAPI_MAX_CALL_SECONDS
       || (sally ? 1200 : 900),
     ),
     backgroundSound: 'off',
+    hooks: buildSilenceHooks(silencePersona),
     ...(sally
       ? {
           voicemailDetectionEnabled: true,
           voicemailMessage:
             process.env.SALLY_VOICEMAIL_MESSAGE?.trim()
-            || "Hi, it's Sally from Sync2Dine. We help restaurants answer the phone with AI that takes orders. I'll try you again soon — or reply to this number and we'll book a quick demo. Thanks!",
+            || "Hi, it's Sally from Sync2Dine. We help restaurants answer the phone with AI that takes orders. I'll try you again soon — reply to this number when you're free. Thanks!",
         }
       : {}),
     // PIN via spoken digits → verifyStaffPhonePin. Do NOT send keypadInputEnabled (Vapi 400).
@@ -210,6 +290,21 @@ export async function buildVapiAssistantForParty(opts: {
       'conversation-update',
     ],
   };
+
+  // #region agent log
+  debugLog('A', 'vapi-assistant.ts:buildVapiAssistantForParty', 'assistant silence config', {
+    silencePersona,
+    sally,
+    aim: String(callMeta.aim || ''),
+    silenceTimeoutSeconds: assistant.silenceTimeoutSeconds,
+    hooksCount: Array.isArray(assistant.hooks) ? (assistant.hooks as unknown[]).length : 0,
+    hookNames: Array.isArray(assistant.hooks)
+      ? (assistant.hooks as Array<{ name?: string }>).map((h) => h.name)
+      : [],
+    hasThisCallIsDemo: String(instructions || '').includes('THIS CALL IS THE DEMO'),
+    hasBookIntegration: String(instructions || '').includes('bookIntegrationMeeting'),
+  });
+  // #endregion
 
   return { assistant, identity, verified, agentPersona: sally ? SALLY_PERSONA : undefined };
 }

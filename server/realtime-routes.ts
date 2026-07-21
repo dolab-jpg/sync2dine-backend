@@ -379,11 +379,16 @@ export async function handleRealtimeTranscript(
   });
 
   if (resolved.customerId && isUser) {
-    appendCustomerCallActivity({
-      customerId: resolved.customerId,
-      callId,
-      summary: `Caller: ${text.slice(0, 200)}`,
-    });
+    // Keep transcript on the call record only — do not spam customer.activities.
+    // #region agent log
+    void import('./debug-session-log').then(({ debugLog }) => {
+      debugLog('E', 'realtime-routes.ts:turn', 'realtime turn (no CRM Caller append)', {
+        callId,
+        textLen: text.length,
+        crmAppendDisabled: true,
+      });
+    }).catch(() => {});
+    // #endregion
   }
 
   sendJson(res, 200, { ok: true, callId, role: turnRole });
