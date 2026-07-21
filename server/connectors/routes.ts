@@ -519,11 +519,15 @@ export async function handleConnectorRoutes(
       sendJson(res, 404, { error: 'order_not_found' });
       return true;
     }
-    const result = await forwardOrderIfPosEnabled(orgId, order, config);
-    sendJson(res, result.push?.ok === false ? 502 : 200, {
-      ok: result.push?.ok !== false,
+    // Square/Epos POS or commerce hub (Deliverect/Otter/custom) — same path Judie uses after place.
+    const { forwardJudieOrderToProviders } = await import('./judie-order-forward');
+    const result = await forwardJudieOrderToProviders(orgId, order, config);
+    sendJson(res, result.ok === false && result.channel !== 'none' ? 502 : 200, {
+      ok: result.channel === 'none' ? true : result.ok,
       order: result.order,
-      push: result.push,
+      channel: result.channel,
+      error: result.error,
+      externalId: result.externalId,
     });
     return true;
   }

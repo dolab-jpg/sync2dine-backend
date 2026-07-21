@@ -2,6 +2,7 @@ import {
   appendCustomerCallActivity,
   appendProjectMessageRecord,
   enqueueOutboundCall,
+  ensureGuestCustomerForCall,
   getDataStore,
   getRequestOrgId,
   lookupContactByPhone,
@@ -747,6 +748,25 @@ export async function executePhoneTool(
     if (callId) {
       saveCall({ id: callId, intent });
     }
+    // Complaints / after-hours get a CRM timeline card when we know the caller.
+    if (intent === 'complaint' || intent === 'after_hours') {
+      let intentCustomerId = firstString(input.customerId, body.customerContext?.customerId);
+      if (!intentCustomerId && callerPhone) {
+        const guest = ensureGuestCustomerForCall(callerPhone, callId);
+        intentCustomerId = guest.customerId ?? undefined;
+      }
+      if (intentCustomerId) {
+        appendCustomerCallActivity({
+          customerId: intentCustomerId,
+          callId,
+          summary: `Call classified as ${intent}`,
+          detail: firstString(input.reason) || `Judie tagged this call as ${intent}.`,
+          outcome: intent,
+          type: 'call',
+          updateCallQueue: true,
+        });
+      }
+    }
     return { intent, confidence: Number(input.confidence ?? 0.8), reason: input.reason ?? '' };
   }
 
@@ -1152,22 +1172,48 @@ export async function executePhoneTool(
   }
 
   if (name === 'captureMessage') {
+    const department = firstString(input.department) ?? 'general';
+    const message = firstString(input.message) ?? '';
+    const callerName = firstString(input.callerName) ?? '';
+    const urgency = firstString(input.urgency) ?? 'medium';
     if (callId) {
       saveCall({
         id: callId,
         outcome: 'message_captured',
         metadata: {
-          department: input.department,
-          message: input.message,
-          callerName: input.callerName,
-          urgency: input.urgency ?? 'medium',
+          department,
+          message,
+          callerName,
+          urgency,
         },
+      });
+    }
+    // Ensure a CRM guest card exists so the message lands on the backend timeline.
+    let messageCustomerId = firstString(input.customerId, body.customerContext?.customerId);
+    if (!messageCustomerId && callerPhone) {
+      const guest = ensureGuestCustomerForCall(callerPhone, callId);
+      messageCustomerId = guest.customerId ?? undefined;
+    }
+    if (messageCustomerId && message) {
+      appendCustomerCallActivity({
+        customerId: messageCustomerId,
+        callId,
+        summary: `Message for ${department}${urgency !== 'medium' ? ` (${urgency})` : ''}`,
+        detail: [
+          callerName ? `From ${callerName}.` : '',
+          message,
+        ].filter(Boolean).join(' '),
+        outcome: 'message_captured',
+        type: 'message',
+        updateCallQueue: true,
       });
     }
     return {
       captured: true,
-      department: input.department ?? 'general',
-      urgency: input.urgency ?? 'medium',
+      department,
+      urgency,
+      customerId: messageCustomerId ?? null,
+      spokenHint: 'Got it — I have passed that message to the team.',
     };
   }
 
@@ -1733,6 +1779,11 @@ export async function executePhoneTool(
       const found = lookupContactByPhone(phone);
       if (found.found && found.customerId) customerId = found.customerId;
     }
+    // Every Judie food order gets a CRM guest/customer card on the backend.
+    if (!customerId && phone) {
+      const guest = ensureGuestCustomerForCall(phone, callId);
+      if (guest.customerId) customerId = guest.customerId;
+    }
 
     const store = getDataStore();
     const customerRow = customerId
@@ -1789,7 +1840,8 @@ export async function executePhoneTool(
       }
     }
 
-    const record = await saveOrderRecord({
+    const orgIdForOrder = firstString(body.orgId) ?? getRequestOrgId();
+    let record = await saveOrderRecord({
       customerId: customerId || undefined,
       customerName: firstString(input.customerName, body.customerContext?.customerName) ?? 'Guest',
       customerPhone: phone,
@@ -1812,7 +1864,7 @@ export async function executePhoneTool(
       syncState: 'local',
       placedAt: new Date().toISOString(),
       etaMinutes: orderType === 'delivery' ? 40 : 20,
-    }, firstString(body.orgId) ?? getRequestOrgId());
+    }, orgIdForOrder);
 
     // Remember delivery address on the CRM customer for next Judie call.
     if (orderType === 'delivery' && deliveryAddress && (customerId || phone)) {
@@ -1830,6 +1882,43 @@ export async function executePhoneTool(
         });
       } catch {
         // non-fatal — order already placed
+      }
+    }
+
+    // Push to connected POS / commerce partner when Settings → Connected systems is enabled.
+    let providerChannel: 'none' | 'pos' | 'commerce' = 'none';
+    let providerPushOk: boolean | null = null;
+    try {
+      const { forwardJudieOrderToProviders } = await import('./connectors/judie-order-forward');
+      const forwarded = await forwardJudieOrderToProviders(orgIdForOrder, record);
+      record = forwarded.order;
+      providerChannel = forwarded.channel;
+      providerPushOk = forwarded.channel === 'none' ? null : forwarded.ok;
+      if (forwarded.channel !== 'none') {
+        console.info(
+          `[judie-order] provider forward channel=${forwarded.channel} ok=${forwarded.ok} order=${String(record.id)}`,
+          forwarded.error || '',
+        );
+      }
+    } catch (err) {
+      console.warn(
+        '[judie-order] provider forward failed (order kept on kitchen board):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    if (customerId && callId) {
+      try {
+        appendCustomerCallActivity({
+          customerId,
+          callId,
+          summary: `Food order ${String(record.orderNumber ?? '')} placed (${orderType})`,
+          detail: `Total ${formatSpokenGbp(Number(record.total))}.`,
+          outcome: 'order_placed',
+          updateCallQueue: true,
+        });
+      } catch {
+        // non-fatal
       }
     }
 
@@ -1858,6 +1947,10 @@ export async function executePhoneTool(
       deliveryPostcode: normalizedPostcode || null,
       paymentMethod: paymentMethod ?? null,
       customerId: record.customerId ?? customerId ?? null,
+      syncState: record.syncState ?? 'local',
+      externalId: record.externalId ?? null,
+      providerChannel,
+      providerPushOk,
       spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${paySpeak}${specialSpeak} The kitchen has it.`,
     };
   }
