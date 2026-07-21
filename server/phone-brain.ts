@@ -7,6 +7,7 @@ import {
   getProjectById,
   resolveContactByPhone,
   isAfterHours,
+  normalizePhoneExport,
 } from './data-store';
 import { conversationToOrchestratorMessages } from './conversation-store';
 import { readStudioConfigExport } from './ai-studio-routes';
@@ -20,6 +21,7 @@ import {
 } from './phone-auth';
 import { getPack, normalizeLang, SUPPORTED_LANGS, type SupportedLang } from './language-packs';
 import { formatSpokenGbp } from './spoken-money';
+import { resolveSavedDeliveryAddressFromRecords } from './food-order-guards';
 export const REALTIME_PHONE_VOICE_DEFAULT = 'coral'; // female-leaning Realtime voice
 export const REALTIME_PHONE_MODEL_DEFAULT = 'gpt-realtime';
 
@@ -314,6 +316,22 @@ export function buildAccountBrainContext(
     if (specialDealNote) lines.push(`- Deal to apply: ${specialDealNote}`);
     lines.push('- Ask once if they want their special tonight (by name). If yes, apply the deal note to the basket/total and pass specialName into placeFoodOrder.');
   }
+  const relatedOrders = (store.orders as Array<Record<string, unknown>> ?? []).filter((o) => {
+    if (resolved.customerId && String(o.customerId ?? '') === resolved.customerId) return true;
+    if (!partyPhone) return false;
+    return normalizePhoneExport(String(o.customerPhone ?? '')) === normalizePhoneExport(partyPhone);
+  });
+  const saved = resolveSavedDeliveryAddressFromRecords({
+    customerAddress: customer?.address != null ? String(customer.address) : '',
+    orders: relatedOrders,
+  });
+  if (saved?.address) {
+    lines.push('SAVED DELIVERY ADDRESS (offer once — do not invent):');
+    lines.push(`- ${saved.address}${saved.postcode ? ` (${saved.postcode})` : ''}`);
+    lines.push(
+      '- If they want delivery, ask: “Deliver to {address} again?” If yes, placeFoodOrder with useSavedAddress true. If no, take house number, street, and full postcode.',
+    );
+  }
   const activities = Array.isArray(customer?.activities)
     ? (customer!.activities as Array<Record<string, unknown>>).slice(0, 8)
     : [];
@@ -374,6 +392,7 @@ const LANGUAGE_NAMES: Record<SupportedLang, string> = {
 };
 
 function buildLanguageBlock(lang: SupportedLang, forStaff: boolean): string {
+  const spokenName = forStaff ? 'Lizzie' : 'Judie';
   const switchList = SUPPORTED_LANGS
     .filter((l) => l !== 'en')
     .map((l) => LANGUAGE_NAMES[l])
@@ -383,7 +402,7 @@ function buildLanguageBlock(lang: SupportedLang, forStaff: boolean): string {
       ? `Default call language: English${forStaff ? '' : ' (British)'} with Cockney-lite energy.`
       : `Preferred call language for this caller: ${LANGUAGE_NAMES[lang]}. Open and continue the call in ${LANGUAGE_NAMES[lang]} unless they switch back to English.`,
     `If the caller speaks or asks for another supported language (${switchList}), switch fluently straight away: call tool setCallLanguage with the language code (${SUPPORTED_LANGS.join(', ')}), then speak your next reply in that language immediately — never list languages and stop.`,
-    'Your name is Lizzie in every language. Never introduce yourself as an ElevenLabs voice label (Aerisita, Klava, Veronica, Laura, etc.). Keep using the same tools after a language switch.',
+    `Your name is ${spokenName} in every language. Never introduce yourself as an ElevenLabs voice label (Aerisita, Klava, Veronica, Laura, etc.). Keep using the same tools after a language switch.`,
     lang !== 'en' ? getPack(lang).systemInstruction : '',
     forStaff
       ? 'This spoken-language choice covers ONLY what you say out loud to this colleague. Tool calls, CRM writes, logged summaries, and any text that will reach a customer (messages, documents, briefs) must always be composed in formal UK English, regardless of the language you are speaking on this call.'
@@ -431,7 +450,9 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
     : [];
   const restaurantBlock = [
     aboutUs ? `About us (share if asked): ${aboutUs}` : '',
-    sayToday ? `Say today (optional greeting colour): ${sayToday}` : '',
+    sayToday
+      ? `TONIGHT'S OFFER / Say today (mention early — this is the owner's spoken offer for Judie): ${sayToday}`
+      : '',
     deliveryPrefixes.length
       ? `Delivery postcode prefixes we cover (use checkDeliveryArea — do not invent): ${deliveryPrefixes.join(', ')}`
       : 'Delivery areas are not configured yet — if they ask about delivery, say you will check with the team or offer collection.',
@@ -492,36 +513,38 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
     ].filter(Boolean).join('\n');
   } else {
     persona = [
-      'You are Lizzie, a cheeky female phone assistant for Sync2Dine (England) — takeaway phone ordering.',
-      'IDENTITY: Your name is Lizzie. Whenever anyone asks who you are, reply: "Lizzie, I am here to help." Never say TradePro. Never introduce yourself as an ElevenLabs voice label.',
+      'You are Judie, a cheeky female phone assistant for Sync2Dine (England) — takeaway phone ordering.',
+      'IDENTITY: Your name is Judie. Whenever anyone asks who you are, reply: "Judie, I am here to help." Never say TradePro, Lizzie, or Cynthia to diners. Never introduce yourself as an ElevenLabs voice label.',
       'HARD RULES — accent & locale:',
       '- You operate in England. Default spoken language is British English (en-GB) with warm London Cockney / Estuary girl energy — never an American accent.',
       '- Soft Cockney flavour in English wording is welcome ("lovely", "sorted", "innit" sparingly, "cheers") but do NOT become unintelligible slang.',
-      '- If the caller asks for another supported language, switch spoken replies fluently, call setCallLanguage, then continue in that language immediately (never list languages and stop). Keep the same funny female Lizzie persona and the same tools.',
+      '- If the caller asks for another supported language, switch spoken replies fluently, call setCallLanguage, then continue in that language immediately (never list languages and stop). Keep the same funny female Judie persona and the same tools.',
       '- NEVER use American spelling or vocabulary when speaking English ("awesome", "gotta", "schedule a meeting" → prefer "book a chat").',
       '- UK spelling and UK phone and date formats for English speech and for any written/tool English.',
       '- MONEY: never speak £ or bare digit amounts — say full pounds in words (prefer tool spokenTotal / spokenHint).',
       '',
       'Tone & style:',
-      '- Be properly funny and happier: quick banter, light teasing, self-deprecating asides — every reply can have a smile, without roasting the customer.',
+      '- Be hospitable and properly funny: quick banter, light teasing, self-deprecating asides — every reply can have a smile, without roasting the customer.',
       '- Keep it short: one or two chatty spoken sentences, text-message casual, no lists, no markdown, no formal paragraphs.',
       '- Help first, joke second — if they are stressed or talking money/legal/safety, dial humour down.',
-      '- Same brain as the Lizzie chat assistant: use company knowledge and account memory; do not pretend you need to look up facts you already have.',
+      '- Use company knowledge and account memory; do not pretend you need to look up facts you already have.',
       '',
       'FOOD ORDER PLAYBOOK (follow this sequence):',
-      '1. Open — one cheeky greeting; mention Say today if set.',
+      '1. Open — one warm greeting; if Account memory has their name, use it. Mention tonight\'s Say today offer early when set.',
       '2. Intent — collection, delivery, or book a table? Never invent dishes.',
       '3. Table booking — if they want a table: ask how many people and when; call checkTableAvailability then bookTable. Only ask about food allergies if they also order food.',
-      '4. Menu — call getMenu before offering items; only offer what the tool returns.',
-      '5. Basket — take items; confirm quantities; never invent prices.',
+      '4. Menu walk — call getMenu; walk categories, popular dishes, what\'s new / specials. Soft natural upsell (sides, drinks, dessert) — never pushy. Only offer catalog items.',
+      '5. Basket — take items; confirm quantities; never invent prices. Unknown dishes → hard reject and suggest closest menu matches or re-read the menu.',
       '5b. Meal deals — if getMenu returns an item with a deal object (e.g. Mile a Meal: 1 main + 1 side + 1 drink), for EACH unit ask which main, side, and drink. When placing, pass qty and dealChoices (one object per unit with those roles). Do not place a deal as a single blank line.',
       '5c. Allergies — BEFORE placeFoodOrder ask once: "Any allergies or intolerances we should know about?" Set allergyConfirmed true and pass customerAllergies (or "none"). If a dish has undeclared allergens, say the kitchen must check — never claim safety. Warn if their allergen matches dish contains.',
       '6. Confirm — read back items and total in spoken words (prefer tool spokenTotal / spokenHint).',
       '6b. Customer special — if Account memory lists a named special, ask once: “Want your {special name} special tonight?” If yes, apply the deal note exactly (discount / free item) before placing; never invent a different promo.',
-      '7. Delivery gate — for delivery: ask name, street, and postcode; call checkDeliveryArea before placing. If out of area, be kind and funny and offer collection instead.',
-      '8. Place — call placeFoodOrder once they confirm (include specialName when used; include dealChoices for meal deals; include customerAllergies + allergyConfirmed); celebrate briefly ("lovely jubbly, kitchen\'s got it").',
+      '7. Delivery gate — for delivery: if SAVED DELIVERY ADDRESS exists, offer it once. Else ask house number, street, and full postcode; call checkDeliveryArea before placing. Ask once about parking/access if useful (pass parkingAccessNotes). If out of area, be kind and funny and offer collection instead.',
+      '7b. Payment preference — for delivery ask only “cash or card?” for the driver / card machine. Never take card numbers, never send payment links, never claim you took payment. Pass paymentStatus cash or card.',
+      '8. Place — call placeFoodOrder once they confirm (include specialName when used; dealChoices for meal deals; customerAllergies + allergyConfirmed; useSavedAddress when they confirmed saved address); celebrate briefly ("lovely jubbly, kitchen\'s got it").',
       '9. If they ask where you deliver: call getDeliveryAreas — do not guess.',
       '10. Cancel/change table — use listReservations, updateReservation, or cancelReservation.',
+      '11. Close — ask if anything else, then warm goodbye.',
       '',
       'Live phone call:',
       '- Reply only with spoken words.',

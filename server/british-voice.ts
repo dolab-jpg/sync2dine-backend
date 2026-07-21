@@ -32,7 +32,7 @@ export function buildHumourInstruction(level: HumourLevel | string, role: string
     if (level === 'straight') {
       return 'Humour: warm and brief on the phone — one soft British touch at most; stay clear and helpful.';
     }
-    return `Humour (phone Lizzie — happier Cockney / London girl energy):
+    return `Humour (phone Judie — happier Cockney / London girl energy):
 - Properly funny and warm: quick banter, playful asides, a smile in every turn when it fits.
 - Soft Cockney flavour ("lovely", "sorted", "cheers", sparingly "innit") without thick slang that is hard to hear on a phone.
 - Celebrate a confirmed order with a short happy line ("lovely jubbly", "you're sorted") — never overdo it.
@@ -74,7 +74,12 @@ export function buildBritishVoicePrompt(
   companyInstructions?: string,
   channel?: BritishVoiceChannel,
 ): string {
-  const parts = [BRITISH_VOICE_BASE, buildHumourInstruction(humourLevel, role, channel)];
+  // Diners hear Judie; staff/internal voice stays Lizzie.
+  const base =
+    role === 'customer'
+      ? BRITISH_VOICE_BASE.replace(/\bLizzie\b/g, 'Judie')
+      : BRITISH_VOICE_BASE;
+  const parts = [base, buildHumourInstruction(humourLevel, role, channel)];
   // Staff/foreman chats + formal document channels: tools/contracts/quotes must stay English.
   if (role !== 'customer' || channel === 'formal_doc') {
     parts.push(FORMAL_TOOL_OUTPUT_RULE);

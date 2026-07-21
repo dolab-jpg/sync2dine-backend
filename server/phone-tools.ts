@@ -6,6 +6,7 @@ import {
   getRequestOrgId,
   lookupContactByPhone,
   normalizePhoneExport,
+  resolveContactByPhone,
   saveCall,
   saveCustomerRecord,
   saveOrderRecord,
@@ -33,6 +34,13 @@ import {
 } from './reservations-store';
 import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from './restaurant-ai-tools';
 import { resolveCallbackIso } from './callback-time';
+import {
+  mergeDeliveryAddressLine,
+  resolveSavedDeliveryAddressFromRecords,
+  validateCatalogOrderItems,
+  validateDeliveryAddressForOrder,
+  validateDeliveryPaymentPreference,
+} from './food-order-guards';
 
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
@@ -513,7 +521,7 @@ export const PHONE_TOOLS = [
     function: {
       name: 'placeFoodOrder',
       description:
-        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. For delivery, pass postcode (and address) after checkDeliveryArea succeeds. For meal deals (getMenu items with a deal object), pass qty plus dealChoices — one object per unit with main/side/drink (or whatever roles the deal lists). The kitchen receives expanded component lines.',
+        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. Items must match getMenu exactly — never invent dishes. For delivery: house number + street + full postcode after checkDeliveryArea, OR useSavedAddress true when they confirm the saved address from Account memory; ask cash or card preference (driver/card machine — never take payment or send payment links). For meal deals, pass qty plus dealChoices — one object per unit with main/side/drink roles.',
       parameters: {
         type: 'object',
         properties: {
@@ -542,8 +550,19 @@ export const PHONE_TOOLS = [
             },
           },
           total: { type: 'number' },
-          deliveryAddress: { type: 'string' },
-          postcode: { type: 'string', description: 'UK postcode required for delivery orders' },
+          deliveryAddress: {
+            type: 'string',
+            description: 'House number + street for delivery (required unless useSavedAddress)',
+          },
+          postcode: { type: 'string', description: 'Full UK postcode required for delivery orders' },
+          useSavedAddress: {
+            type: 'boolean',
+            description: 'True when the caller confirmed the saved delivery address from Account memory',
+          },
+          parkingAccessNotes: {
+            type: 'string',
+            description: 'Optional parking / access note for the driver (ask once if useful)',
+          },
           specialName: {
             type: 'string',
             description: 'Named customer special applied on this order (from their CRM specialName)',
@@ -557,7 +576,12 @@ export const PHONE_TOOLS = [
             type: 'boolean',
             description: 'True after you asked about allergies (even if none)',
           },
-          paymentStatus: { type: 'string', enum: ['unpaid', 'cash', 'card'] },
+          paymentStatus: {
+            type: 'string',
+            enum: ['cash', 'card'],
+            description:
+              'Delivery payment preference only — cash or card for the driver. Do not take card details or send payment links.',
+          },
         },
         required: ['items'],
       },
@@ -1462,24 +1486,58 @@ export async function executePhoneTool(
       return { ok: false, error: 'items_required', spokenHint: 'Tell me what you would like to order first.' };
     }
     const orderType = firstString(input.orderType) ?? 'collection';
-    const postcode = firstString(input.postcode);
-    const streetAddress = firstString(input.deliveryAddress);
+    let postcode = firstString(input.postcode);
+    let streetAddress = firstString(input.deliveryAddress);
+    const useSavedAddress = input.useSavedAddress === true;
+    const parkingAccessNotes = firstString(input.parkingAccessNotes) ?? '';
+
+    const phoneForSaved = firstString(input.customerPhone, callerPhone) ?? '';
+    const resolvedForSaved = phoneForSaved ? resolveContactByPhone(phoneForSaved) : null;
+    const storeForSaved = getDataStore();
+    const customerForSaved = resolvedForSaved?.customerId
+      ? storeForSaved.customers.find((c) => String(c.id) === resolvedForSaved.customerId)
+      : undefined;
+    const ordersForSaved = (storeForSaved.orders ?? []).filter((o) => {
+      if (resolvedForSaved?.customerId && String(o.customerId ?? '') === resolvedForSaved.customerId) {
+        return true;
+      }
+      if (!phoneForSaved) return false;
+      return normalizePhoneExport(String(o.customerPhone ?? '')) === normalizePhoneExport(phoneForSaved);
+    });
+    const savedAddress = resolveSavedDeliveryAddressFromRecords({
+      customerAddress: customerForSaved?.address != null ? String(customerForSaved.address) : '',
+      orders: ordersForSaved,
+    });
 
     if (orderType === 'delivery') {
-      if (!postcode && !streetAddress) {
+      const addressGate = validateDeliveryAddressForOrder({
+        streetAddress,
+        postcode,
+        useSavedAddress,
+        saved: savedAddress,
+      });
+      if (!addressGate.ok) {
         return {
           ok: false,
-          error: 'delivery_address_required',
-          spokenHint: 'For delivery I need the street address and postcode first.',
+          error: addressGate.error,
+          spokenHint: addressGate.spokenHint,
+          savedAddress: savedAddress
+            ? { address: savedAddress.address, postcode: savedAddress.postcode }
+            : null,
         };
       }
-      if (!postcode) {
+      streetAddress = addressGate.streetAddress;
+      postcode = addressGate.postcode;
+
+      const payGate = validateDeliveryPaymentPreference(firstString(input.paymentStatus));
+      if (!payGate.ok) {
         return {
           ok: false,
-          error: 'postcode_required',
-          spokenHint: 'I just need the postcode so I can check we deliver there.',
+          error: payGate.error,
+          spokenHint: payGate.spokenHint,
         };
       }
+
       const { matchDeliveryPostcode, normalizeDeliveryPrefixes } = await import('./delivery-areas');
       const prefixes = normalizeDeliveryPrefixes(getDataStore().agentSettings?.deliveryPostcodePrefixes);
       if (!prefixes.length) {
@@ -1498,6 +1556,7 @@ export async function executePhoneTool(
           spokenHint: 'We do not stretch that far for delivery yet — collection instead, or a different postcode?',
         };
       }
+      postcode = match.normalized || postcode;
     }
 
     // Fill missing/zero prices from the live catalog so phone orders never total £0.
@@ -1529,6 +1588,20 @@ export async function executePhoneTool(
         dealIndex: r.dealIndex != null ? Number(r.dealIndex) : undefined,
       };
     });
+
+    const catalogGate = validateCatalogOrderItems(
+      rawLines.map((line) => line.name),
+      catalog,
+    );
+    if (!catalogGate.ok) {
+      return {
+        ok: false,
+        error: catalogGate.error,
+        item: catalogGate.item,
+        suggestions: catalogGate.suggestions,
+        spokenHint: catalogGate.spokenHint,
+      };
+    }
 
     const expanded = expandMealDealOrderItems(rawLines, catalog);
     if (!expanded.ok) {
@@ -1638,32 +1711,34 @@ export async function executePhoneTool(
       specialAppliedNote = `Special: ${appliedSpecialName}${crmSpecialNote ? ` — ${crmSpecialNote}` : ''}`;
     }
 
-    const { formatUkPostcodeDisplay, normalizeUkPostcode } = await import('./delivery-areas');
+    const { formatUkPostcodeDisplay } = await import('./delivery-areas');
     const normalizedPostcode = postcode ? formatUkPostcodeDisplay(postcode) : '';
-    const compactPc = postcode ? normalizeUkPostcode(postcode) : '';
     let deliveryAddress = streetAddress || undefined;
-    if (orderType === 'delivery' && normalizedPostcode) {
-      if (deliveryAddress) {
-        const upper = deliveryAddress.toUpperCase().replace(/\s+/g, '');
-        if (!upper.includes(compactPc)) {
-          deliveryAddress = `${deliveryAddress.replace(/,\s*$/, '')}, ${normalizedPostcode}`;
-        }
-      } else {
-        deliveryAddress = normalizedPostcode;
-      }
+    if (orderType === 'delivery' && streetAddress && normalizedPostcode) {
+      deliveryAddress = mergeDeliveryAddressLine(streetAddress, normalizedPostcode);
     }
 
+    const parkingNote = parkingAccessNotes
+      ? `Parking/access: ${parkingAccessNotes}`
+      : '';
     const baseNotes = firstString(input.notes) ?? '';
-    const notes = [baseNotes, specialAppliedNote].filter(Boolean).join(' | ');
+    const notes = [baseNotes, parkingNote, specialAppliedNote].filter(Boolean).join(' | ');
 
-    const payRaw = (firstString(input.paymentStatus) ?? 'unpaid').toLowerCase();
     let paymentStatus = 'unpaid';
     let paymentMethod: string | undefined;
-    if (payRaw === 'cash' || payRaw === 'card') {
+    if (orderType === 'delivery') {
+      const payGate = validateDeliveryPaymentPreference(firstString(input.paymentStatus));
+      // Already validated above; keep method for kitchen Expect cash/card.
+      paymentMethod = payGate.ok ? payGate.paymentMethod : undefined;
       paymentStatus = 'unpaid';
-      paymentMethod = payRaw;
-    } else if (payRaw === 'paid') {
-      paymentStatus = 'paid';
+    } else {
+      const payRaw = (firstString(input.paymentStatus) ?? 'unpaid').toLowerCase();
+      if (payRaw === 'cash' || payRaw === 'card') {
+        paymentStatus = 'unpaid';
+        paymentMethod = payRaw;
+      } else if (payRaw === 'paid') {
+        paymentStatus = 'paid';
+      }
     }
 
     const record = await saveOrderRecord({
@@ -1690,12 +1765,38 @@ export async function executePhoneTool(
       placedAt: new Date().toISOString(),
       etaMinutes: orderType === 'delivery' ? 40 : 20,
     }, firstString(body.orgId) ?? getRequestOrgId());
+
+    // Remember delivery address on the CRM customer for next Judie call.
+    if (orderType === 'delivery' && deliveryAddress && (customerId || phone)) {
+      try {
+        const existing = customerId
+          ? store.customers.find((c) => String(c.id) === customerId)
+          : undefined;
+        saveCustomerRecord({
+          ...(existing ?? {}),
+          id: customerId || existing?.id,
+          name: firstString(input.customerName, existing?.name as string, body.customerContext?.customerName) ?? 'Guest',
+          phone: phone || String(existing?.phone ?? ''),
+          address: deliveryAddress,
+          email: existing?.email != null ? String(existing.email) : '',
+        });
+      } catch {
+        // non-fatal — order already placed
+      }
+    }
+
     const spokenTotal = formatSpokenGbp(Number(record.total));
     const where =
       orderType === 'delivery' && deliveryAddress
         ? ` Delivery to ${deliveryAddress}.`
         : orderType === 'collection'
           ? ' Collection.'
+          : '';
+    const paySpeak =
+      paymentMethod === 'cash'
+        ? ' Expect cash.'
+        : paymentMethod === 'card'
+          ? ' Expect card.'
           : '';
     const specialSpeak = specialAppliedNote ? ` Special applied: ${appliedSpecialName}.` : '';
     return {
@@ -1707,8 +1808,9 @@ export async function executePhoneTool(
       specialName: appliedSpecialName ?? null,
       deliveryAddress: record.deliveryAddress ?? deliveryAddress ?? null,
       deliveryPostcode: normalizedPostcode || null,
+      paymentMethod: paymentMethod ?? null,
       customerId: record.customerId ?? customerId ?? null,
-      spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${specialSpeak} The kitchen has it.`,
+      spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${paySpeak}${specialSpeak} The kitchen has it.`,
     };
   }
 

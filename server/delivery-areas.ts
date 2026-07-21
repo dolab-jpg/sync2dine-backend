@@ -23,6 +23,51 @@ export function formatUkPostcodeDisplay(raw: string): string {
   return `${compact.slice(0, -3)} ${compact.slice(-3)}`;
 }
 
+/** Full UK postcode (outward + inward), e.g. SW1A 1AA / B11 1AA. */
+export function isValidUkPostcode(text: string): boolean {
+  const compact = normalizeUkPostcode(text);
+  if (!compact) return false;
+  return /^(GIR0AA|[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2})$/.test(compact);
+}
+
+/**
+ * Plausible UK delivery street line: needs a house number/name plus a street-ish phrase.
+ * Rejects bare postcodes and vague landmarks ("near the station").
+ */
+export function isPlausibleUkStreetAddress(text: string): boolean {
+  const raw = String(text || '').trim();
+  if (raw.length < 5) return false;
+  if (isValidUkPostcode(raw)) return false;
+
+  const withoutPostcode = raw
+    .replace(/\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/gi, ' ')
+    .replace(/[,\s]+/g, ' ')
+    .trim();
+  if (withoutPostcode.length < 3) return false;
+
+  const hasHouseNumber = /\b\d+[A-Za-z]?\b/.test(withoutPostcode);
+  const hasNamedHouse =
+    /\b(flat|apartment|apt|unit|suite|house|cottage|farm|manor|villa|lodge|bungalow|mews)\b/i.test(
+      withoutPostcode,
+    );
+  if (!hasHouseNumber && !hasNamedHouse) return false;
+
+  const hasStreetWord =
+    /\b(street|st|road|rd|avenue|ave|lane|ln|close|cl|drive|dr|way|court|ct|place|pl|terrace|gardens|crescent|grove|hill|park|row|square|sq|walk|boulevard|blvd|mews)\b/i.test(
+      withoutPostcode,
+    );
+  const wordCount = withoutPostcode.split(/\s+/).filter(Boolean).length;
+  return hasStreetWord || (hasHouseNumber && wordCount >= 2);
+}
+
+/** Pull a full UK postcode out of free text when present. */
+export function extractUkPostcode(text: string): string {
+  const m = String(text || '').toUpperCase().match(
+    /\b(GIR\s*0AA|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/,
+  );
+  return m ? formatUkPostcodeDisplay(m[1]) : '';
+}
+
 export function normalizeDeliveryPrefixes(prefixes: unknown): string[] {
   if (!Array.isArray(prefixes)) return [];
   const seen = new Set<string>();

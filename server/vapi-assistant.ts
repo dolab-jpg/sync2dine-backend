@@ -122,11 +122,11 @@ export async function buildVapiAssistantForParty(opts: {
         : `Hi ${firstName || 'there'}, Cynthia here — when you can, say your four-digit security code and I'll unlock your tools.`;
       assistantName = `Lizzie (${identity.role})`;
     } else if (opts.direction === 'outbound') {
-      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Lizzie from Sync2Dine — how are you getting on?`;
-      assistantName = 'Lizzie Sync2Dine';
+      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Judie from Sync2Dine — how are you getting on?`;
+      assistantName = 'Judie Sync2Dine';
     } else {
-      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Lizzie from Sync2Dine here — how can I help?`;
-      assistantName = 'Lizzie Sync2Dine';
+      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Judie from Sync2Dine here — how can I help?`;
+      assistantName = 'Judie Sync2Dine';
     }
 
     functionTools = getPhoneSessionChatTools(identity, verified)

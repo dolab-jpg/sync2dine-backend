@@ -359,9 +359,47 @@ export async function deleteMenuItemForOrg(
   return { ok: true };
 }
 
-function findCatalogByName(catalog: MenuItem[], name: string): MenuItem | undefined {
+export function findCatalogByName(catalog: MenuItem[], name: string): MenuItem | undefined {
   const needle = name.trim().toLowerCase();
   return catalog.find((c) => c.name.toLowerCase() === needle);
+}
+
+/** Closest catalog names for hard-reject hints (exact / contains / token overlap). */
+export function findClosestCatalogNames(
+  catalog: MenuItem[],
+  name: string,
+  limit = 3,
+): string[] {
+  const needle = name.trim().toLowerCase();
+  if (!needle || !catalog.length) return [];
+  const needleTokens = new Set(needle.split(/\s+/).filter(Boolean));
+  const scored = catalog
+    .map((c) => {
+      const n = c.name.toLowerCase();
+      let score = 0;
+      if (n === needle) score = 100;
+      else if (n.includes(needle) || needle.includes(n)) score = 60;
+      else {
+        const tokens = n.split(/\s+/).filter(Boolean);
+        score = tokens.filter((t) => needleTokens.has(t)).length * 15;
+        if (tokens.some((t) => t.startsWith(needle.slice(0, 3)) || needle.startsWith(t.slice(0, 3)))) {
+          score += 5;
+        }
+      }
+      return { name: c.name, score };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const row of scored) {
+    const key = row.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row.name);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /**
