@@ -2,12 +2,12 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import {
   DEFAULT_ORG_ID,
   listOrderRecords,
-  saveOrderRecord,
   setRequestOrgId,
   updateOrderRecord,
 } from './data-store';
 import { resolveOrgIdForRequest } from './auth';
 import { notifyConnectorOrderStatusChange } from './connectors/routes';
+import { placeFoodOrder } from './order-service';
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
@@ -27,6 +27,7 @@ function readBody(req: IncomingMessage): Promise<string> {
 /**
  * Sync2Dine restaurant orders API — Supabase `public.orders` is primary;
  * disk JSON is write-through cache / offline fallback.
+ * POST create always goes through shared OrderService (same rules as phone).
  */
 export async function handleOrdersRoutes(
   req: IncomingMessage,
@@ -52,22 +53,57 @@ export async function handleOrdersRoutes(
       sendJson(res, 400, { error: 'Invalid JSON body' });
       return true;
     }
-    const record = await saveOrderRecord({
-      ...body,
+
+    const result = await placeFoodOrder({
+      items: Array.isArray(body.items) ? body.items : [],
+      orderType: body.orderType != null ? String(body.orderType) : body.type != null ? String(body.type) : undefined,
+      postcode: body.postcode != null ? String(body.postcode) : body.deliveryPostcode != null ? String(body.deliveryPostcode) : undefined,
+      deliveryAddress: body.deliveryAddress != null
+        ? String(body.deliveryAddress)
+        : body.address != null
+          ? String(body.address)
+          : undefined,
+      customerAllergies: body.customerAllergies != null ? String(body.customerAllergies) : undefined,
+      allergyConfirmed: body.allergyConfirmed === true,
+      customerPhone: body.customerPhone != null ? String(body.customerPhone) : body.phone != null ? String(body.phone) : undefined,
+      customerName: body.customerName != null
+        ? String(body.customerName)
+        : body.customer != null
+          ? String(body.customer)
+          : undefined,
+      customerId: body.customerId != null ? String(body.customerId) : undefined,
+      specialName: body.specialName != null ? String(body.specialName) : undefined,
+      notes: body.notes != null ? String(body.notes) : undefined,
+      paymentStatus: body.paymentStatus != null
+        ? String(body.paymentStatus)
+        : body.payment != null
+          ? String(body.payment)
+          : undefined,
+      total: body.total != null ? Number(body.total) : undefined,
+      channel: body.channel != null ? String(body.channel) : 'staff',
+      source: body.source != null ? String(body.source) : 'sync2dine',
+      sourceCallId: body.sourceCallId != null ? String(body.sourceCallId) : undefined,
       orgId,
-      customerId: body.customerId ?? undefined,
-      customerName: body.customerName ?? body.customer ?? 'Guest',
-      customerPhone: body.customerPhone ?? body.phone ?? '',
-      channel: body.channel ?? 'phone',
-      orderType: body.orderType ?? body.type ?? 'collection',
-      status: body.status ?? 'new',
-      paymentStatus: body.paymentStatus ?? body.payment ?? 'unpaid',
-      items: body.items ?? [],
-      total: body.total ?? 0,
-      deliveryAddress: body.deliveryAddress ?? body.address,
-      notes: body.notes ?? '',
-    }, orgId);
-    sendJson(res, 201, { order: record });
+    });
+
+    if (!result.ok) {
+      sendJson(res, 400, {
+        ok: false,
+        error: result.error,
+        spokenHint: result.spokenHint,
+        ...(result.postcode ? { postcode: result.postcode } : {}),
+        ...(result.allergenWarnings ? { allergenWarnings: result.allergenWarnings } : {}),
+      });
+      return true;
+    }
+
+    sendJson(res, 201, {
+      ok: true,
+      order: result.order,
+      syncState: result.syncState,
+      spokenHint: result.spokenHint,
+      posPush: result.posPush,
+    });
     return true;
   }
 

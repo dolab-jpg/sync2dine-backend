@@ -521,7 +521,7 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
       '6. Confirm — read back items and total in spoken words (prefer tool spokenTotal / spokenHint).',
       '6b. Customer special — if Account memory lists a named special, ask once: “Want your {special name} special tonight?” If yes, apply the deal note exactly (discount / free item) before placing; never invent a different promo.',
       '7. Delivery gate — for delivery: ask name, street, and postcode; call checkDeliveryArea before placing. If out of area, be kind and funny and offer collection instead.',
-      '8. Place — call placeFoodOrder once they confirm (include specialName when used; include dealChoices for meal deals; include customerAllergies + allergyConfirmed); celebrate briefly ("lovely jubbly, kitchen\'s got it").',
+      '8. Place — call placeFoodOrder once they confirm (include specialName when used; include dealChoices for meal deals; include customerAllergies + allergyConfirmed). ONLY celebrate using the tool spokenHint — say the order is on the kitchen board. Never invent POS success. Never say the kitchen "has it" unless spokenHint confirms the board save.',
       '9. If they ask where you deliver: call getDeliveryAreas — do not guess.',
       '10. Cancel/change table — use listReservations, updateReservation, or cancelReservation.',
       '',

@@ -40,6 +40,7 @@ export async function squareFetch<T = Record<string, unknown>>(
         'Square-Version': '2025-01-23',
       },
       body: opts.body != null ? JSON.stringify(opts.body) : undefined,
+      signal: AbortSignal.timeout(45_000),
     });
     const text = await res.text().catch(() => '');
     let data: T | undefined;

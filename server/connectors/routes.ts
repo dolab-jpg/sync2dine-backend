@@ -6,7 +6,7 @@ import {
   setRequestOrgId,
   updateOrderRecord,
 } from '../data-store';
-import { resolveOrgIdForRequest } from '../auth';
+import { resolveOrgIdForRequest, isAuthEnforced, requireAuth } from '../auth';
 import {
   exportMenuForOrg,
   listMenuItemsForOrg,
@@ -147,6 +147,28 @@ export async function handleConnectorRoutes(
 
   const orgId = resolveOrgIdForRequest(req, {}) || DEFAULT_ORG_ID;
   setRequestOrgId(orgId);
+
+  // Admin mutating routes require staff auth when AUTH_ENFORCED (HMAC inbound stays public).
+  const isInboundHmac =
+    /\/api\/connectors\/[^/]+\/(orders|webhook|status)/.test(pathname)
+    || /^\/api\/connectors\/[^/]+\/orders\/[^/]+\/status$/.test(pathname);
+  const isAdminMutating =
+    !isInboundHmac
+    && (req.method === 'PUT' || req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE')
+    && (
+      pathname === '/api/connectors/config'
+      || pathname === '/api/connectors/queue/process'
+      || pathname.startsWith('/api/connectors/orders/')
+      || pathname.startsWith('/api/connectors/square/')
+      || pathname === '/api/connectors/menu/sync'
+      || pathname === '/api/connectors/menu/mapping'
+      || pathname === '/api/connectors/commerce/forward'
+    );
+  if (isAdminMutating && isAuthEnforced() && !requireAuth(req)) {
+    sendJson(res, 401, { error: 'Unauthorized' });
+    return true;
+  }
+
   const rawBody = await readBody(req);
   let body: Record<string, unknown> = {};
   if (rawBody) {
@@ -193,6 +215,9 @@ export async function handleConnectorRoutes(
       fulfillmentAddressCity: body.fulfillmentAddressCity != null ? String(body.fulfillmentAddressCity) : undefined,
       fulfillmentAddressPostcode: body.fulfillmentAddressPostcode != null ? String(body.fulfillmentAddressPostcode) : undefined,
       fulfillmentAddressCountry: body.fulfillmentAddressCountry != null ? String(body.fulfillmentAddressCountry) : undefined,
+      posPush: body.posPush === 'on_place' || body.posPush === 'off' || body.posPush === 'manual_only'
+        ? body.posPush
+        : undefined,
     };
     // Sandbox / PAT: allow storing a personal access token via oauthAccessToken field
     if (body.oauthAccessToken != null && String(body.oauthAccessToken).trim()) {

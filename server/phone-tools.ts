@@ -8,7 +8,6 @@ import {
   normalizePhoneExport,
   saveCall,
   saveCustomerRecord,
-  saveOrderRecord,
   saveQuoteRecord,
   saveRecruitmentCandidate,
   saveRecruitmentInterview,
@@ -22,8 +21,7 @@ import { formatSpokenGbp } from './spoken-money';
 import { resolvePhoneCallerIdentity } from './phone-auth';
 import { ensureEnglishForCustomerSend } from './outbound-english-guard';
 import { resolveTransferDestination, resolveTransferNumber } from './transfer-numbers';
-import { expandMealDealOrderItems, listMenuItemsForOrg, type OrderLineInput } from './menu-catalog';
-import { allergenSafetyHint, customerAllergenConflict } from './allergens';
+import { listMenuItemsForOrg } from './menu-catalog';
 import {
   cancelReservation,
   checkTableAvailability,
@@ -1457,259 +1455,28 @@ export async function executePhoneTool(
   }
 
   if (name === 'placeFoodOrder') {
-    const rawItems = Array.isArray(input.items) ? input.items : [];
-    if (!rawItems.length) {
-      return { ok: false, error: 'items_required', spokenHint: 'Tell me what you would like to order first.' };
-    }
-    const orderType = firstString(input.orderType) ?? 'collection';
-    const postcode = firstString(input.postcode);
-    const streetAddress = firstString(input.deliveryAddress);
-
-    if (orderType === 'delivery') {
-      if (!postcode && !streetAddress) {
-        return {
-          ok: false,
-          error: 'delivery_address_required',
-          spokenHint: 'For delivery I need the street address and postcode first.',
-        };
-      }
-      if (!postcode) {
-        return {
-          ok: false,
-          error: 'postcode_required',
-          spokenHint: 'I just need the postcode so I can check we deliver there.',
-        };
-      }
-      const { matchDeliveryPostcode, normalizeDeliveryPrefixes } = await import('./delivery-areas');
-      const prefixes = normalizeDeliveryPrefixes(getDataStore().agentSettings?.deliveryPostcodePrefixes);
-      if (!prefixes.length) {
-        return {
-          ok: false,
-          error: 'delivery_areas_not_configured',
-          spokenHint: 'Delivery areas are not set up yet — shall I make this collection instead?',
-        };
-      }
-      const match = matchDeliveryPostcode(postcode, prefixes);
-      if (!match.ok) {
-        return {
-          ok: false,
-          error: 'out_of_delivery_area',
-          postcode: match.normalized || postcode,
-          spokenHint: 'We do not stretch that far for delivery yet — collection instead, or a different postcode?',
-        };
-      }
-    }
-
-    // Fill missing/zero prices from the live catalog so phone orders never total £0.
-    let catalog: Awaited<ReturnType<typeof listMenuItemsForOrg>> = [];
-    try {
-      catalog = await listMenuItemsForOrg(firstString(body.orgId) ?? getRequestOrgId());
-    } catch {
-      catalog = [];
-    }
-
-    const rawLines: OrderLineInput[] = rawItems.map((row) => {
-      const r = row as Record<string, unknown>;
-      const dealChoices = Array.isArray(r.dealChoices)
-        ? (r.dealChoices as Array<Record<string, unknown>>).map((unit) => {
-            const mapped: Record<string, string> = {};
-            for (const [k, v] of Object.entries(unit ?? {})) {
-              if (v != null && String(v).trim()) mapped[String(k).toLowerCase()] = String(v).trim();
-            }
-            return mapped;
-          })
-        : undefined;
-      return {
-        name: String(r.name ?? '').trim(),
-        qty: Number(r.qty ?? 1) || 1,
-        price: r.price != null ? Number(r.price) : undefined,
-        dealChoices,
-        dealName: r.dealName != null ? String(r.dealName) : undefined,
-        role: r.role != null ? String(r.role) : undefined,
-        dealIndex: r.dealIndex != null ? Number(r.dealIndex) : undefined,
-      };
-    });
-
-    const expanded = expandMealDealOrderItems(rawLines, catalog);
-    if (!expanded.ok) {
-      return {
-        ok: false,
-        error: expanded.error,
-        spokenHint: expanded.spokenHint,
-      };
-    }
-
-    const customerAllergies = firstString(input.customerAllergies) ?? '';
-    const allergyConfirmed = input.allergyConfirmed === true;
-    if (!allergyConfirmed) {
-      return {
-        ok: false,
-        error: 'allergy_check_required',
-        spokenHint: 'Before I place that — any allergies or intolerances we should know about?',
-      };
-    }
-
-    const allergenWarnings: string[] = [];
-    for (const line of expanded.items) {
-      const match = catalog.find((c) => c.name.toLowerCase() === String(line.name).toLowerCase());
-      if (!match) continue;
-      const safety = allergenSafetyHint(match);
-      if (safety) allergenWarnings.push(safety);
-      if (customerAllergies) {
-        const conflicts = customerAllergenConflict(customerAllergies, match.allergensContains ?? []);
-        if (conflicts.length) {
-          allergenWarnings.push(
-            `${match.name} contains ${conflicts.join(', ')} which matches the caller allergies — suggest alternatives or kitchen check.`,
-          );
-        }
-      }
-    }
-    if (allergenWarnings.length) {
-      return {
-        ok: false,
-        error: 'allergen_review_required',
-        allergenWarnings,
-        spokenHint: allergenWarnings[0],
-      };
-    }
-
-    // Price: meal deals charge the deal price × qty; components are kitchen lines.
-    let pricedTotal = 0;
-    for (const line of rawLines) {
-      if (!line.name) continue;
-      const qty = Math.max(1, Number(line.qty ?? 1) || 1);
-      const match = catalog.find((c) => c.name.toLowerCase() === line.name.toLowerCase());
-      if (match?.deal) {
-        pricedTotal += match.price * qty;
-      } else {
-        const unit = Number(line.price ?? match?.price ?? 0);
-        pricedTotal += (Number.isFinite(unit) ? unit : 0) * qty;
-      }
-    }
-    pricedTotal = Math.round(pricedTotal * 100) / 100;
-
-    const items = expanded.items.map((row) => {
-      const price = Number(row.price ?? 0);
-      const filled =
-        (!Number.isFinite(price) || price < 0) && row.name
-          ? catalog.find((c) => c.name.toLowerCase() === row.name.toLowerCase())?.price
-          : price;
-      return {
-        name: row.name,
-        qty: Math.max(1, Number(row.qty ?? 1) || 1),
-        price: Number.isFinite(Number(filled)) ? Number(filled) : 0,
-        ...(row.dealName ? { dealName: row.dealName } : {}),
-        ...(row.dealIndex != null ? { dealIndex: row.dealIndex } : {}),
-        ...(row.role ? { role: row.role } : {}),
-      };
-    });
-    const totalBeforeSpecial = Number.isFinite(Number(input.total)) && Number(input.total) > 0
-      ? Number(input.total)
-      : pricedTotal;
-    const phone = firstString(input.customerPhone, callerPhone) ?? '';
-    let customerId = firstString(input.customerId, body.customerContext?.customerId);
-    if (!customerId && phone) {
-      const found = lookupContactByPhone(phone);
-      if (found.found && found.customerId) customerId = found.customerId;
-    }
-
-    const store = getDataStore();
-    const customerRow = customerId
-      ? store.customers.find((c) => String(c.id) === customerId)
-      : undefined;
-    const crmSpecialName = customerRow?.specialName != null ? String(customerRow.specialName).trim() : '';
-    const crmSpecialNote = customerRow?.specialDealNote != null ? String(customerRow.specialDealNote).trim() : '';
-    const appliedSpecialName = firstString(input.specialName) || undefined;
-    let total = totalBeforeSpecial;
-    let specialAppliedNote = '';
-    if (appliedSpecialName && crmSpecialNote) {
-      const pctMatch = crmSpecialNote.match(/(\d+(?:\.\d+)?)\s*%/);
-      if (pctMatch) {
-        const pct = Math.min(100, Math.max(0, Number(pctMatch[1])));
-        if (Number.isFinite(pct) && pct > 0) {
-          total = Math.round(totalBeforeSpecial * (1 - pct / 100) * 100) / 100;
-          specialAppliedNote = `${appliedSpecialName}: ${pct}% off (${formatSpokenGbp(totalBeforeSpecial)} → ${formatSpokenGbp(total)})`;
-        }
-      }
-      if (!specialAppliedNote) {
-        specialAppliedNote = `${appliedSpecialName}: ${crmSpecialNote}`;
-      }
-    } else if (appliedSpecialName && crmSpecialName) {
-      specialAppliedNote = `Special: ${appliedSpecialName}${crmSpecialNote ? ` — ${crmSpecialNote}` : ''}`;
-    }
-
-    const { formatUkPostcodeDisplay, normalizeUkPostcode } = await import('./delivery-areas');
-    const normalizedPostcode = postcode ? formatUkPostcodeDisplay(postcode) : '';
-    const compactPc = postcode ? normalizeUkPostcode(postcode) : '';
-    let deliveryAddress = streetAddress || undefined;
-    if (orderType === 'delivery' && normalizedPostcode) {
-      if (deliveryAddress) {
-        const upper = deliveryAddress.toUpperCase().replace(/\s+/g, '');
-        if (!upper.includes(compactPc)) {
-          deliveryAddress = `${deliveryAddress.replace(/,\s*$/, '')}, ${normalizedPostcode}`;
-        }
-      } else {
-        deliveryAddress = normalizedPostcode;
-      }
-    }
-
-    const baseNotes = firstString(input.notes) ?? '';
-    const notes = [baseNotes, specialAppliedNote].filter(Boolean).join(' | ');
-
-    const payRaw = (firstString(input.paymentStatus) ?? 'unpaid').toLowerCase();
-    let paymentStatus = 'unpaid';
-    let paymentMethod: string | undefined;
-    if (payRaw === 'cash' || payRaw === 'card') {
-      paymentStatus = 'unpaid';
-      paymentMethod = payRaw;
-    } else if (payRaw === 'paid') {
-      paymentStatus = 'paid';
-    }
-
-    const record = await saveOrderRecord({
-      customerId: customerId || undefined,
-      customerName: firstString(input.customerName, body.customerContext?.customerName) ?? 'Guest',
-      customerPhone: phone,
+    const { placeFoodOrder } = await import('./order-service');
+    return placeFoodOrder({
+      items: Array.isArray(input.items) ? input.items : [],
+      orderType: firstString(input.orderType),
+      postcode: firstString(input.postcode),
+      deliveryAddress: firstString(input.deliveryAddress),
+      customerAllergies: firstString(input.customerAllergies),
+      allergyConfirmed: input.allergyConfirmed === true,
+      customerPhone: firstString(input.customerPhone, callerPhone),
+      customerName: firstString(input.customerName, body.customerContext?.customerName),
+      customerId: firstString(input.customerId, body.customerContext?.customerId),
+      specialName: firstString(input.specialName),
+      notes: firstString(input.notes),
+      paymentStatus: firstString(input.paymentStatus),
+      total: input.total != null ? Number(input.total) : undefined,
       channel: 'phone',
-      orderType,
-      status: 'new',
-      paymentStatus,
-      paymentMethod,
-      items,
-      total,
-      deliveryAddress,
-      deliveryPostcode: normalizedPostcode || undefined,
-      specialName: appliedSpecialName,
-      notes,
-      customerAllergies,
-      allergyConfirmed,
+      source: 'phone',
       sourceCallId: callId,
       callIds: callId ? [callId] : [],
-      source: 'phone',
-      syncState: 'local',
-      placedAt: new Date().toISOString(),
-      etaMinutes: orderType === 'delivery' ? 40 : 20,
-    }, firstString(body.orgId) ?? getRequestOrgId());
-    const spokenTotal = formatSpokenGbp(Number(record.total));
-    const where =
-      orderType === 'delivery' && deliveryAddress
-        ? ` Delivery to ${deliveryAddress}.`
-        : orderType === 'collection'
-          ? ' Collection.'
-          : '';
-    const specialSpeak = specialAppliedNote ? ` Special applied: ${appliedSpecialName}.` : '';
-    return {
-      ok: true,
-      orderId: record.id,
-      orderNumber: record.orderNumber,
-      total: record.total,
-      spokenTotal,
-      specialName: appliedSpecialName ?? null,
-      deliveryAddress: record.deliveryAddress ?? deliveryAddress ?? null,
-      deliveryPostcode: normalizedPostcode || null,
-      customerId: record.customerId ?? customerId ?? null,
-      spokenHint: `Order ${record.orderNumber} is in — ${spokenTotal}.${where}${specialSpeak} The kitchen has it.`,
-    };
+      orgId: firstString(body.orgId) ?? getRequestOrgId(),
+      callerPhone,
+    });
   }
 
   if (name === 'checkTableAvailability') {

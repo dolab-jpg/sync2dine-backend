@@ -24,8 +24,10 @@ import { handleCalendarRoutes } from './calendar-routes';
 import { handlePackageUpdatesRoute } from './mailbox/package-updates';
 import { handleLeadsRoutes } from './leads-routes';
 import { handleOrdersRoutes } from './orders-routes';
+import { handleMenuRoutes } from './menu-routes';
 import { handleReservationsRoutes } from './reservations-routes';
 import { handleConnectorRoutes } from './connectors/routes';
+import { startConnectorQueueWorker } from './connectors/outbound-queue';
 import { handleOrgOpenAIKeyRoutes } from './org-openai-key-routes';
 import { handleOrgIntegrationsRoutes } from './org-integrations-routes';
 import { handleOrgPhoneBillingRoutes } from './org-phone-billing-routes';
@@ -120,6 +122,8 @@ const server = createServer(async (req, res) => {
 
     if (await handleOrdersRoutes(req, res, pathname)) return;
 
+    if (await handleMenuRoutes(req, res, pathname)) return;
+
     if (await handleReservationsRoutes(req, res, pathname)) return;
 
     if (await handleConnectorRoutes(req, res, pathname)) return;
@@ -177,6 +181,7 @@ server.listen(PORT, async () => {
   ensureBdiddiesHomeOrg();
   startMailboxPoller();
   startOutboundWorker();
+  startConnectorQueueWorker();
   startSalesBrainWorker();
   startSallyKnowledgeWorker();
   void warmSallyKnowledgeCache().catch(() => {});

@@ -51,7 +51,27 @@ function maskToken(secret: string): string {
   return secret.length > 4 ? `${'*'.repeat(Math.min(12, secret.length - 4))}${secret.slice(-4)}` : '****';
 }
 
+const POS_PUSH_KEY = '__posPush';
+
+function extractPosPush(statusMap: Record<string, string> | undefined): ConnectorConfig['posPush'] {
+  const v = statusMap?.[POS_PUSH_KEY];
+  if (v === 'on_place' || v === 'off' || v === 'manual_only') return v;
+  return undefined;
+}
+
+function statusMapForDb(map: Record<string, string>, posPush?: ConnectorConfig['posPush']): Record<string, string> {
+  const next = { ...map };
+  delete next[POS_PUSH_KEY];
+  if (posPush) next[POS_PUSH_KEY] = posPush;
+  return next;
+}
+
 function rowToConfig(orgId: string, row: Record<string, unknown>): ConnectorConfig {
+  const statusMap = (row.status_map && typeof row.status_map === 'object')
+    ? { ...(row.status_map as Record<string, string>) }
+    : defaultStatusMap();
+  const posPush = extractPosPush(statusMap);
+  if (posPush) delete statusMap[POS_PUSH_KEY];
   return {
     orgId,
     provider: (String(row.provider ?? 'mock')) as ConnectorProvider,
@@ -59,9 +79,7 @@ function rowToConfig(orgId: string, row: Record<string, unknown>): ConnectorConf
     direction: (String(row.direction ?? 'inbound')) as ConnectorConfig['direction'],
     outboundUrl: String(row.outbound_url ?? row.outboundUrl ?? ''),
     webhookSecret: String(row.webhook_secret ?? row.webhookSecret ?? ''),
-    statusMap: (row.status_map && typeof row.status_map === 'object')
-      ? row.status_map as Record<string, string>
-      : defaultStatusMap(),
+    statusMap,
     deliverectAccountId: String(row.deliverect_account_id ?? row.deliverectAccountId ?? '') || undefined,
     deliverectLocationId: String(row.deliverect_location_id ?? row.deliverectLocationId ?? '') || undefined,
     squareLocationId: String(row.square_location_id ?? row.squareLocationId ?? '') || undefined,
@@ -91,6 +109,11 @@ function rowToConfig(orgId: string, row: Record<string, unknown>): ConnectorConf
     lastOutboundAt: row.last_outbound_at != null ? String(row.last_outbound_at) : undefined,
     lastError: row.last_error != null ? String(row.last_error) : undefined,
     updatedAt: row.updated_at != null ? String(row.updated_at) : undefined,
+    posPush: posPush ?? (row.pos_push === 'on_place' || row.pos_push === 'off' || row.pos_push === 'manual_only'
+      ? row.pos_push
+      : row.posPush === 'on_place' || row.posPush === 'off' || row.posPush === 'manual_only'
+        ? row.posPush
+        : undefined),
   };
 }
 
@@ -145,7 +168,7 @@ export async function saveConnectorConfig(
       direction: merged.direction,
       outbound_url: merged.outboundUrl,
       webhook_secret: merged.webhookSecret,
-      status_map: merged.statusMap,
+      status_map: statusMapForDb(merged.statusMap, merged.posPush),
       deliverect_account_id: merged.deliverectAccountId ?? '',
       deliverect_location_id: merged.deliverectLocationId ?? '',
       square_location_id: merged.squareLocationId ?? '',
@@ -223,6 +246,7 @@ export function maskConnectorConfig(config: ConnectorConfig): Record<string, unk
     lastOutboundAt: config.lastOutboundAt,
     lastError: config.lastError,
     updatedAt: config.updatedAt,
+    posPush: config.posPush ?? 'manual_only',
   };
 }
 

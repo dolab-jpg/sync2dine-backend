@@ -29,6 +29,7 @@ async function postSigned(url: string, secret: string, event: ConnectorWebhookEv
         'X-S2D-Signature': signature,
       },
       body,
+      signal: AbortSignal.timeout(45_000),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -159,12 +160,25 @@ export async function processOutboundQueue(limit = 10): Promise<number> {
       } else {
         const attempts = Number(row.attempts ?? 0) + 1;
         const max = Number(row.max_attempts ?? 5);
+        const errMsg = (push.error || 'push_failed').slice(0, 500);
         await client.from('connector_outbound_queue').update({
           attempts,
           next_attempt_at: new Date(Date.now() + attempts * 60_000).toISOString(),
-          last_error: (push.error || 'push_failed').slice(0, 500),
+          last_error: errMsg,
           ...(attempts >= max ? { delivered_at: new Date().toISOString() } : {}),
         }).eq('id', row.id);
+        if (attempts >= max) {
+          await saveConnectorConfig(orgId, { lastError: `POS push exhausted: ${errMsg}` });
+          await logConnectorEvent({
+            orgId,
+            provider: config.provider,
+            direction: 'outbound',
+            eventType: 'order.created',
+            status: 'error',
+            payload: { orderId, exhausted: true, attempts },
+            error: errMsg,
+          });
+        }
       }
       continue;
     }
@@ -177,6 +191,7 @@ export async function processOutboundQueue(limit = 10): Promise<number> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-S2D-Signature': signature },
         body,
+        signal: AbortSignal.timeout(45_000),
       });
       if (res.ok) {
         await client.from('connector_outbound_queue').update({
@@ -193,17 +208,48 @@ export async function processOutboundQueue(limit = 10): Promise<number> {
           last_error: `HTTP ${res.status}`,
           ...(attempts >= max ? { delivered_at: new Date().toISOString() } : {}),
         }).eq('id', row.id);
+        if (attempts >= max) {
+          const orgId = String(row.org_id ?? '');
+          if (orgId) {
+            await saveConnectorConfig(orgId, { lastError: `Outbound webhook exhausted: HTTP ${res.status}` });
+            await logConnectorEvent({
+              orgId,
+              provider: 'custom',
+              direction: 'outbound',
+              eventType: 'order.updated',
+              status: 'error',
+              payload: { exhausted: true, attempts, status: res.status },
+              error: `HTTP ${res.status}`,
+            });
+          }
+        }
       }
     } catch (err) {
       const attempts = Number(row.attempts ?? 0) + 1;
+      const max = Number(row.max_attempts ?? 5);
+      const errMsg = err instanceof Error ? err.message : 'fetch failed';
       await client.from('connector_outbound_queue').update({
         attempts,
         next_attempt_at: new Date(Date.now() + attempts * 60_000).toISOString(),
-        last_error: err instanceof Error ? err.message : 'fetch failed',
+        last_error: errMsg,
+        ...(attempts >= max ? { delivered_at: new Date().toISOString() } : {}),
       }).eq('id', row.id);
     }
   }
   return delivered;
+}
+
+let connectorQueueTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Drain connector/POS outbound queue without manual POST /api/connectors/queue/process. */
+export function startConnectorQueueWorker(intervalMs = 30_000): void {
+  if (connectorQueueTimer) return;
+  connectorQueueTimer = setInterval(() => {
+    void processOutboundQueue(20).catch((err) => {
+      console.warn('[connector-queue]', err instanceof Error ? err.message : err);
+    });
+  }, intervalMs);
+  void processOutboundQueue(20).catch(() => {});
 }
 
 export async function emitOrderUpdatedWebhook(

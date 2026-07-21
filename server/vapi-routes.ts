@@ -92,6 +92,8 @@ const STAFF_READ_TOOL_NAMES = new Set([
 
 /** Prevent duplicate tool side-effects within a process lifetime. */
 const seenToolCalls = new Map<string, number>();
+/** Prior tool JSON results for safe dedupe (never invent ok:true). */
+const seenToolResults = new Map<string, string>();
 const TOOL_IDEMPOTENCY_TTL_MS = 15 * 60 * 1000;
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -714,15 +716,24 @@ function parseToolCalls(message: Record<string, unknown>): Array<{
   return list;
 }
 
-function shouldSkipDuplicateTool(callId: string, toolCallId: string): boolean {
+function shouldSkipDuplicateTool(callId: string, toolCallId: string): { skip: boolean; priorResult?: string } {
   const key = `${callId}:${toolCallId}`;
   const now = Date.now();
   for (const [k, ts] of seenToolCalls) {
-    if (now - ts > TOOL_IDEMPOTENCY_TTL_MS) seenToolCalls.delete(k);
+    if (now - ts > TOOL_IDEMPOTENCY_TTL_MS) {
+      seenToolCalls.delete(k);
+      seenToolResults.delete(k);
+    }
   }
-  if (seenToolCalls.has(key)) return true;
+  if (seenToolCalls.has(key)) {
+    return { skip: true, priorResult: seenToolResults.get(key) };
+  }
   seenToolCalls.set(key, now);
-  return false;
+  return { skip: false };
+}
+
+function rememberToolResult(callId: string, toolCallId: string, resultJson: string): void {
+  seenToolResults.set(`${callId}:${toolCallId}`, resultJson);
 }
 
 function buildStaffOrchBodyFromCall(
@@ -1136,34 +1147,42 @@ async function handleVapiMessage(
       tools: tools.map((t) => t.name),
     });
     const results = await Promise.all(tools.map(async (tool) => {
-      if (shouldSkipDuplicateTool(String(call.id), tool.id)) {
+      const dedupe = shouldSkipDuplicateTool(String(call.id), tool.id);
+      if (dedupe.skip) {
+        const prior = dedupe.priorResult
+          ?? JSON.stringify({ ok: false, deduped: true, error: 'duplicate_tool_no_prior_result' });
         appendCallTurn(String(call.id), {
           role: 'system',
-          content: `tool:${tool.name} → ok (deduped)`,
+          content: `tool:${tool.name} → deduped`,
         });
         return {
           toolCallId: tool.id,
-          result: JSON.stringify({ ok: true, deduped: true }),
+          result: prior,
         };
       }
       try {
         const output = await executeTool(tool.name, tool.arguments, call, partyPhone);
+        const resultJson = JSON.stringify(output);
+        rememberToolResult(String(call.id), tool.id, resultJson);
         appendCallTurn(String(call.id), {
           role: 'system',
           content: summarizeToolResult(tool.name, output),
         });
+        const outputOk = !(output && typeof output === 'object' && 'ok' in output && (output as { ok?: unknown }).ok === false);
         auditVapiWebhook({
           type: 'tool-result',
           toolName: tool.name,
-          ok: true,
+          ok: outputOk,
           matchedLocalCallId: String(call.id),
         });
         return {
           toolCallId: tool.id,
-          result: JSON.stringify(output),
+          result: resultJson,
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        const resultJson = JSON.stringify({ ok: false, error: message });
+        rememberToolResult(String(call.id), tool.id, resultJson);
         appendCallTurn(String(call.id), {
           role: 'system',
           content: `tool:${tool.name} → error: ${message.slice(0, 160)}`,
@@ -1177,7 +1196,7 @@ async function handleVapiMessage(
         });
         return {
           toolCallId: tool.id,
-          result: JSON.stringify({ error: message }),
+          result: resultJson,
         };
       }
     }));

@@ -34,6 +34,13 @@ export interface ConnectorConfig {
   lastOutboundAt?: string;
   lastError?: string;
   updatedAt?: string;
+  /**
+   * When to push to Square/POS after place:
+   * - manual_only (default): staff retry / push API only
+   * - on_place: forwardOrderIfPosEnabled after OrderService.place
+   * - off: never auto-push
+   */
+  posPush?: 'manual_only' | 'on_place' | 'off';
 }
 
 export interface InboundConnectorOrder {
