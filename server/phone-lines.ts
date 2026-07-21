@@ -23,7 +23,7 @@ import {
   updateOrganization,
 } from './organizations';
 import { getHomeOrgId } from './home-org';
-import { updateSallyOfferStored } from './sally-offer-store';
+import { getSallyOfferStored, updateSallyOfferStored } from './sally-offer-store';
 
 export type PhoneLineConnectionType = 'soho66' | 'sip' | 'twilio' | 'other';
 
@@ -214,6 +214,15 @@ export function deletePlatformPhoneLine(orgId: string, lineId: string): boolean 
       || normalizePhoneExport(org.phoneDid) === normalizePhoneExport(existing.did)
     ) {
       updateOrganization(orgId, { phoneDid: '' });
+    }
+  }
+
+  // If the platform Sally line was removed, clear the offer demo phone when it matched.
+  if (existing?.purpose === 'sally') {
+    const offer = getSallyOfferStored();
+    if (offer.demoPhone && existing.did
+      && normalizePhoneExport(offer.demoPhone) === normalizePhoneExport(existing.did)) {
+      updateSallyOfferStored({ demoPhone: '' }, 'sally-phone-line-delete');
     }
   }
   return true;
