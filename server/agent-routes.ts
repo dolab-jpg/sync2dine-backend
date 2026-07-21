@@ -11,7 +11,9 @@ import {
   maskPhoneLine,
   saveCustomerRecord,
   savePhoneLine,
+  setRequestOrgId,
   updateAgentSettings,
+  DEFAULT_ORG_ID,
   type PhoneLinePurpose,
 } from './data-store';
 import {
@@ -490,6 +492,9 @@ export async function handleAgentRoutes(
   pathname: string,
   url: URL,
 ): Promise<boolean> {
+  const orgId = resolveOrgIdForRequest(req, {}) || DEFAULT_ORG_ID;
+  setRequestOrgId(orgId);
+
   if (await handleRealtimeRoutes(req, res, pathname)) {
     return true;
   }

@@ -71,8 +71,17 @@ export async function loadSyncedDataFromSupabase(orgId?: string | null): Promise
   }));
 
   const agentRow = agentRes.data;
+  const agentData = (agentRow?.data && typeof agentRow.data === 'object' && !Array.isArray(agentRow.data))
+    ? (agentRow.data as Record<string, unknown>)
+    : {};
   const agentSettings: AgentSettings = agentRow
-    ? { isActive: agentRow.is_active, activeVoiceId: agentRow.active_voice_id ?? undefined, updatedAt: agentRow.updated_at }
+    ? {
+        ...defaultAgentSettings,
+        ...agentData,
+        isActive: agentRow.is_active,
+        activeVoiceId: agentRow.active_voice_id ?? undefined,
+        updatedAt: agentRow.updated_at,
+      }
     : { ...defaultAgentSettings };
 
   return {
@@ -159,10 +168,17 @@ export async function syncDataToSupabase(data: Partial<SyncedData>, orgId?: stri
   await upsertRows('phone_lines', data.phoneLines);
 
   if (data.agentSettings) {
+    const {
+      isActive,
+      activeVoiceId,
+      updatedAt: _updatedAt,
+      ...agentExtras
+    } = data.agentSettings as AgentSettings & Record<string, unknown>;
     await supabase.from('agent_settings').upsert({
       org_id: orgUuid,
-      is_active: data.agentSettings.isActive,
-      active_voice_id: data.agentSettings.activeVoiceId ?? null,
+      is_active: isActive,
+      active_voice_id: activeVoiceId ?? null,
+      data: agentExtras,
       updated_at: new Date().toISOString(),
     });
   }
