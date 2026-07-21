@@ -521,7 +521,7 @@ export const PHONE_TOOLS = [
     function: {
       name: 'placeFoodOrder',
       description:
-        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. Items must match getMenu exactly — never invent dishes. For delivery: house number + street + full postcode after checkDeliveryArea, OR useSavedAddress true when they confirm the saved address from Account memory; ask cash or card preference (driver/card machine — never take payment or send payment links). For meal deals, pass qty plus dealChoices — one object per unit with main/side/drink roles.',
+        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. MUST ask about allergies/intolerances first — set allergyConfirmed true and pass customerAllergies (or "none"). Items must match getMenu exactly — never invent dishes. For delivery: house number + street + full postcode after checkDeliveryArea, OR useSavedAddress true when they confirm the saved address from Account memory; ask cash or card preference (driver/card machine — never take payment or send payment links). For meal deals, pass qty plus dealChoices — one object per unit with main/side/drink roles.',
       parameters: {
         type: 'object',
         properties: {
@@ -570,11 +570,13 @@ export const PHONE_TOOLS = [
           notes: { type: 'string' },
           customerAllergies: {
             type: 'string',
-            description: 'Spoken allergy summary e.g. peanuts, sesame — ask once before placing',
+            description:
+              'Required safety field — what the caller said about allergies/intolerances (e.g. peanuts, sesame, or "none"). Ask every food order before placing.',
           },
           allergyConfirmed: {
             type: 'boolean',
-            description: 'True after you asked about allergies (even if none)',
+            description:
+              'Required — true only after you asked out loud about allergies/intolerances and they answered (including "none"). Never place without this.',
           },
           paymentStatus: {
             type: 'string',
@@ -583,7 +585,7 @@ export const PHONE_TOOLS = [
               'Delivery payment preference only — cash or card for the driver. Do not take card details or send payment links.',
           },
         },
-        required: ['items'],
+        required: ['items', 'allergyConfirmed', 'customerAllergies'],
       },
     },
   },
@@ -1614,11 +1616,12 @@ export async function executePhoneTool(
 
     const customerAllergies = firstString(input.customerAllergies) ?? '';
     const allergyConfirmed = input.allergyConfirmed === true;
-    if (!allergyConfirmed) {
+    if (!allergyConfirmed || !customerAllergies) {
       return {
         ok: false,
         error: 'allergy_check_required',
-        spokenHint: 'Before I place that — any allergies or intolerances we should know about?',
+        spokenHint:
+          'Before I place that — any allergies or intolerances we should know about? It is important for the kitchen.',
       };
     }
 
