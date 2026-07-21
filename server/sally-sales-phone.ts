@@ -24,7 +24,6 @@ import { isUkMobile, speakUkPhone, speakUkPostcode, toUkNationalDigits } from '.
 import { resolveCallbackIso } from './callback-time';
 import { listConnections } from './mailbox/mailbox-store';
 import { sendFromMailbox } from './mailbox/sendService';
-import { sendTwilioSms } from './telephony/twilioAdapter';
 import { sendToStaffCynthiaInternal } from './cynthia-routes';
 import { toE164Uk } from './vapi-client';
 import { getHomeOrgId } from './home-org';
@@ -228,14 +227,14 @@ const SALLY_SALES_OS = [
   '- Phone: one or two spoken sentences per turn. Simple closes ~6–7 minutes; stay up to 15–20 minutes if they want package detail — do not rush off.',
   '- Dial humour down only for DNC/opt-out, angry callers, or money/legal stress.',
   'CLARITY FOR IDs (overrides Cockney thickness):',
-  '- Demo phone: use spokenDemoPhone from getOfferTerms (digit groups). Repeat once if asked.',
+  '- Demo phone: AFTER getOfferTerms, ALWAYS speak spokenDemoPhone aloud in digit groups — slow and clear. Repeat once unprompted after a successful email send, and again if they ask.',
   '- Postcodes: ONLY when newly collected or caller corrects — one speakUkPostcode readback (Quebec/Whisky for Q/W). If CRM/brief already has venue + postcode, do NOT ask or NATO-read again.',
   '- Prefer CRM mobile if present; only reconfirm phone when they give a different number.',
-  '- Never claim email/SMS/WhatsApp sent unless the tool returned success.',
+  '- Never claim email sent unless sendSalesFollowUp returned success.',
   'MESSAGING:',
-  '- Prefer email when they give an email — MUST call sendSalesFollowUp with channel email before saying you sent it.',
-  '- SMS only to a UK mobile (07…). If on a landline, ask for their mobile before SMS.',
-  '- Do not default to WhatsApp. If WhatsApp fails, say so and offer email/SMS/speak the number.',
+  '- Email only. When they give an email, MUST call sendSalesFollowUp with channel email before saying you sent it.',
+  '- Do NOT offer SMS or WhatsApp. If they ask for a text, say you will email it and speak the demo number clearly now.',
+  '- Always speak the demo number on the call even when emailing — do not rely on them reading the email.',
   'CALLBACKS:',
   '- Only book a callback if they refuse signup or ask for one. Then MUST call bookCallback or bookDemo with preferredTime as ISO (Europe/London). Never claim booked without tool success.',
   'STAFFING (this sales/demo line):',
@@ -260,7 +259,7 @@ const SALLY_PHONE_CLOSE_SCRIPT = [
   '4. USP Judie — “that’s me” — full orders/bookings so staff aren’t on the phone.',
   '5. Upsell Complete — weekly launch; “you know it makes sense”.',
   '6. MUST getOfferTerms — walk Judie Starter / Atmosphere / Complete / Pro if busy; help size minutes to their hours.',
-  '7. Demo — speak spokenDemoPhone aloud; MUST sendSalesFollowUp email when they give email (ask mobile if landline for SMS).',
+  '7. Demo — MUST getOfferTerms then speak spokenDemoPhone aloud (digit groups, slow/clear). Collect email → MUST sendSalesFollowUp channel email. After send, repeat spokenDemoPhone once. No SMS.',
   '8. Hard close — “Shall I sign you up now?” → collect only missing fields (name, email, mobile). Venue/postcode: use CRM/brief if present — do not reconfirm postcode unless new or corrected → captureLead / bookDemo.',
   '9. Confirm what tools successfully sent. Only use callback if they push back — then bookCallback with ISO preferredTime.',
 ].join('\n');
@@ -301,18 +300,17 @@ const SEND_SALES_FOLLOW_UP_TOOL = {
   function: {
     name: 'sendSalesFollowUp',
     description:
-      'Email and/or SMS the prospect the website, demo number, and a short pricing/demo note. Prefer email. SMS only to UK mobiles. Never claim success without this tool succeeding.',
+      'Email the prospect the website and demo number. Always speak spokenDemoPhone clearly on the call as well — do not rely on SMS. Never claim success without this tool succeeding.',
     parameters: {
       type: 'object',
       properties: {
-        channel: { type: 'string', enum: ['email', 'sms', 'both'] },
-        toEmail: { type: 'string' },
-        toMobile: { type: 'string', description: 'UK mobile E.164 or 07… for SMS' },
+        channel: { type: 'string', enum: ['email'] },
+        toEmail: { type: 'string', description: 'Prospect email address' },
         subject: { type: 'string' },
         body: { type: 'string' },
         includeDemoPhone: { type: 'boolean' },
       },
-      required: ['channel'],
+      required: ['channel', 'toEmail'],
     },
   },
 };
@@ -379,16 +377,16 @@ export function buildSallyBrainPrompt(input: {
     SALLY_PHONE_CLOSE_SCRIPT,
     '- CLARITY: Postcode NATO readback only when newly spoken or corrected — skip if CRM/brief already has venue + postcode.',
     input.direction === 'outbound'
-      ? '- This is an outbound sales call you placed — work the close script.'
-      : '- This is an inbound sales/demo callback — they likely got your SMS or website number. Greet as Sally, then work the close script. Do not transfer to a human.',
+      ? '- This is an outbound sales call you placed — work the close script. Speak the demo number clearly; email follow-up when they give an email.'
+      : '- This is an inbound sales/demo callback — they likely got your email or website number. Greet as Sally, then work the close script. Do not transfer to a human.',
     safeName
       ? `- Contact name hint: ${safeName} — greet them by name.`
       : '- Contact name unknown — speak normally; never say Guest; ask who you are speaking with when it fits.',
     input.companyHint ? `- Company / restaurant hint: ${input.companyHint}` : '',
     `Caller phone: ${input.partyPhone}` +
       (onMobile
-        ? ' (looks like a UK mobile — SMS allowed to this number if they want text).'
-        : ' (treat as landline for SMS — ask for a mobile before texting).'),
+        ? ' (UK mobile — still email follow-up only; speak the demo number clearly on this call).'
+        : ' (landline — collect email for follow-up; speak the demo number clearly on this call).'),
     input.outboundBrief
       ? `- SALES BRIEF FOR THIS CALL (follow this): ${String(input.outboundBrief).slice(0, 900)}`
       : '- Pitch Sync2Dine: Judie (me) answers the phone; Atmosphere runs the room; Complete does both — then close.',
@@ -428,13 +426,37 @@ export async function executeSallySalesPhoneTool(
   }
 
   if (name === 'sendSalesFollowUp') {
-    const channel = String(input.channel || '').toLowerCase();
+    const channelRaw = String(input.channel || 'email').toLowerCase();
     const offer = buildOfferTermsPayload();
     const demoPhone = String(offer.demoPhone || '');
     const spoken = String(offer.spokenDemoPhone || speakUkPhone(demoPhone));
     const website = resolveSallyWebsiteUrl();
     const includeDemo = input.includeDemoPhone !== false;
     const demoNational = toUkNationalDigits(demoPhone) || demoPhone;
+    const speakNumberHint =
+      `Speak the demo number clearly now: ${spoken}. Repeat once. Do not say you sent a text.`;
+
+    // Phone Sally is email-only until Twilio SMS is live.
+    if (channelRaw === 'sms' || channelRaw === 'both') {
+      return {
+        ok: false,
+        error: 'sms_unavailable',
+        spokenDemoPhone: spoken,
+        spokenHint:
+          `SMS is not available. Ask for their email and call sendSalesFollowUp with channel email. ${speakNumberHint}`,
+      };
+    }
+
+    const channel = channelRaw === 'email' ? 'email' : '';
+    if (!channel) {
+      return {
+        ok: false,
+        error: 'channel_required',
+        spokenHint: `I can email you the details — what's the best email? ${speakNumberHint}`,
+        spokenDemoPhone: spoken,
+      };
+    }
+
     const defaultBody = [
       'Hi — Sally from Sync2Dine here.',
       `Website: ${website}`,
@@ -442,7 +464,7 @@ export async function executeSallySalesPhoneTool(
         ? `Call me on the demo line: ${demoNational} (${spoken}). Ask for Sally — I answer this number.`
         : '',
       'Judie takes full orders; Atmosphere runs venue audio. Complete does both.',
-      'Reply to this message or call the number above and we can get you signed up.',
+      'Reply to this email or call the number above and we can get you signed up.',
       String(input.body || '').trim(),
     ]
       .filter(Boolean)
@@ -451,47 +473,16 @@ export async function executeSallySalesPhoneTool(
     const sentVia: string[] = [];
     const errors: string[] = [];
     let emailMessageId: string | undefined;
-    let smsSid: string | undefined;
 
-    if (channel === 'email' || channel === 'both') {
-      const toEmail = String(input.toEmail || '').trim();
-      if (!toEmail.includes('@')) {
-        errors.push('email_required');
-      } else {
-        const r = await sendSallyEmail(toEmail, subject, defaultBody);
-        if (r.ok) {
-          sentVia.push('email');
-          emailMessageId = r.messageId;
-        } else errors.push(r.error || 'email_failed');
-      }
-    }
-
-    if (channel === 'sms' || channel === 'both') {
-      const mobileRaw = String(input.toMobile || ctx.partyPhone || '').trim();
-      if (!isUkMobile(mobileRaw)) {
-        errors.push('mobile_required_for_sms');
-      } else {
-        try {
-          const to = toE164Uk(mobileRaw);
-          const sms = await sendTwilioSms(to, defaultBody.slice(0, 600));
-          if (sms.stub) errors.push('sms_not_configured');
-          else if (sms.sid) {
-            sentVia.push('sms');
-            smsSid = sms.sid;
-          } else errors.push('sms_failed');
-        } catch (err) {
-          errors.push(err instanceof Error ? err.message.slice(0, 120) : 'sms_failed');
-        }
-      }
-    }
-
-    if (!['email', 'sms', 'both'].includes(channel)) {
-      return {
-        ok: false,
-        error: 'channel_required',
-        spokenHint: 'Should I email you, text a mobile, or both? Landlines cannot get texts.',
-        spokenDemoPhone: spoken,
-      };
+    const toEmail = String(input.toEmail || '').trim();
+    if (!toEmail.includes('@')) {
+      errors.push('email_required');
+    } else {
+      const r = await sendSallyEmail(toEmail, subject, defaultBody);
+      if (r.ok) {
+        sentVia.push('email');
+        emailMessageId = r.messageId;
+      } else errors.push(r.error || 'email_failed');
     }
 
     // CRM proof — do not rely on empty mailbox messages[]
@@ -506,9 +497,7 @@ export async function executeSallySalesPhoneTool(
           detail: [
             subject,
             emailMessageId ? `emailMessageId=${emailMessageId}` : '',
-            smsSid ? `smsSid=${smsSid}` : '',
             String(input.toEmail || ''),
-            String(input.toMobile || ''),
           ]
             .filter(Boolean)
             .join(' · ')
@@ -528,11 +517,10 @@ export async function executeSallySalesPhoneTool(
       demoPhone,
       spokenDemoPhone: spoken,
       messageId: emailMessageId,
-      smsSid,
       spokenHint:
         sentVia.length > 0
-          ? `Sent by ${sentVia.join(' and ')}. Demo line again: ${spoken}.`
-          : `Could not send (${errors.join(', ') || 'unknown'}). Say the demo number aloud: ${spoken}. Ask for email or a mobile for SMS.`,
+          ? `Email sent. Repeat the demo number clearly once more: ${spoken}.`
+          : `Could not send (${errors.join(', ') || 'unknown'}). ${speakNumberHint} Ask for a working email.`,
     };
   }
 
