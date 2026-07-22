@@ -287,16 +287,39 @@ export async function upsertOrgIntegration(
   return { public: toPublic(row, 'supabase'), syncedToCloud: true };
 }
 
+/**
+ * Status-only patch. Must NOT rewrite values_encrypted — a prior bug called full
+ * upsert with empty decrypted values and wiped Stripe secrets in Supabase while
+ * leaving status=connected (VPS still worked via integration-secrets.json).
+ */
 export async function updateOrgIntegrationStatus(
   orgId: string,
   integrationId: string,
   status: IntegrationStatus,
 ): Promise<void> {
-  const existing = await getOrgIntegrationDecrypted(orgId, integrationId);
-  await upsertOrgIntegration(orgId, integrationId, {
-    enabled: existing?.enabled ?? status === 'connected',
-    mockMode: existing?.mockMode ?? false,
+  const mem = memoryKey(orgId).get(integrationId);
+  if (mem) {
+    mem.status = status;
+    if (status === 'connected') mem.enabled = true;
+    mem.updatedAt = new Date().toISOString();
+  }
+
+  const supabase = getServiceClient();
+  if (!supabase) return;
+
+  const payload: Record<string, unknown> = {
     status,
-    values: existing?.values,
-  });
+    updated_at: new Date().toISOString(),
+  };
+  if (status === 'connected') payload.enabled = true;
+
+  const { error } = await supabase
+    .from('integrations')
+    .update(payload)
+    .eq('org_id', orgId)
+    .eq('integration_id', integrationId);
+
+  if (error) {
+    console.warn('[org-integrations] status update failed:', error.message);
+  }
 }

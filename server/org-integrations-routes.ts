@@ -120,9 +120,6 @@ export async function handleOrgIntegrationsRoutes(
   // GET /api/org/integrations
   if (pathname === '/api/org/integrations' && req.method === 'GET') {
     const orgId = resolveOrgIdForRequest(req);
-    // #region agent log
-    fetch('http://127.0.0.1:7756/ingest/45011e36-ac12-4dbc-b7c1-e1827334fcf5',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'73adb0'},body:JSON.stringify({sessionId:'73adb0',runId:'pre-deploy',hypothesisId:'H1',location:'org-integrations-routes.ts:GET',message:'route hit',data:{orgId,method:req.method,pathname},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (!assertHasOrg(req, res, orgId)) return true;
     const integrations = await listOrgIntegrations(orgId!);
     const summary = {
@@ -132,9 +129,6 @@ export async function handleOrgIntegrationsRoutes(
       mock: integrations.filter((i) => i.status === 'mock').length,
       total: integrations.length,
     };
-    // #region agent log
-    fetch('http://127.0.0.1:7756/ingest/45011e36-ac12-4dbc-b7c1-e1827334fcf5',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'73adb0'},body:JSON.stringify({sessionId:'73adb0',runId:'pre-deploy',hypothesisId:'H1',location:'org-integrations-routes.ts:GET:done',message:'list complete',data:{orgId,summary,count:integrations.length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     sendJson(res, 200, { orgId, integrations, summary });
     return true;
   }
@@ -190,7 +184,26 @@ export async function handleOrgIntegrationsRoutes(
     }
 
     const result = await runTestAndRespond(integrationId, merged);
-    await updateOrgIntegrationStatus(orgId!, integrationId, result.status);
+    if (result.success) {
+      // Persist secrets that Test may have written only to integration-secrets.json
+      // so other hosts (PC hydrate / SaaS billing) can load them from Supabase.
+      const { getIntegrationSecrets } = await import('./integration-secrets');
+      const fromDisk = getIntegrationSecrets(integrationId);
+      const toPersist: Record<string, string> = { ...fromDisk, ...merged };
+      const hasSecrets = Object.values(toPersist).some((v) => Boolean(String(v || '').trim()));
+      if (hasSecrets) {
+        await upsertOrgIntegration(orgId!, integrationId, {
+          enabled: true,
+          mockMode: false,
+          status: result.status,
+          values: toPersist,
+        });
+      } else {
+        await updateOrgIntegrationStatus(orgId!, integrationId, result.status);
+      }
+    } else {
+      await updateOrgIntegrationStatus(orgId!, integrationId, result.status);
+    }
     sendJson(res, result.success ? 200 : 400, result);
     return true;
   }
