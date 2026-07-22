@@ -42,6 +42,16 @@ export function withOrgContext<T>(orgId: string, fn: () => T): T {
   }
 }
 
+export async function withOrgContextAsync<T>(orgId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = requestOrgId;
+  requestOrgId = resolveStorageOrgId(orgId);
+  try {
+    return await fn();
+  } finally {
+    requestOrgId = prev;
+  }
+}
+
 function dataFileForOrg(orgId: string): string {
   return orgId === DEFAULT_ORG_ID
     ? join(DATA_DIR, 'synced-data.json')
@@ -113,7 +123,8 @@ export interface PendingConfirmationRecord {
 
 export type PhoneLineStatus = 'disconnected' | 'registering' | 'registered' | 'error';
 
-export type PhoneLinePurpose = 'staff' | 'aria';
+export type PhoneLinePurpose = 'staff' | 'aria' | 'sally';
+export type PhoneLineConnectionType = 'soho66' | 'sip' | 'twilio' | 'other';
 
 export interface PhoneLine {
   id: string;
@@ -129,8 +140,10 @@ export interface PhoneLine {
   updatedAt: string;
   /** Profile / platform user id that owns this softphone extension */
   assignedUserId?: string;
-  /** staff = human softphone; aria = AI bridge registration */
+  /** staff = human softphone; aria = Judie AI bridge; sally = platform sales AI */
   purpose?: PhoneLinePurpose;
+  /** How this DID is connected (Soho66 SIP, Twilio, etc.) */
+  connectionType?: PhoneLineConnectionType;
 }
 
 export interface TransferNumbers {
@@ -1553,9 +1566,16 @@ export function savePhoneLine(
       ? undefined
       : (typeof input.assignedUserId === 'string' ? input.assignedUserId.trim() : undefined) || prev?.assignedUserId;
   const purpose: PhoneLinePurpose =
-    input.purpose === 'aria' || input.purpose === 'staff'
+    input.purpose === 'aria' || input.purpose === 'staff' || input.purpose === 'sally'
       ? input.purpose
       : (prev?.purpose ?? 'staff');
+  const connectionType: PhoneLineConnectionType | undefined =
+    input.connectionType === 'soho66'
+    || input.connectionType === 'sip'
+    || input.connectionType === 'twilio'
+    || input.connectionType === 'other'
+      ? input.connectionType
+      : prev?.connectionType;
   const record: PhoneLine = {
     id,
     label: input.label,
@@ -1570,6 +1590,7 @@ export function savePhoneLine(
     updatedAt: now,
     assignedUserId,
     purpose,
+    connectionType,
   };
   if (existing >= 0) {
     store.phoneLines[existing] = { ...store.phoneLines[existing], ...record };

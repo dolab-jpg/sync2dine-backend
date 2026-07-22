@@ -3,6 +3,7 @@ import {
   updatePhoneLineStatus,
   type PhoneLine,
 } from '../data-store';
+import { withDecryptedSipPassword } from '../phone-lines';
 
 export function getSipBridgeUrl(): string | null {
   const url = (process.env.SOHO66_SIP_BRIDGE_URL ?? '').replace(/\/$/, '');
@@ -37,15 +38,17 @@ export async function registerLine(line: PhoneLine, bridgeUrl?: string): Promise
 
   updatePhoneLineStatus(line.id, { status: 'registering', lastError: undefined });
 
+  const decrypted = withDecryptedSipPassword(line);
+
   try {
     const response = await bridgeFetch(bridge, '/lines/register', {
       method: 'POST',
       body: JSON.stringify({
         lineId: line.id,
-        sipUsername: line.sipUsername,
-        sipPassword: line.sipPassword,
-        sipDomain: line.sipDomain,
-        did: line.did,
+        sipUsername: decrypted.sipUsername,
+        sipPassword: decrypted.sipPassword,
+        sipDomain: decrypted.sipDomain,
+        did: decrypted.did,
         webhookBaseUrl: getWebhookBaseUrl(),
       }),
     });
@@ -90,8 +93,10 @@ export async function registerAllEnabledLines(bridgeUrl?: string): Promise<{
   failed: number;
   results: Array<{ lineId: string; label: string; ok: boolean; message: string }>;
 }> {
-  // Only Cynthia AI lines (purpose: aria compat) register with the bridge — staff softphones use browser JsSIP.
-  const lines = listPhoneLines().filter(l => l.enabled && (l.purpose ?? 'staff') === 'aria');
+  // Judie (aria) and Sally lines register with the bridge — staff softphones use browser JsSIP.
+  const lines = listPhoneLines().filter(
+    (l) => l.enabled && ((l.purpose ?? 'staff') === 'aria' || l.purpose === 'sally'),
+  );
   const results: Array<{ lineId: string; label: string; ok: boolean; message: string }> = [];
   let registered = 0;
   let failed = 0;
@@ -107,10 +112,11 @@ export async function registerAllEnabledLines(bridgeUrl?: string): Promise<{
 }
 
 export async function testLineConnection(line: PhoneLine, bridgeUrl?: string): Promise<{ ok: boolean; message: string }> {
-  if (!line.sipUsername || !line.sipPassword || !line.sipDomain) {
+  const decrypted = withDecryptedSipPassword(line);
+  if (!decrypted.sipUsername || !decrypted.sipPassword || !decrypted.sipDomain) {
     return { ok: false, message: 'SIP username, password, and domain are required' };
   }
-  if (!line.did?.trim()) {
+  if (!decrypted.did?.trim()) {
     return { ok: false, message: 'DID (phone number) is required' };
   }
 
@@ -118,7 +124,7 @@ export async function testLineConnection(line: PhoneLine, bridgeUrl?: string): P
   if (!bridge) {
     return {
       ok: true,
-      message: `Credentials saved for ${line.sipUsername}@${line.sipDomain}. Set SOHO66_SIP_BRIDGE_URL to register live.`,
+      message: `Credentials saved for ${decrypted.sipUsername}@${decrypted.sipDomain}. Set SOHO66_SIP_BRIDGE_URL to register live.`,
     };
   }
 
@@ -129,7 +135,7 @@ export async function testLineConnection(line: PhoneLine, bridgeUrl?: string): P
     }
     return {
       ok: true,
-      message: `Bridge reachable. Line "${line.label}" ready to register (${line.sipUsername}@${line.sipDomain}).`,
+      message: `Bridge reachable. Line "${decrypted.label}" ready to register (${decrypted.sipUsername}@${decrypted.sipDomain}).`,
     };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : 'Bridge unreachable' };

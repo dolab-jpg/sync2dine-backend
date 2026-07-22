@@ -359,9 +359,41 @@ export async function deleteMenuItemForOrg(
   return { ok: true };
 }
 
-function findCatalogByName(catalog: MenuItem[], name: string): MenuItem | undefined {
+export function findCatalogByName(catalog: MenuItem[], name: string): MenuItem | undefined {
   const needle = name.trim().toLowerCase();
   return catalog.find((c) => c.name.toLowerCase() === needle);
+}
+
+/** Closest catalog names for hard-reject hints (exact / contains / token overlap). */
+export function findClosestCatalogNames(
+  catalog: MenuItem[],
+  name: string,
+  limit = 3,
+): string[] {
+  const needle = name.trim().toLowerCase();
+  if (!needle || !catalog.length) return [];
+  const needleTokens = new Set(needle.split(/\s+/).filter(Boolean));
+  const scored = catalog
+    .map((item) => {
+      const hay = item.name.toLowerCase();
+      let score = 0;
+      if (hay === needle) score += 100;
+      if (hay.includes(needle) || needle.includes(hay)) score += 40;
+      const tokens = hay.split(/\s+/).filter(Boolean);
+      for (const t of tokens) {
+        if (needleTokens.has(t)) score += 10;
+      }
+      return { name: item.name, score };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  const out: string[] = [];
+  for (const row of scored) {
+    if (out.includes(row.name)) continue;
+    out.push(row.name);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /**

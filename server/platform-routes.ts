@@ -15,6 +15,24 @@ import { getGlobalUsageThisMonth, getTokensUsedThisMonth, getUsageSummaryForOrg 
 import { getPhoneUsageSummary } from './phone-billing';
 import { getOrgElevenLabsStatus } from './org-elevenlabs';
 import { isAuthEnforced, requireAuth } from './auth';
+import {
+  deletePlatformPhoneLine,
+  getJudiePhoneLineForOrg,
+  getPlatformPhoneLine,
+  getSallyPlatformPhoneLine,
+  listAllPlatformPhoneLines,
+  savePlatformPhoneLine,
+  saveSallyPlatformPhoneLine,
+  withDecryptedSipPassword,
+  type PhoneLineConnectionType,
+} from './phone-lines';
+import {
+  getPhoneLineById,
+  withOrgContext,
+  withOrgContextAsync,
+  type PhoneLinePurpose,
+} from './data-store';
+import { registerAllEnabledLines, testLineConnection } from './telephony/lineRegistry';
 
 function assertPlatformAccess(req: IncomingMessage, res: ServerResponse): boolean {
   if (!isAuthEnforced()) return true;
@@ -39,6 +57,25 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(body));
+}
+
+function parsePhoneLinePurpose(value: unknown, fallback: PhoneLinePurpose = 'aria'): PhoneLinePurpose {
+  if (value === 'staff' || value === 'sally' || value === 'aria') return value;
+  return fallback;
+}
+
+function parseConnectionType(value: unknown): PhoneLineConnectionType | undefined {
+  if (value === 'soho66' || value === 'sip' || value === 'twilio' || value === 'other') return value;
+  return undefined;
+}
+
+function orgIdFromRequest(req: IncomingMessage, body?: Record<string, unknown>): string {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const fromQuery = url.searchParams.get('orgId')?.trim();
+  if (fromQuery) return fromQuery;
+  const fromBody = body?.orgId;
+  if (typeof fromBody === 'string' && fromBody.trim()) return fromBody.trim();
+  return '';
 }
 
 function enrichOrg(org: ReturnType<typeof getOrganizationById>) {
@@ -76,6 +113,169 @@ export async function handlePlatformRoutes(
   if (pathname === '/api/platform/plans' && req.method === 'GET') {
     sendJson(res, 200, { plans: PLAN_CONFIG });
     return true;
+  }
+
+  if (pathname === '/api/platform/phone-lines/register-all' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+    const orgId = orgIdFromRequest(req, body);
+    if (!orgId) {
+      sendJson(res, 400, { error: 'orgId is required' });
+      return true;
+    }
+    if (!getOrganizationById(orgId)) {
+      sendJson(res, 404, { error: 'Organization not found' });
+      return true;
+    }
+    const result = await withOrgContextAsync(orgId, () => registerAllEnabledLines());
+    sendJson(res, 200, result);
+    return true;
+  }
+
+  if (pathname === '/api/platform/sally-phone-line' && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST')) {
+    if (req.method === 'GET') {
+      const line = getSallyPlatformPhoneLine();
+      sendJson(res, line ? 200 : 404, line ? { line } : { error: 'Sally phone line not configured' });
+      return true;
+    }
+
+    const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+    try {
+      const line = saveSallyPlatformPhoneLine({
+        label: typeof body.label === 'string' ? body.label : undefined,
+        sipUsername: String(body.sipUsername ?? ''),
+        sipPassword: typeof body.sipPassword === 'string' ? body.sipPassword : undefined,
+        sipDomain: typeof body.sipDomain === 'string' ? body.sipDomain : undefined,
+        did: String(body.did ?? ''),
+        enabled: body.enabled !== false,
+        connectionType: parseConnectionType(body.connectionType),
+      });
+      sendJson(res, 200, { line });
+    } catch (err) {
+      sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/platform/phone-lines' && req.method === 'GET') {
+    sendJson(res, 200, { lines: listAllPlatformPhoneLines() });
+    return true;
+  }
+
+  if (pathname === '/api/platform/phone-lines' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+    const orgId = orgIdFromRequest(req, body);
+    if (!orgId) {
+      sendJson(res, 400, { error: 'orgId is required' });
+      return true;
+    }
+    try {
+      const line = savePlatformPhoneLine({
+        orgId,
+        label: String(body.label ?? ''),
+        sipUsername: String(body.sipUsername ?? ''),
+        sipPassword: typeof body.sipPassword === 'string' ? body.sipPassword : undefined,
+        sipDomain: typeof body.sipDomain === 'string' ? body.sipDomain : undefined,
+        did: String(body.did ?? ''),
+        enabled: body.enabled !== false,
+        purpose: parsePhoneLinePurpose(body.purpose, 'aria'),
+        connectionType: parseConnectionType(body.connectionType),
+        assignedUserId: body.assignedUserId === null ? null : typeof body.assignedUserId === 'string' ? body.assignedUserId : undefined,
+      });
+      sendJson(res, 201, { line });
+    } catch (err) {
+      sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+
+  const phoneLineTestMatch = pathname.match(/^\/api\/platform\/phone-lines\/([^/]+)\/test$/);
+  if (phoneLineTestMatch && req.method === 'POST') {
+    const lineId = decodeURIComponent(phoneLineTestMatch[1]);
+    const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+    const orgId = orgIdFromRequest(req, body);
+    if (!orgId) {
+      sendJson(res, 400, { error: 'orgId is required' });
+      return true;
+    }
+    const line = withOrgContext(orgId, () => getPhoneLineById(lineId));
+    if (!line) {
+      sendJson(res, 404, { error: 'Line not found' });
+      return true;
+    }
+    const result = await testLineConnection(withDecryptedSipPassword(line));
+    sendJson(res, result.ok ? 200 : 400, result);
+    return true;
+  }
+
+  const phoneLineMatch = pathname.match(/^\/api\/platform\/phone-lines\/([^/]+)$/);
+  if (phoneLineMatch) {
+    const lineId = decodeURIComponent(phoneLineMatch[1]);
+
+    if (req.method === 'GET') {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const orgId = url.searchParams.get('orgId')?.trim() ?? '';
+      if (!orgId) {
+        sendJson(res, 400, { error: 'orgId query parameter is required' });
+        return true;
+      }
+      const line = getPlatformPhoneLine(orgId, lineId);
+      if (!line) {
+        sendJson(res, 404, { error: 'Line not found' });
+        return true;
+      }
+      sendJson(res, 200, { line });
+      return true;
+    }
+
+    if (req.method === 'PATCH') {
+      const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+      const orgId = orgIdFromRequest(req, body);
+      if (!orgId) {
+        sendJson(res, 400, { error: 'orgId is required' });
+        return true;
+      }
+      const existing = withOrgContext(orgId, () => getPhoneLineById(lineId));
+      if (!existing) {
+        sendJson(res, 404, { error: 'Line not found' });
+        return true;
+      }
+      try {
+        const line = savePlatformPhoneLine({
+          orgId,
+          id: lineId,
+          label: typeof body.label === 'string' ? body.label : existing.label,
+          sipUsername: typeof body.sipUsername === 'string' ? body.sipUsername : existing.sipUsername,
+          sipPassword: typeof body.sipPassword === 'string' ? body.sipPassword : undefined,
+          sipDomain: typeof body.sipDomain === 'string' ? body.sipDomain : existing.sipDomain,
+          did: typeof body.did === 'string' ? body.did : existing.did,
+          enabled: body.enabled !== undefined ? body.enabled !== false : existing.enabled,
+          purpose: body.purpose !== undefined ? parsePhoneLinePurpose(body.purpose, existing.purpose ?? 'aria') : existing.purpose,
+          connectionType: parseConnectionType(body.connectionType) ?? existing.connectionType,
+          assignedUserId: body.assignedUserId === null ? null : typeof body.assignedUserId === 'string' ? body.assignedUserId : existing.assignedUserId,
+          status: existing.status,
+        });
+        sendJson(res, 200, { line });
+      } catch (err) {
+        sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      }
+      return true;
+    }
+
+    if (req.method === 'DELETE') {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      let orgId = url.searchParams.get('orgId')?.trim() ?? '';
+      if (!orgId) {
+        const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+        orgId = orgIdFromRequest(req, body);
+      }
+      if (!orgId) {
+        sendJson(res, 400, { error: 'orgId is required' });
+        return true;
+      }
+      const ok = deletePlatformPhoneLine(orgId, lineId);
+      sendJson(res, ok ? 200 : 404, ok ? { success: true } : { error: 'Line not found' });
+      return true;
+    }
   }
 
   if (pathname === '/api/platform/stats' && req.method === 'GET') {
@@ -256,6 +456,42 @@ export async function handlePlatformRoutes(
       mainUserEmail: String(body.contactEmail).trim().toLowerCase(),
       mainUserCreated: true,
     });
+    return true;
+  }
+
+  const judieLineMatch = pathname.match(/^\/api\/platform\/organizations\/([^/]+)\/judie-phone-line$/);
+  if (judieLineMatch && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST')) {
+    const orgId = decodeURIComponent(judieLineMatch[1]);
+    if (!getOrganizationById(orgId)) {
+      sendJson(res, 404, { error: 'Organization not found' });
+      return true;
+    }
+
+    if (req.method === 'GET') {
+      const line = getJudiePhoneLineForOrg(orgId);
+      sendJson(res, line ? 200 : 404, line ? { line } : { error: 'Judie phone line not configured' });
+      return true;
+    }
+
+    const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+    try {
+      const existing = getJudiePhoneLineForOrg(orgId);
+      const line = savePlatformPhoneLine({
+        orgId,
+        id: existing?.id,
+        label: typeof body.label === 'string' ? body.label : existing?.label || 'Judie',
+        sipUsername: String(body.sipUsername ?? existing?.sipUsername ?? ''),
+        sipPassword: typeof body.sipPassword === 'string' ? body.sipPassword : undefined,
+        sipDomain: typeof body.sipDomain === 'string' ? body.sipDomain : existing?.sipDomain,
+        did: String(body.did ?? existing?.did ?? ''),
+        enabled: body.enabled !== false,
+        purpose: 'aria',
+        connectionType: parseConnectionType(body.connectionType) ?? existing?.connectionType,
+      });
+      sendJson(res, 200, { line });
+    } catch (err) {
+      sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    }
     return true;
   }
 
