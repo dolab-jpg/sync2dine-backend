@@ -186,6 +186,17 @@ export interface AgentSettings {
   deliveryPostcodePrefixes?: string[];
   /** Free-text delivery fee / min order / area notes for the phone AI */
   deliveryNotes?: string;
+  /** Minimum basket (£) before delivery is allowed — enforced in placeFoodOrder */
+  minOrderGbp?: number;
+  /** Delivery fee (£) added on delivery orders when below freeDeliveryOverGbp */
+  deliveryFeeGbp?: number;
+  /** Basket (£) at/above which delivery fee is waived (0 = never free by threshold) */
+  freeDeliveryOverGbp?: number;
+  /**
+   * When false, all channels reject new food orders (Till, phone, kiosk, inbound).
+   * Separate from isActive (phone answering only).
+   */
+  orderingEnabled?: boolean;
   updatedAt: string;
 }
 
@@ -210,6 +221,10 @@ const defaultAgentSettings: AgentSettings = {
   campaignWinbackBrief: 'We have not seen them in a while — offer a welcome-back discount on their next order.',
   deliveryPostcodePrefixes: [],
   deliveryNotes: '',
+  minOrderGbp: 0,
+  deliveryFeeGbp: 0,
+  freeDeliveryOverGbp: 0,
+  orderingEnabled: true,
   updatedAt: new Date().toISOString(),
 };
 
@@ -792,12 +807,32 @@ export async function saveOrderRecord(
         return result.order;
       }
       console.warn('[orders] Supabase upsert failed, writing disk:', result.error);
+      try {
+        const { raiseOpsAlert } = await import('./ops-alerts');
+        raiseOpsAlert({
+          orgId,
+          severity: 'critical',
+          code: 'orders_disk_fallback',
+          title: 'URGENT: Orders saving to emergency backup',
+          message: `Cloud order save failed (${result.error ?? 'unknown'}). Phone/Till can still take orders on disk — check Supabase urgently.`,
+        });
+      } catch { /* ignore */ }
     }
   } catch (err) {
     console.warn(
       '[orders] Supabase save failed, using disk:',
       err instanceof Error ? err.message : err,
     );
+    try {
+      const { raiseOpsAlert } = await import('./ops-alerts');
+      raiseOpsAlert({
+        orgId,
+        severity: 'critical',
+        code: 'orders_disk_fallback',
+        title: 'URGENT: Orders saving to emergency backup',
+        message: `Cloud order save error (${err instanceof Error ? err.message : 'unknown'}). Phone/Till can still take orders — check platform health urgently.`,
+      });
+    } catch { /* ignore */ }
   }
 
   // Offline / unconfigured fallback — still prefer UUID when possible
@@ -828,6 +863,7 @@ export async function saveOrderRecord(
     total: Number(order.total ?? 0),
     updatedAt: new Date().toISOString(),
     createdAt: order.createdAt ?? new Date().toISOString(),
+    persistence: 'disk_fallback',
   };
   if (existing >= 0) {
     store.orders[existing] = { ...store.orders[existing], ...record };

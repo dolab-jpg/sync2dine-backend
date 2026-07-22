@@ -1392,16 +1392,28 @@ export async function executePhoneTool(
 
   if (name === 'getDeliveryAreas') {
     const { normalizeDeliveryPrefixes } = await import('./delivery-areas');
+    const { formatSpokenGbp } = await import('./spoken-money');
     const settings = getDataStore().agentSettings;
     const prefixes = normalizeDeliveryPrefixes(settings?.deliveryPostcodePrefixes);
     const notes = settings?.deliveryNotes?.trim() || '';
+    const minOrderGbp = Number(settings?.minOrderGbp ?? 0) || 0;
+    const deliveryFeeGbp = Number(settings?.deliveryFeeGbp ?? 0) || 0;
+    const freeDeliveryOverGbp = Number(settings?.freeDeliveryOverGbp ?? 0) || 0;
+    const ruleBits: string[] = [];
+    if (minOrderGbp > 0) ruleBits.push(`minimum order ${formatSpokenGbp(minOrderGbp)}`);
+    if (deliveryFeeGbp > 0) ruleBits.push(`delivery ${formatSpokenGbp(deliveryFeeGbp)}`);
+    if (freeDeliveryOverGbp > 0) ruleBits.push(`free delivery over ${formatSpokenGbp(freeDeliveryOverGbp)}`);
+    const rulesSpeak = ruleBits.length ? ruleBits.join(', ') : '';
     if (!prefixes.length) {
       return {
         ok: true,
         prefixes: [],
         deliveryNotes: notes || undefined,
-        spokenHint: notes
-          ? `We have not set delivery postcodes in the app yet. ${notes}`
+        minOrderGbp,
+        deliveryFeeGbp,
+        freeDeliveryOverGbp,
+        spokenHint: notes || rulesSpeak
+          ? `We have not set delivery postcodes in the app yet. ${[rulesSpeak, notes].filter(Boolean).join('. ')}`
           : 'We have not set delivery postcodes in the app yet — I can offer collection, or take a message for the team.',
       };
     }
@@ -1410,9 +1422,14 @@ export async function executePhoneTool(
       ok: true,
       prefixes,
       deliveryNotes: notes || undefined,
-      spokenHint: notes
-        ? `We deliver to postcodes starting ${spokenPrefixes}. ${notes}`
-        : `We deliver to postcodes starting ${spokenPrefixes}.`,
+      minOrderGbp,
+      deliveryFeeGbp,
+      freeDeliveryOverGbp,
+      spokenHint: [
+        `We deliver to postcodes starting ${spokenPrefixes}.`,
+        rulesSpeak,
+        notes,
+      ].filter(Boolean).join(' '),
     };
   }
 

@@ -25,18 +25,46 @@ const EXTRA_STAFF: StaffSeed[] = [
 ];
 
 const MENU = [
-  { id: 'food-chicken-biryani', name: 'Chicken biryani', sellPrice: 9.5, category: 'mains', allergensContains: ['milk'], allergensMayContain: ['nuts'], allergenDeclared: true },
-  { id: 'food-lamb-curry', name: 'Lamb curry', sellPrice: 10.5, category: 'mains', allergensContains: ['milk'], dietary: ['halal'], allergenDeclared: true },
-  { id: 'food-garlic-naan', name: 'Garlic naan', sellPrice: 2.5, category: 'sides', allergensContains: ['gluten', 'milk'], allergenDeclared: true },
-  { id: 'food-pilau-rice', name: 'Pilau rice', sellPrice: 2.8, category: 'sides', allergensContains: [] as string[], allergenDeclared: true },
+  // Starters
   { id: 'food-onion-bhaji', name: 'Onion bhaji', sellPrice: 3.5, category: 'starters', allergensContains: ['gluten'], dietary: ['vegetarian'], allergenDeclared: true },
-  { id: 'food-mango-lassi', name: 'Mango lassi', sellPrice: 3.0, category: 'drinks', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
   { id: 'food-veg-samosa', name: 'Veg samosa (2)', sellPrice: 3.2, category: 'starters', allergensContains: ['gluten'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-meat-samosa', name: 'Meat samosa (2)', sellPrice: 3.8, category: 'starters', allergensContains: ['gluten'], dietary: ['halal'], allergenDeclared: true },
+  { id: 'food-chicken-pakora', name: 'Chicken pakora', sellPrice: 4.5, category: 'starters', allergensContains: ['gluten'], dietary: ['halal'], allergenDeclared: true },
+  { id: 'food-paneer-pakora', name: 'Paneer pakora', sellPrice: 4.2, category: 'starters', allergensContains: ['milk', 'gluten'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-mixed-starter', name: 'Mixed starter platter', sellPrice: 8.5, category: 'starters', allergensContains: ['gluten', 'milk'], allergenDeclared: true },
+  // Mains
+  { id: 'food-chicken-biryani', name: 'Chicken biryani', sellPrice: 9.5, category: 'mains', allergensContains: ['milk'], allergensMayContain: ['nuts'], allergenDeclared: true },
+  { id: 'food-lamb-biryani', name: 'Lamb biryani', sellPrice: 10.5, category: 'mains', allergensContains: ['milk'], dietary: ['halal'], allergenDeclared: true },
+  { id: 'food-lamb-curry', name: 'Lamb curry', sellPrice: 10.5, category: 'mains', allergensContains: ['milk'], dietary: ['halal'], allergenDeclared: true },
   { id: 'food-butter-chicken', name: 'Butter chicken', sellPrice: 11.0, category: 'mains', allergensContains: ['milk', 'nuts'], allergenDeclared: true },
+  { id: 'food-chicken-tikka-masala', name: 'Chicken tikka masala', sellPrice: 10.5, category: 'mains', allergensContains: ['milk'], allergenDeclared: true },
+  { id: 'food-chicken-jalfrezi', name: 'Chicken jalfrezi', sellPrice: 10.0, category: 'mains', allergensContains: [] as string[], allergenDeclared: true },
+  { id: 'food-lamb-rogan-josh', name: 'Lamb rogan josh', sellPrice: 11.5, category: 'mains', allergensContains: ['milk'], dietary: ['halal'], allergenDeclared: true },
   { id: 'food-paneer-tikka', name: 'Paneer tikka', sellPrice: 9.0, category: 'mains', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
-  { id: 'food-gulab-jamun', name: 'Gulab jamun', sellPrice: 3.5, category: 'desserts', allergensContains: ['milk', 'gluten'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-chana-masala', name: 'Chana masala', sellPrice: 8.0, category: 'mains', allergensContains: [] as string[], dietary: ['vegan', 'vegetarian'], allergenDeclared: true },
+  { id: 'food-dal-makhani', name: 'Dal makhani', sellPrice: 8.5, category: 'mains', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-fish-curry', name: 'Fish curry', sellPrice: 11.0, category: 'mains', allergensContains: ['fish'], allergenDeclared: true },
+  { id: 'food-keema-peas', name: 'Keema peas', sellPrice: 9.5, category: 'mains', allergensContains: [] as string[], dietary: ['halal'], allergenDeclared: true },
+  // Sides
+  { id: 'food-garlic-naan', name: 'Garlic naan', sellPrice: 2.5, category: 'sides', allergensContains: ['gluten', 'milk'], allergenDeclared: true },
+  { id: 'food-plain-naan', name: 'Plain naan', sellPrice: 2.0, category: 'sides', allergensContains: ['gluten', 'milk'], allergenDeclared: true },
+  { id: 'food-peshwari-naan', name: 'Peshwari naan', sellPrice: 3.0, category: 'sides', allergensContains: ['gluten', 'milk', 'nuts'], allergenDeclared: true },
+  { id: 'food-pilau-rice', name: 'Pilau rice', sellPrice: 2.8, category: 'sides', allergensContains: [] as string[], allergenDeclared: true },
+  { id: 'food-plain-rice', name: 'Boiled rice', sellPrice: 2.2, category: 'sides', allergensContains: [] as string[], dietary: ['vegan'], allergenDeclared: true },
   { id: 'food-chips', name: 'Chips', sellPrice: 2.5, category: 'sides', allergensContains: [] as string[], allergenDeclared: true },
+  { id: 'food-raita', name: 'Raita', sellPrice: 2.0, category: 'sides', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-mango-chutney', name: 'Mango chutney', sellPrice: 1.5, category: 'sides', allergensContains: [] as string[], dietary: ['vegan'], allergenDeclared: true },
+  // Drinks
+  { id: 'food-mango-lassi', name: 'Mango lassi', sellPrice: 3.0, category: 'drinks', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
   { id: 'food-coke', name: 'Coke', sellPrice: 1.8, category: 'drinks', allergensContains: [] as string[], allergenDeclared: true },
+  { id: 'food-diet-coke', name: 'Diet Coke', sellPrice: 1.8, category: 'drinks', allergensContains: [] as string[], allergenDeclared: true },
+  { id: 'food-sprite', name: 'Sprite', sellPrice: 1.8, category: 'drinks', allergensContains: [] as string[], allergenDeclared: true },
+  { id: 'food-water', name: 'Still water', sellPrice: 1.2, category: 'drinks', allergensContains: [] as string[], dietary: ['vegan'], allergenDeclared: true },
+  // Desserts
+  { id: 'food-gulab-jamun', name: 'Gulab jamun', sellPrice: 3.5, category: 'desserts', allergensContains: ['milk', 'gluten'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-kheer', name: 'Rice kheer', sellPrice: 3.5, category: 'desserts', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
+  { id: 'food-ice-cream', name: 'Ice cream scoop', sellPrice: 2.5, category: 'desserts', allergensContains: ['milk'], dietary: ['vegetarian'], allergenDeclared: true },
+  // Meal deals
   {
     id: 'food-mile-a-meal',
     name: 'Mile a Meal',
@@ -45,9 +73,23 @@ const MENU = [
     description: '1 main + 1 side + 1 drink',
     deal: {
       roles: [
-        { role: 'main', qtyPerDeal: 1, choices: ['Chicken biryani', 'Butter chicken', 'Lamb curry', 'Paneer tikka'] },
-        { role: 'side', qtyPerDeal: 1, choices: ['Pilau rice', 'Chips', 'Garlic naan'] },
-        { role: 'drink', qtyPerDeal: 1, choices: ['Coke', 'Mango lassi'] },
+        { role: 'main', qtyPerDeal: 1, choices: ['Chicken biryani', 'Butter chicken', 'Lamb curry', 'Paneer tikka', 'Chicken tikka masala', 'Chana masala'] },
+        { role: 'side', qtyPerDeal: 1, choices: ['Pilau rice', 'Chips', 'Garlic naan', 'Boiled rice'] },
+        { role: 'drink', qtyPerDeal: 1, choices: ['Coke', 'Diet Coke', 'Sprite', 'Mango lassi'] },
+      ],
+    },
+  },
+  {
+    id: 'food-family-feast',
+    name: 'Family Feast',
+    sellPrice: 32.0,
+    category: 'specials',
+    description: '2 mains + 2 sides + 2 drinks',
+    deal: {
+      roles: [
+        { role: 'main', qtyPerDeal: 2, choices: ['Chicken biryani', 'Butter chicken', 'Lamb curry', 'Lamb biryani', 'Paneer tikka'] },
+        { role: 'side', qtyPerDeal: 2, choices: ['Pilau rice', 'Chips', 'Garlic naan', 'Plain naan'] },
+        { role: 'drink', qtyPerDeal: 2, choices: ['Coke', 'Diet Coke', 'Sprite', 'Mango lassi'] },
       ],
     },
   },

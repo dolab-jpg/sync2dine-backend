@@ -5,6 +5,7 @@
 import {
   getDataStore,
   getRequestOrgId,
+  listOrderRecords,
   lookupContactByPhone,
   saveOrderRecord,
 } from './data-store';
@@ -115,9 +116,56 @@ function buildSpokenHint(opts: {
  */
 export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceFoodOrderResult> {
   const orgId = firstString(input.orgId) ?? getRequestOrgId();
+  const settings = getDataStore().agentSettings;
+  if (settings?.orderingEnabled === false) {
+    return {
+      ok: false,
+      error: 'ordering_suspended',
+      spokenHint: 'We are not taking new orders right now ? please try again later or call in for help.',
+    };
+  }
+
   const rawItems = Array.isArray(input.items) ? input.items : [];
   if (!rawItems.length) {
     return { ok: false, error: 'items_required', spokenHint: 'Tell me what you would like to order first.' };
+  }
+
+  const channelEarly = (firstString(input.channel) ?? 'phone').toLowerCase();
+  const callIdEarly = firstString(input.sourceCallId);
+  // Phone/Judie double-place guard: one successful order per call id.
+  if (callIdEarly && (channelEarly === 'phone' || channelEarly === 'kiosk' || channelEarly === 'vapi')) {
+    try {
+      const existing = await listOrderRecords(orgId);
+      const prior = existing.find((o) => {
+        const sc = String(o.sourceCallId ?? '');
+        const st = String(o.status ?? '').toLowerCase();
+        return sc === callIdEarly && st !== 'cancelled';
+      });
+      if (prior) {
+        const spokenTotal = formatSpokenGbp(Number(prior.total ?? 0));
+        const orderNumber =
+          typeof prior.orderNumber === 'string' || typeof prior.orderNumber === 'number'
+            ? prior.orderNumber
+            : undefined;
+        return {
+          ok: true,
+          orderId: String(prior.id),
+          orderNumber,
+          total: Number(prior.total ?? 0),
+          spokenTotal,
+          specialName: prior.specialName != null ? String(prior.specialName) : null,
+          deliveryAddress: prior.deliveryAddress != null ? String(prior.deliveryAddress) : null,
+          deliveryPostcode: prior.deliveryPostcode != null ? String(prior.deliveryPostcode) : null,
+          customerId: prior.customerId != null ? String(prior.customerId) : null,
+          syncState: String(prior.syncState ?? 'local'),
+          spokenHint: `Order ${orderNumber ?? prior.id} is already on the kitchen board ? ${spokenTotal}. No need to place it again.`,
+          order: prior,
+          posPush: { attempted: false },
+        };
+      }
+    } catch {
+      /* continue to place if lookup fails */
+    }
   }
 
   const orderType = firstString(input.orderType) ?? 'collection';
@@ -287,7 +335,7 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     };
   });
 
-  // Catalog/deal pricing wins  never trust client/AI total for money.
+  // Catalog/deal pricing wins ? never trust client/AI total for money.
   const totalBeforeSpecial = pricedTotal;
 
   const phone = firstString(input.customerPhone, input.callerPhone) ?? '';
@@ -312,14 +360,38 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
       const pct = Math.min(100, Math.max(0, Number(pctMatch[1])));
       if (Number.isFinite(pct) && pct > 0) {
         total = Math.round(totalBeforeSpecial * (1 - pct / 100) * 100) / 100;
-        specialAppliedNote = `${appliedSpecialName}: ${pct}% off (${formatSpokenGbp(totalBeforeSpecial)} ? ${formatSpokenGbp(total)})`;
+        specialAppliedNote = `${appliedSpecialName}: ${pct}% off (${formatSpokenGbp(totalBeforeSpecial)} to ${formatSpokenGbp(total)})`;
       }
     }
     if (!specialAppliedNote) {
       specialAppliedNote = `${appliedSpecialName}: ${crmSpecialNote}`;
     }
   } else if (appliedSpecialName && crmSpecialName) {
-    specialAppliedNote = `Special: ${appliedSpecialName}${crmSpecialNote ? `  ${crmSpecialNote}` : ''}`;
+    specialAppliedNote = `Special: ${appliedSpecialName}${crmSpecialNote ? ` ? ${crmSpecialNote}` : ''}`;
+  }
+
+  // Delivery economics from restaurant criteria (Settings chart).
+  const minOrder = Number(settings?.minOrderGbp ?? 0);
+  const deliveryFeeCfg = Number(settings?.deliveryFeeGbp ?? 0);
+  const freeOver = Number(settings?.freeDeliveryOverGbp ?? 0);
+  let deliveryFeeApplied = 0;
+  if (orderType === 'delivery') {
+    if (Number.isFinite(minOrder) && minOrder > 0 && total + 1e-9 < minOrder) {
+      const shortBy = Math.round((minOrder - total) * 100) / 100;
+      return {
+        ok: false,
+        error: 'below_minimum_order',
+        spokenHint: `Our minimum for delivery is ${formatSpokenGbp(minOrder)} ? you are ${formatSpokenGbp(shortBy)} short. Add a bit more, or make it collection?`,
+      };
+    }
+    if (Number.isFinite(deliveryFeeCfg) && deliveryFeeCfg > 0) {
+      const qualifiesFree =
+        Number.isFinite(freeOver) && freeOver > 0 && total + 1e-9 >= freeOver;
+      if (!qualifiesFree) {
+        deliveryFeeApplied = deliveryFeeCfg;
+        total = Math.round((total + deliveryFeeApplied) * 100) / 100;
+      }
+    }
   }
 
   const { formatUkPostcodeDisplay, normalizeUkPostcode } = await import('./delivery-areas');
@@ -338,7 +410,9 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
   }
 
   const baseNotes = firstString(input.notes) ?? '';
-  const notes = [baseNotes, specialAppliedNote].filter(Boolean).join(' | ');
+  const deliveryFeeNote =
+    deliveryFeeApplied > 0 ? `Delivery fee ${formatSpokenGbp(deliveryFeeApplied)}` : '';
+  const notes = [baseNotes, specialAppliedNote, deliveryFeeNote].filter(Boolean).join(' | ');
 
   const payRaw = (firstString(input.paymentStatus) ?? 'unpaid').toLowerCase();
   let paymentStatus = 'unpaid';

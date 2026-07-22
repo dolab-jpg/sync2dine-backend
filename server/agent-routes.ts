@@ -157,6 +157,16 @@ async function handlePatchSettings(req: IncomingMessage, res: ServerResponse) {
     patch.deliveryPostcodePrefixes = normalizeDeliveryPrefixes(body.deliveryPostcodePrefixes);
   }
   if (typeof body.deliveryNotes === 'string') patch.deliveryNotes = body.deliveryNotes;
+  if (typeof body.orderingEnabled === 'boolean') patch.orderingEnabled = body.orderingEnabled;
+  if (body.minOrderGbp != null && Number.isFinite(Number(body.minOrderGbp))) {
+    patch.minOrderGbp = Math.max(0, Math.round(Number(body.minOrderGbp) * 100) / 100);
+  }
+  if (body.deliveryFeeGbp != null && Number.isFinite(Number(body.deliveryFeeGbp))) {
+    patch.deliveryFeeGbp = Math.max(0, Math.round(Number(body.deliveryFeeGbp) * 100) / 100);
+  }
+  if (body.freeDeliveryOverGbp != null && Number.isFinite(Number(body.freeDeliveryOverGbp))) {
+    patch.freeDeliveryOverGbp = Math.max(0, Math.round(Number(body.freeDeliveryOverGbp) * 100) / 100);
+  }
   const updated = updateAgentSettings(patch);
   sendJson(res, 200, updated);
 }
@@ -504,6 +514,22 @@ export async function handleAgentRoutes(
   }
   if (pathname === '/api/agent/settings' && req.method === 'PATCH') {
     await handlePatchSettings(req, res);
+    return true;
+  }
+  if (pathname === '/api/ops/alerts' && req.method === 'GET') {
+    const { listOpsAlerts } = await import('./ops-alerts');
+    sendJson(res, 200, { alerts: listOpsAlerts(orgId) });
+    return true;
+  }
+  if (pathname.startsWith('/api/ops/alerts/') && req.method === 'POST') {
+    const id = decodeURIComponent(pathname.slice('/api/ops/alerts/'.length).replace(/\/ack$/, ''));
+    const { acknowledgeOpsAlert } = await import('./ops-alerts');
+    const row = acknowledgeOpsAlert(orgId, id);
+    if (!row) {
+      sendJson(res, 404, { error: 'not_found' });
+      return true;
+    }
+    sendJson(res, 200, { alert: row });
     return true;
   }
   if (pathname === '/api/agent/transfer-numbers' && req.method === 'GET') {

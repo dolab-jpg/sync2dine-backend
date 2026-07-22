@@ -45,9 +45,10 @@ export const sallyBrain: BrainPackage = {
 
     let firstMessage: string;
     if (staffMode) {
+      // Cynthia-style staff call-in: same PIN-gated tools (inbox, compose/send email, CRM) on Sally.
       firstMessage = input.verified
-        ? `Alright ${firstName || 'love'}, Sally here — you're unlocked, what do you need?`
-        : `Alright ${firstName || 'love'}, Sally here — say your four-digit security code when you can and I'll unlock the staff tools.`;
+        ? `Alright ${firstName || 'love'}, Sally here — staff tools are unlocked. I can brief your inbox, draft and send company emails, or pull CRM — what do you need?`
+        : `Alright ${firstName || 'love'}, Sally here for staff. Say your four-digit security code and I'll unlock inbox, emails, and CRM like Cynthia does.`;
     } else if (input.direction === 'outbound') {
       firstMessage = firstName && !/^guest$/i.test(firstName)
         ? `Alright ${firstName}, it's Sally from Sync2Dine — you got a minute?`

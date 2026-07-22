@@ -27,7 +27,6 @@ import {
   recordIdempotency,
 } from './event-log';
 import {
-  inboundOrderToSavePayload,
   parseDeliverectInboundOrder,
   parseGenericInboundOrder,
 } from './inbound-orders';
@@ -119,8 +118,21 @@ async function ingestInboundOrder(
     return { status: 200, payload: { ok: true, duplicate: true, orderId: existing.id } };
   }
 
-  const savePayload = inboundOrderToSavePayload(parsed, provider, config?.statusMap);
-  const order = await saveOrderRecord(savePayload, orgId);
+  const { normaliseInboundOrder } = await import('./inbound-normalize');
+  const normalised = await normaliseInboundOrder(orgId, provider, parsed, config?.statusMap);
+  if (!normalised.ok) {
+    await logConnectorEvent({
+      orgId,
+      provider,
+      direction: 'inbound',
+      eventType: 'order.created',
+      status: 'error',
+      payload: body,
+      error: normalised.error,
+    });
+    return { status: normalised.status, payload: { error: normalised.error } };
+  }
+  const order = await saveOrderRecord(normalised.savePayload, orgId);
   if (idempotencyKey) await recordIdempotency(orgId, provider, idempotencyKey, String(order.id));
 
   await saveConnectorConfig(orgId, { lastInboundAt: new Date().toISOString(), lastError: '' });
@@ -398,7 +410,6 @@ export async function handleConnectorRoutes(
 
   if (pathname === '/api/connectors/square/oauth/start' && req.method === 'GET') {
     // #region agent log
-    fetch('http://127.0.0.1:7756/ingest/45011e36-ac12-4dbc-b7c1-e1827334fcf5',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6b4e46'},body:JSON.stringify({sessionId:'6b4e46',runId:'debug-square',hypothesisId:'D',location:'routes.ts:square-oauth-start',message:'square oauth start hit',data:{orgId,hasAppId:Boolean(squareAppCredentials().applicationId)},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
     const { applicationId } = squareAppCredentials();
     if (!applicationId) {

@@ -1,11 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import {
-  DEFAULT_ORG_ID,
   listOrderRecords,
   setRequestOrgId,
   updateOrderRecord,
 } from './data-store';
-import { resolveOrgIdForRequest } from './auth';
+import { resolveOrgIdForRequest, requireAuth } from './auth';
+import { getProfileByBearer } from './account-auth';
 import { notifyConnectorOrderStatusChange } from './connectors/routes';
 import { placeFoodOrder } from './order-service';
 
@@ -24,6 +24,47 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+const ALLOWED_PATCH_KEYS = new Set([
+  'status',
+  'paymentStatus',
+  'paymentMethod',
+]);
+
+const STATUS_TRANSITIONS: Record<string, string[]> = {
+  new: ['cooking', 'preparing', 'coming', 'ready', 'cancelled', 'completed'],
+  cooking: ['ready', 'preparing', 'coming', 'cancelled', 'completed', 'delivery', 'out'],
+  preparing: ['ready', 'cooking', 'cancelled', 'completed', 'delivery', 'out'],
+  coming: ['ready', 'cooking', 'cancelled', 'completed'],
+  ready: ['delivery', 'out', 'completed', 'cancelled', 'cooking'],
+  delivery: ['completed', 'cancelled', 'ready'],
+  out: ['completed', 'cancelled', 'ready'],
+  completed: [],
+  cancelled: [],
+};
+
+function normalizeStatus(raw: unknown): string {
+  return String(raw ?? '').trim().toLowerCase();
+}
+
+function allowStatusTransition(from: string, to: string): boolean {
+  if (!to) return false;
+  if (from === to) return true;
+  const allowed = STATUS_TRANSITIONS[from];
+  if (!allowed) return true; // unknown prior status — allow board bump
+  if (allowed.includes(to)) return true;
+  // permissive aliases used by the kitchen board
+  const aliases: Record<string, string> = {
+    preparing: 'cooking',
+    coming: 'cooking',
+    out: 'delivery',
+  };
+  const fromN = aliases[from] ?? from;
+  const toN = aliases[to] ?? to;
+  if (fromN === toN) return true;
+  const allowedN = STATUS_TRANSITIONS[fromN];
+  return !!allowedN?.includes(to) || !!allowedN?.includes(toN);
+}
+
 /**
  * Sync2Dine restaurant orders API — Supabase `public.orders` is primary;
  * disk JSON is write-through cache / offline fallback.
@@ -36,8 +77,40 @@ export async function handleOrdersRoutes(
 ): Promise<boolean> {
   if (!pathname.startsWith('/api/orders')) return false;
 
-  const orgId = resolveOrgIdForRequest(req, {}) || DEFAULT_ORG_ID;
+  // SEC-001: staff orders API requires first-page login (Supabase session or legacy JWT).
+  // Never serve the home-org dump to anonymous callers.
+  let profile: Awaited<ReturnType<typeof getProfileByBearer>> = null;
+  try {
+    profile = await getProfileByBearer(req);
+  } catch {
+    profile = null;
+  }
+  const legacy = requireAuth(req);
+  if (!profile && !legacy) {
+    sendJson(res, 401, { error: 'Unauthorized', hint: 'Sign in at /login' });
+    return true;
+  }
+
+  const headerOrg = typeof req.headers['x-org-id'] === 'string' ? req.headers['x-org-id'].trim() : '';
+  let orgId = '';
+  if (profile) {
+    if (profile.role === 'platform_owner' && headerOrg) orgId = headerOrg;
+    else if (typeof profile.org_id === 'string' && profile.org_id.trim()) orgId = profile.org_id.trim();
+    else if (headerOrg) orgId = headerOrg;
+  }
+  if (!orgId && legacy) {
+    orgId =
+      resolveOrgIdForRequest(req, { orgId: legacy.orgId ?? undefined })
+      || (legacy.orgId ? String(legacy.orgId) : '')
+      || headerOrg;
+  }
+  if (!orgId) {
+    sendJson(res, 400, { error: 'org_required' });
+    return true;
+  }
   setRequestOrgId(orgId);
+  const actorUserId = profile?.id != null ? String(profile.id) : legacy?.userId;
+  const actorEmail = profile?.email != null ? String(profile.email) : legacy?.email;
 
   if (pathname === '/api/orders' && req.method === 'GET') {
     const orders = await listOrderRecords(orgId);
@@ -117,18 +190,54 @@ export async function handleOrdersRoutes(
       sendJson(res, 400, { error: 'Invalid JSON body' });
       return true;
     }
-    const updated = await updateOrderRecord(id, body, orgId);
+
+    // SEC-002: allowlist board fields only — no items/total rewrites via PATCH.
+    const patch: Record<string, unknown> = {};
+    for (const key of ALLOWED_PATCH_KEYS) {
+      if (body[key] !== undefined) patch[key] = body[key];
+    }
+    if (!Object.keys(patch).length) {
+      sendJson(res, 400, { error: 'no_allowed_fields', allowed: [...ALLOWED_PATCH_KEYS] });
+      return true;
+    }
+
+    if (patch.status != null) {
+      const orders = await listOrderRecords(orgId);
+      const current = orders.find((o) => String(o.id) === id);
+      if (!current) {
+        sendJson(res, 404, { error: 'Order not found' });
+        return true;
+      }
+      const from = normalizeStatus(current.status);
+      const to = normalizeStatus(patch.status);
+      if (!allowStatusTransition(from, to)) {
+        sendJson(res, 400, {
+          error: 'invalid_status_transition',
+          from,
+          to,
+        });
+        return true;
+      }
+      patch.status = to;
+    }
+
+    if (actorUserId) {
+      patch.lastActorUserId = actorUserId;
+      patch.lastActorEmail = actorEmail;
+      patch.lastActorAt = new Date().toISOString();
+    }
+
+    const updated = await updateOrderRecord(id, patch, orgId);
     if (!updated) {
       sendJson(res, 404, { error: 'Order not found' });
       return true;
     }
-    if (body.status != null) {
+    if (patch.status != null) {
       void notifyConnectorOrderStatusChange(orgId, updated);
     }
     sendJson(res, 200, { order: updated });
     return true;
   }
 
-  sendJson(res, 405, { error: 'Method not allowed' });
-  return true;
+  return false;
 }
