@@ -98,7 +98,13 @@ export async function runWeeklyUsageBilling(options: {
     for (const org of targets) {
       try {
         const existing = findBillingPeriod(org.id, resolved.weekStartIso);
-        if (existing?.stripeInvoiceId && existing.status !== 'draft' && existing.status !== 'void') {
+        if (
+          existing
+          && existing.status !== 'draft'
+          && existing.status !== 'void'
+          && existing.status !== 'skipped'
+          && (existing.stripeInvoiceId || existing.status === 'paid' || existing.status === 'past_due' || existing.status === 'open')
+        ) {
           skipped += 1;
           results.push({
             orgId: org.id,
@@ -116,6 +122,20 @@ export async function runWeeklyUsageBilling(options: {
         });
 
         if (breakdown.customerSubtotalGbp <= 0) {
+          // Never wipe a previously rated non-zero draft/open period with a zero re-rate
+          // (e.g. usage store temporarily empty during a worker tick).
+          if (existing && existing.customerSubtotalGbp > 0 && existing.status !== 'skipped') {
+            skipped += 1;
+            results.push({
+              orgId: org.id,
+              orgName: org.name,
+              skipped: true,
+              reason: 'keep_existing_nonzero',
+              invoiceId: existing.stripeInvoiceId,
+              amountGbp: existing.customerSubtotalGbp,
+            });
+            continue;
+          }
           await saveBillingPeriodFromBreakdown(breakdown, { status: 'skipped' });
           skipped += 1;
           results.push({

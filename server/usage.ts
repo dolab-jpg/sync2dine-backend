@@ -178,6 +178,8 @@ export function recordProviderUsage(input: {
   userId?: string;
   metadata?: Record<string, unknown>;
   costUsd?: number;
+  /** Optional timestamp for backfill / local billing debug. */
+  createdAt?: string;
 }): UsageEvent {
   const quantity = Math.max(0, Number(input.quantity) || 0);
   let costUsd = input.costUsd;
@@ -188,6 +190,9 @@ export function recordProviderUsage(input: {
       costUsd = 0;
     }
   }
+  const createdAt = input.createdAt && !Number.isNaN(new Date(input.createdAt).getTime())
+    ? new Date(input.createdAt).toISOString()
+    : new Date().toISOString();
   const event: UsageEvent = {
     id: `use_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     orgId: normalizeUsageOrgId(input.orgId),
@@ -198,7 +203,7 @@ export function recordProviderUsage(input: {
     completionTokens: 0,
     totalTokens: input.unit === 'tokens' ? quantity : 0,
     costUsd,
-    createdAt: new Date().toISOString(),
+    createdAt,
     provider: input.provider,
     unit: input.unit,
     quantity,
@@ -236,6 +241,13 @@ export function listUsageEventsInRange(
     const t = new Date(e.createdAt).getTime();
     return t >= start && t < end;
   });
+}
+
+/** Test/debug helper — remove local usage rows for an org. */
+export function clearUsageEventsForOrg(orgId: string): void {
+  const oid = normalizeUsageOrgId(orgId);
+  memoryEvents = allEvents().filter((e) => e.orgId !== oid);
+  persist();
 }
 
 export function getProviderQuantityThisMonth(orgId: string, provider: UsageProvider): number {

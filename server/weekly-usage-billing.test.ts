@@ -143,6 +143,48 @@ describe('weekly usage billing', () => {
       deleteOrganization(org.id);
     }
   });
+
+  it('worker keeps non-zero draft when a later rate returns zero', async () => {
+    const org = seedOrg();
+    try {
+      const week = weekRangeFromStart('2026-07-13T00:00:00.000Z');
+      const { recordProviderUsage, clearUsageEventsForOrg } = await import('./usage');
+      const { saveBillingPeriodFromBreakdown, findBillingPeriod } = await import('./billing-periods');
+      const { runWeeklyUsageBilling } = await import('./weekly-billing-worker');
+
+      recordProviderUsage({
+        orgId: org.id,
+        provider: 'phone',
+        unit: 'seconds',
+        quantity: 200 * 60,
+        endpoint: 'phone.ai',
+        createdAt: '2026-07-15T12:00:00.000Z',
+        metadata: { billAs: 'ai' },
+      });
+
+      const rated = buildWeeklyBillingBreakdown(org.id, { weekStartIso: week.weekStartIso });
+      assert.ok(rated.customerSubtotalGbp > 0);
+      await saveBillingPeriodFromBreakdown(rated, { status: 'draft' });
+      const keptAmount = rated.customerSubtotalGbp;
+
+      // Clear usage so a naive re-rate would be £0 — worker must keep the draft.
+      clearUsageEventsForOrg(org.id);
+      const summary = await runWeeklyUsageBilling({
+        orgId: org.id,
+        weekStartIso: week.weekStartIso,
+        dryRun: true,
+      });
+      const row = summary.results.find((r) => r.orgId === org.id);
+      assert.equal(row?.reason, 'keep_existing_nonzero');
+      assert.equal(row?.amountGbp, keptAmount);
+
+      const after = findBillingPeriod(org.id, week.weekStartIso);
+      assert.equal(after?.customerSubtotalGbp, keptAmount);
+      assert.equal(after?.status, 'draft');
+    } finally {
+      deleteOrganization(org.id);
+    }
+  });
 });
 
 // Keep listOrganizations warm in case home-org seeding interferes
