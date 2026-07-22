@@ -91,14 +91,17 @@ export async function buildVapiAssistantForParty(opts: {
   callId?: string;
   contactName?: string;
   agentPersona?: string;
+  /** Trusted org from DID routing — never from the LLM. */
+  orgId?: string;
 }): Promise<{
   assistant: Record<string, unknown>;
   identity: PhoneCallerIdentity;
   verified: boolean;
   agentPersona?: string;
 }> {
+  const orgId = String(opts.orgId || getHomeOrgId() || DEFAULT_ORG_ID).trim();
   await hydrateCallerFromCloud(opts.partyPhone);
-  const identity = resolvePhoneCallerIdentity(opts.partyPhone, DEFAULT_ORG_ID);
+  const identity = resolvePhoneCallerIdentity(opts.partyPhone, orgId);
   const verified = opts.callId ? isPhoneAuthVerified(opts.callId) : false;
   const existingCall = opts.callId ? getCallById(opts.callId) : undefined;
   const languageOverride = (existingCall?.metadata as Record<string, unknown> | undefined)?.callLanguage as
@@ -163,7 +166,8 @@ export async function buildVapiAssistantForParty(opts: {
     : baseVoice;
 
   const model = await buildVapiModelBlock({
-    orgId: getHomeOrgId() || DEFAULT_ORG_ID,
+    // Judie restaurant calls use the restaurant org key; Sally uses home/platform.
+    orgId: sally ? (getHomeOrgId() || orgId) : orgId,
     instructions,
     tools: [...nativeTools, ...functionTools],
   });

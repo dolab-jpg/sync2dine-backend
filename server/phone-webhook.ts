@@ -25,7 +25,7 @@ import {
 } from './data-store';
 import { resolveOrgIdForRequest, isAuthEnforced, requireAuth } from './auth';
 import { OpenAIConnectionError } from './openai-connection';
-import { getOrganizationByPhoneDid } from './organizations';
+import { resolveInboundDidRoute } from './phone-lines';
 import { handleChannelInbound } from './channel-inbound-handler';
 import { buildPhoneBrainPrompt } from './phone-brain';
 import {
@@ -78,14 +78,9 @@ function headersToRecord(req: IncomingMessage): Record<string, string> {
 }
 
 function resolvePhoneOrgId(toDid: string): string {
-  const byDid = getOrganizationByPhoneDid(toDid);
-  if (byDid?.id) return byDid.id;
-  // Keep CRM on the default local store ó never switch to a cloud org UUID just because it has an OpenAI key.
-  const current = getRequestOrgId();
-  if (current && current !== DEFAULT_ORG_ID && current !== 'default') {
-    // Only keep non-default if it actually has CRM data loaded; otherwise default.
-    return DEFAULT_ORG_ID;
-  }
+  const route = resolveInboundDidRoute(toDid, { allowDemoFallback: !String(toDid || '').trim() });
+  if (route.ok) return route.orgId;
+  // Unknown DID: fail closed to local default store (do not invent another restaurant).
   return DEFAULT_ORG_ID;
 }
 
@@ -225,7 +220,7 @@ async function processCallTurn(
 
   const brainContext = [
     phonePrompt,
-    afterHours ? 'Office is currently outside normal hours ó still help, offer a callback if needed.' : '',
+    afterHours ? 'Office is currently outside normal hours ù still help, offer a callback if needed.' : '',
   ].filter(Boolean).join('\n\n');
 
   const isConnect = !speechText?.trim();
@@ -258,7 +253,7 @@ async function processCallTurn(
     .slice(0, 500)
     || (isConnect
       ? `Hello${resolved.customerName ? ` ${resolved.customerName}` : ''}, it's Cynthia from Builder Diddies. How can I help today?`
-      : "Sorry, I didn't quite catch that ó could you say that again?");
+      : "Sorry, I didn't quite catch that ù could you say that again?");
 
   appendCallTurn(String(call.id), { role: 'agent', content: speak });
   await appendAuditLog(call, 'assistant', speak, 'Cynthia');
@@ -272,7 +267,7 @@ async function processCallTurn(
     durationSec: computeCallDurationSec(updated),
   });
 
-  // Keep transcript on the call record only ó do not spam customer.activities with every turn.
+  // Keep transcript on the call record only ù do not spam customer.activities with every turn.
   // #region agent log
   if (resolved.customerId && speechText) {
     void import('./debug-session-log').then(({ debugLog }) => {
@@ -430,7 +425,7 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
     brief: context?.brief ?? context?.aim ?? context?.reason,
   };
 
-  // Worker already owns the queue row ó dial only, do not enqueue another job.
+  // Worker already owns the queue row ù dial only, do not enqueue another job.
   if (fromWorker === true || fromWorker === '1') {
     try {
       const result = await provider.placeCall(String(to), {
@@ -549,7 +544,7 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
   }
   const template = String(body.template ?? 'lead_callback');
   const batchId = String(body.batchId ?? `sales-csv-${new Date().toISOString().slice(0, 10)}`);
-  const defaultBrief = String(body.brief ?? 'Sales outreach ó introduce Sync2Dine takeaway phone platform.');
+  const defaultBrief = String(body.brief ?? 'Sales outreach ù introduce Sync2Dine takeaway phone platform.');
   const { enqueueOutboundCall } = await import('./data-store');
   const jobs: Array<Record<string, unknown>> = [];
   const skipped: string[] = [];

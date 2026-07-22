@@ -40,6 +40,10 @@ import { ingestCallRecording } from './call-recording-store';
 import type { OrchestratorRequest } from './orchestrator-types';
 import { getDemoKitchenOrgId } from './home-org';
 import {
+  resolveInboundDidRoute,
+  type InboundDidRoute,
+} from './phone-lines';
+import {
   getVapiServerSecret,
   getVapiPublicKey,
   getVapiRegion,
@@ -48,6 +52,7 @@ import {
 } from './vapi-client';
 import { buildStaffOrchBody } from './phone-session';
 import { buildVapiAssistantForParty } from './vapi-assistant';
+import { SALLY_PERSONA } from './sally-sales-phone';
 import { resolveTransferDestination, resolveTransferNumber } from './transfer-numbers';
 import { assertVapiProductionReady, isProductionRuntime } from './provider-gates';
 import {
@@ -159,8 +164,79 @@ function partyPhoneFromCall(call: Record<string, unknown> | undefined): string {
   return toE164Uk(from || customerNumber || to);
 }
 
+/**
+ * Resolve org from trusted inbound DID (call meta / Vapi phoneNumber).
+ * Never trusts LLM-supplied orgId. A present DID always re-resolves (authoritative).
+ * Cached resolvedOrgId is used only when the current webhook omits the DID.
+ * Demo-kitchen fallback only when DID is absent.
+ */
+function resolveOrgRouteForVapiCall(
+  callLike: Record<string, unknown> | undefined,
+  vapiCall?: Record<string, unknown>,
+): InboundDidRoute {
+  const meta = ((callLike?.metadata || {}) as Record<string, unknown>);
+  const directionRaw = String(
+    vapiCall?.type || callLike?.direction || 'inbound',
+  ).toLowerCase();
+  const direction = directionRaw.includes('outbound') ? 'outbound' : 'inbound';
+  // Prefer live Vapi identity; do not invent env DID when probing unknown-number failures.
+  const liveDid = lineDidForDirection(direction, vapiCall || callLike, '');
+  const cachedDid = String(meta.lineDid || '').trim();
+  const lineDid = liveDid || cachedDid;
+
+  if (lineDid) {
+    // Authoritative: never let a stale/forged resolvedOrgId override a real DID match failure.
+    return resolveInboundDidRoute(lineDid, { allowDemoFallback: false });
+  }
+
+  const priorOrg = String(meta.resolvedOrgId || callLike?.orgId || '').trim();
+  const priorPurpose = String(meta.linePurpose || meta.agentPersona || '').toLowerCase();
+  if (priorOrg) {
+    return {
+      ok: true,
+      orgId: priorOrg,
+      lineDid: '',
+      purpose: priorPurpose === 'sally' ? 'sally' : (priorPurpose === 'staff' ? 'staff' : 'aria'),
+      source: 'phone_line',
+      lineId: meta.lineId != null ? String(meta.lineId) : undefined,
+    };
+  }
+
+  return resolveInboundDidRoute('', { allowDemoFallback: true });
+}
+
+function phoneOrgIdFromRoute(route: InboundDidRoute): string {
+  if (route.ok) return route.orgId;
+  return getDemoKitchenOrgId();
+}
+
+/** @deprecated Prefer resolveOrgRouteForVapiCall — kept for softphone paths without a DID. */
 function phoneOrgId(): string {
   return getDemoKitchenOrgId();
+}
+
+function applyRouteToCallMeta(
+  existingMeta: Record<string, unknown>,
+  route: InboundDidRoute,
+): Record<string, unknown> {
+  if (!route.ok) {
+    return {
+      ...existingMeta,
+      didRouteError: route.error,
+      lineDid: route.lineDid || existingMeta.lineDid,
+    };
+  }
+  const agentPersona = route.purpose === 'sally' ? SALLY_PERSONA : 'judie';
+  return {
+    ...existingMeta,
+    resolvedOrgId: route.orgId,
+    lineDid: route.lineDid || existingMeta.lineDid,
+    linePurpose: route.purpose,
+    lineId: route.lineId,
+    didRouteSource: route.source,
+    agentPersona: existingMeta.agentPersona || agentPersona,
+    didRouteError: undefined,
+  };
 }
 
 /** Fill empty from/to/partyPhone/lineDid on an existing call when later webhooks carry CLI. */
@@ -224,16 +300,40 @@ function backfillCallIdentity(
 }
 
 function ensureCallFromVapi(message: Record<string, unknown>): Record<string, unknown> {
-  setRequestOrgId(phoneOrgId());
   const call = (message.call || message) as Record<string, unknown>;
   const vapiId = String(call.id || message.callId || `vapi-${Date.now()}`);
   const metaIn = (call.metadata || message.metadata || {}) as Record<string, unknown>;
   const tradeproCallId = String(metaIn.tradeproCallId || '').trim();
 
+  const stampAndReturn = (row: Record<string, unknown>): Record<string, unknown> => {
+    const route = resolveOrgRouteForVapiCall(row, call);
+    if (route.ok) {
+      setRequestOrgId(route.orgId);
+    } else {
+      // Keep request org on demo only when DID missing; unknown DID stays fail-closed for tools.
+      if (route.error === 'missing_did') setRequestOrgId(getDemoKitchenOrgId());
+    }
+    const meta = (row.metadata as Record<string, unknown> | undefined) || {};
+    const nextMeta = applyRouteToCallMeta({ ...meta, ...metaIn }, route);
+    if (
+      nextMeta.resolvedOrgId !== meta.resolvedOrgId
+      || nextMeta.lineDid !== meta.lineDid
+      || nextMeta.linePurpose !== meta.linePurpose
+      || nextMeta.didRouteError !== meta.didRouteError
+    ) {
+      return saveCall({
+        id: String(row.id),
+        orgId: route.ok ? route.orgId : undefined,
+        metadata: nextMeta,
+      });
+    }
+    return row;
+  };
+
   const byProvider = getCallByProviderId(vapiId);
   if (byProvider) {
     const merged = mergeOrphanVapiCall(String(byProvider.id), vapiId, metaIn);
-    return backfillCallIdentity(String(merged.id), call, metaIn);
+    return stampAndReturn(backfillCallIdentity(String(merged.id), call, metaIn));
   }
   if (tradeproCallId) {
     const byTrade = getCallById(tradeproCallId);
@@ -242,13 +342,18 @@ function ensureCallFromVapi(message: Record<string, unknown>): Record<string, un
         ...((byTrade.metadata as Record<string, unknown> | undefined) || {}),
         ...metaIn,
       });
-      return backfillCallIdentity(String(merged.id), call, metaIn);
+      return stampAndReturn(backfillCallIdentity(String(merged.id), call, metaIn));
     }
   }
   const existing = getCallById(vapiId);
   if (existing) {
-    return backfillCallIdentity(String(existing.id), call, metaIn);
+    return stampAndReturn(backfillCallIdentity(String(existing.id), call, metaIn));
   }
+
+  // Provisional route so identity/contact resolve under the correct org store.
+  const provisionalRoute = resolveOrgRouteForVapiCall({ metadata: metaIn }, call);
+  if (provisionalRoute.ok) setRequestOrgId(provisionalRoute.orgId);
+  else if (provisionalRoute.error === 'missing_did') setRequestOrgId(getDemoKitchenOrgId());
 
   const partyPhone = partyPhoneFromCall(call) || toE164Uk(String(metaIn.partyPhone || ''));
   const identity = resolvePhoneCallerIdentity(partyPhone);
@@ -256,11 +361,13 @@ function ensureCallFromVapi(message: Record<string, unknown>): Record<string, un
   const directionRaw = String(call.type || '').toLowerCase();
   const direction = directionRaw.includes('outbound') ? 'outbound' : 'inbound';
   const lineDid = lineDidForDirection(direction, call, String(process.env.SOHO66_FROM_NUMBER || ''));
+  const routeMeta = applyRouteToCallMeta({ ...metaIn, lineDid }, provisionalRoute);
 
   return saveCall({
     id: tradeproCallId || vapiId,
     providerCallId: vapiId,
     provider: 'vapi',
+    orgId: provisionalRoute.ok ? provisionalRoute.orgId : undefined,
     direction,
     from: direction === 'outbound' ? lineDid : partyPhone,
     to: direction === 'outbound' ? partyPhone : lineDid,
@@ -272,7 +379,7 @@ function ensureCallFromVapi(message: Record<string, unknown>): Record<string, un
       : (resolved.customerName || resolved.contactName),
     customerId: resolved.customerId,
     metadata: {
-      ...metaIn,
+      ...routeMeta,
       vapiCallId: vapiId,
       tradeproCallId: tradeproCallId || undefined,
       partyPhone,
@@ -662,10 +769,39 @@ function finalizeVapiCall(
 
 async function buildTransientAssistant(message: Record<string, unknown>) {
   const call = ensureCallFromVapi(message);
-  const partyPhone = String((call.metadata as Record<string, unknown> | undefined)?.partyPhone
+  const meta = (call.metadata as Record<string, unknown> | undefined) || {};
+  if (meta.didRouteError && meta.didRouteError !== 'missing_did') {
+    const failed = resolveInboundDidRoute(String(meta.lineDid || ''), { allowDemoFallback: false });
+    const spoken = !failed.ok
+      ? failed.spokenHint
+      : 'This number is not set up for Sync2Dine yet — please try again later.';
+    return {
+      name: 'Sync2Dine',
+      firstMessage: spoken,
+      model: {
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        messages: [{
+          role: 'system',
+          content: 'Say only the configured first message. Do not take orders. Then end the call.',
+        }],
+        tools: [{ type: 'endCall' }],
+      },
+      silenceTimeoutSeconds: 20,
+      maxDurationSeconds: 60,
+    };
+  }
+
+  const partyPhone = String(meta.partyPhone
     || partyPhoneFromCall(message.call as Record<string, unknown>)
     || '');
   const direction = (call.direction as 'inbound' | 'outbound') || 'outbound';
+  const route = resolveOrgRouteForVapiCall(call, message.call as Record<string, unknown>);
+  const orgId = route.ok ? route.orgId : getDemoKitchenOrgId();
+  if (route.ok) setRequestOrgId(orgId);
+  const agentPersona = route.ok && route.purpose === 'sally'
+    ? SALLY_PERSONA
+    : String(meta.agentPersona || 'judie');
   const identity = resolvePhoneCallerIdentity(partyPhone);
   const { assistant } = await buildVapiAssistantForParty({
     partyPhone,
@@ -675,13 +811,17 @@ async function buildTransientAssistant(message: Record<string, unknown>) {
     contactName: identity.kind !== 'customer'
       ? identity.name
       : String(call.contactName || ''),
+    agentPersona,
+    orgId,
   });
   saveCall({
     id: String(call.id),
+    orgId,
     metadata: {
-      ...((call.metadata as Record<string, unknown> | undefined) || {}),
+      ...meta,
       callerKind: identity.kind,
       callerRole: identity.role,
+      agentPersona,
       phoneAuth: isPhoneAuthVerified(String(call.id))
         ? 'verified'
         : (identity.needsPin ? 'pending' : 'n/a'),
@@ -761,7 +901,10 @@ function buildStaffOrchBodyFromCall(
   partyPhone: string,
   identity: ReturnType<typeof resolvePhoneCallerIdentity>,
 ): OrchestratorRequest {
-  return buildStaffOrchBody({ call, callId, partyPhone, identity, orgId: phoneOrgId() });
+  const route = resolveOrgRouteForVapiCall(call);
+  const orgId = route.ok ? route.orgId : getDemoKitchenOrgId();
+  if (route.ok) setRequestOrgId(orgId);
+  return buildStaffOrchBody({ call, callId, partyPhone, identity, orgId });
 }
 
 async function executeTool(
@@ -919,10 +1062,11 @@ async function executeTool(
     || name === 'bookIntegrationMeeting'
     || name === 'sendSalesFollowUp'
   )) {
+    const route = resolveOrgRouteForVapiCall(call);
     return executeSallySalesPhoneTool(name, args, {
       callId,
       partyPhone,
-      orgId: call?.orgId,
+      orgId: route.ok ? route.orgId : undefined,
     });
   }
 
@@ -1153,7 +1297,22 @@ async function handleVapiMessage(
 
   if (type === 'tool-calls' || type === 'function-call') {
     const call = ensureCallFromVapi(message);
-    const partyPhone = String((call.metadata as Record<string, unknown> | undefined)?.partyPhone
+    const callMetaEarly = (call.metadata as Record<string, unknown> | undefined) || {};
+    if (callMetaEarly.didRouteError && callMetaEarly.didRouteError !== 'missing_did') {
+      const toolsBlocked = parseToolCalls(message);
+      sendJson(res, 200, {
+        results: toolsBlocked.map((tool) => ({
+          toolCallId: tool.id,
+          result: JSON.stringify({
+            ok: false,
+            error: 'unknown_did',
+            spokenHint: 'This number is not set up for Sync2Dine yet.',
+          }),
+        })),
+      });
+      return;
+    }
+    const partyPhone = String(callMetaEarly.partyPhone
       || partyPhoneFromCall(message.call as Record<string, unknown>)
       || '');
     const tools = parseToolCalls(message);
