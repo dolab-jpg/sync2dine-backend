@@ -521,8 +521,9 @@ export async function handleAgentRoutes(
     sendJson(res, 200, { alerts: listOpsAlerts(orgId) });
     return true;
   }
-  if (pathname.startsWith('/api/ops/alerts/') && req.method === 'POST') {
-    const id = decodeURIComponent(pathname.slice('/api/ops/alerts/'.length).replace(/\/ack$/, ''));
+  const opsAck = pathname.match(/^\/api\/ops\/alerts\/([^/]+)\/ack$/);
+  if (opsAck && req.method === 'POST') {
+    const id = decodeURIComponent(opsAck[1]);
     const { acknowledgeOpsAlert } = await import('./ops-alerts');
     const row = acknowledgeOpsAlert(orgId, id);
     if (!row) {

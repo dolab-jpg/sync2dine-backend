@@ -31,11 +31,13 @@ const ALLOWED_PATCH_KEYS = new Set([
 ]);
 
 const STATUS_TRANSITIONS: Record<string, string[]> = {
-  new: ['cooking', 'preparing', 'coming', 'ready', 'cancelled', 'completed'],
+  new: ['cooking', 'preparing', 'coming', 'ready', 'cancelled', 'completed', 'paid'],
   cooking: ['ready', 'preparing', 'coming', 'cancelled', 'completed', 'delivery', 'out'],
   preparing: ['ready', 'cooking', 'cancelled', 'completed', 'delivery', 'out'],
-  coming: ['ready', 'cooking', 'cancelled', 'completed'],
-  ready: ['delivery', 'out', 'completed', 'cancelled', 'cooking'],
+  coming: ['ready', 'cooking', 'cancelled', 'completed', 'preparing'],
+  // Legacy board status used as a cooking alias
+  paid: ['ready', 'coming', 'cooking', 'cancelled', 'completed'],
+  ready: ['delivery', 'out', 'completed', 'cancelled', 'cooking', 'coming'],
   delivery: ['completed', 'cancelled', 'ready'],
   out: ['completed', 'cancelled', 'ready'],
   completed: [],
