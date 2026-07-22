@@ -1,5 +1,6 @@
 /**
- * Self-heal code-fix queue: CRM chat → Cursor Cloud Agents → GitHub PR.
+ * Self-heal code-fix queue: CRM chat → Trae (local) → GitHub PR.
+ * Cursor Cloud self-heal has been disabled.
  * Primary store: Supabase `code_fix_jobs` when service role is configured.
  * Local JSON is a worker cache / offline fallback only.
  */
@@ -376,105 +377,20 @@ async function getCursorHealth(force = false): Promise<CodeFixHealth> {
   }
 
   const checkedAt = nowIso();
-  const apiKey = resolveCursorApiKey();
   const githubTokenConfigured = Boolean(resolveGithubToken());
 
-  if (!apiKey) {
-    const value: CodeFixHealth = {
-      live: false,
-      keyValid: false,
-      reposAccessible: false,
-      missingRepos: [...REQUIRED_REPOS],
-      githubTokenConfigured,
-      checkedAt,
-      reason:
-        'CURSOR_API_KEY not configured. Add it to server env or .cursor/local/deploy.env.',
-    };
-    healthCache = { at: now, value };
-    return value;
-  }
-
-  try {
-    const meRes = await fetch('https://api.cursor.com/v1/me', {
-      headers: { Authorization: cursorAuthHeader(apiKey) },
-    });
-    if (!meRes.ok) {
-      const value: CodeFixHealth = {
-        live: false,
-        keyValid: false,
-        reposAccessible: false,
-        missingRepos: [...REQUIRED_REPOS],
-        githubTokenConfigured,
-        checkedAt,
-        reason: `Cursor API key invalid (GET /v1/me → ${meRes.status}).`,
-      };
-      healthCache = { at: now, value };
-      return value;
-    }
-
-    const reposRes = await fetch('https://api.cursor.com/v1/repositories', {
-      headers: { Authorization: cursorAuthHeader(apiKey) },
-    });
-    if (!reposRes.ok) {
-      const value: CodeFixHealth = {
-        live: false,
-        keyValid: true,
-        reposAccessible: false,
-        missingRepos: [...REQUIRED_REPOS],
-        githubTokenConfigured,
-        checkedAt,
-        reason:
-          reposRes.status === 429
-            ? 'Cursor repositories endpoint rate-limited — retry shortly.'
-            : `Cannot list GitHub repos via Cursor (GET /v1/repositories → ${reposRes.status}).`,
-      };
-      // Shorter cache on rate limit so we recover faster
-      healthCache = { at: now - (reposRes.status === 429 ? HEALTH_CACHE_MS - 60_000 : 0), value };
-      return value;
-    }
-
-    const reposData = (await reposRes.json().catch(() => ({}))) as Record<string, unknown>;
-    const list = (reposData.repositories ?? reposData.repos ?? reposData.items ?? []) as Array<
-      string | { url?: string; fullName?: string; full_name?: string; name?: string }
-    >;
-    const slugs = new Set(
-      list.map((r) => {
-        if (typeof r === 'string') return repoSlugFromUrl(r);
-        const raw = r.fullName || r.full_name || r.url || r.name || '';
-        return repoSlugFromUrl(String(raw));
-      }),
-    );
-    const missingRepos = REQUIRED_REPOS.filter((r) => !slugs.has(r));
-    const reposAccessible = missingRepos.length === 0;
-    const live = reposAccessible;
-    const value: CodeFixHealth = {
-      live,
-      keyValid: true,
-      reposAccessible,
-      missingRepos: [...missingRepos],
-      githubTokenConfigured,
-      checkedAt,
-      reason: live
-        ? githubTokenConfigured
-          ? 'LIVE — Cursor API key valid and both Builder Diddies repos accessible. Merges enabled.'
-          : 'LIVE — Cursor OK. GITHUB_TOKEN missing — Approve merge will open GitHub for manual merge.'
-        : `Cursor key valid but missing repo access: ${missingRepos.join(', ')}. Connect GitHub in Cursor Dashboard.`,
-    };
-    healthCache = { at: now, value };
-    return value;
-  } catch (err) {
-    const value: CodeFixHealth = {
-      live: false,
-      keyValid: false,
-      reposAccessible: false,
-      missingRepos: [...REQUIRED_REPOS],
-      githubTokenConfigured,
-      checkedAt,
-      reason: `Cursor health check failed: ${err instanceof Error ? err.message : String(err)}`,
-    };
-    healthCache = { at: now, value };
-    return value;
-  }
+  // Cursor Cloud self-heal has been disabled in favor of local Trae
+  const value: CodeFixHealth = {
+    live: false,
+    keyValid: false,
+    reposAccessible: false,
+    missingRepos: [...REQUIRED_REPOS],
+    githubTokenConfigured,
+    checkedAt,
+    reason: 'Cursor Cloud self-heal disabled. Use local Trae for code fixes.',
+  };
+  healthCache = { at: now, value };
+  return value;
 }
 
 async function mergeGithubPr(prUrl: string): Promise<{
@@ -697,85 +613,8 @@ async function launchCursorAgent(job: CodeFixJob): Promise<{
   awaitingApproval?: boolean;
   error?: string;
 }> {
-  const apiKey = resolveCursorApiKey();
-  if (!apiKey) {
-    return {
-      error:
-        'CURSOR_API_KEY not configured. Add it to server env or .cursor/local/deploy.env, then retry.',
-    };
-  }
-
-  if (job.scope === 'needs_cursor_approval' && !job.metadata.cursorApproved) {
-    // Create agent in plan mode so user can approve in Cursor UI
-    const res = await fetch('https://api.cursor.com/v1/agents', {
-      method: 'POST',
-      headers: {
-        Authorization: cursorAuthHeader(apiKey),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt: {
-          text: `${buildAgentPrompt(job)}\n\nMODE: Plan only — do not implement until human confirms in Cursor.`,
-          images: job.screenshotDataUrl
-            ? [{ data: job.screenshotDataUrl.replace(/^data:[^;]+;base64,/, ''), mimeType: 'image/png' }]
-            : undefined,
-        },
-        repos: [{ url: job.repoUrl || FRONTEND_REPO, startingRef: 'master' }],
-        autoCreatePR: false,
-        mode: 'plan',
-        name: `Builder Diddies fix: ${job.errorCode || 'review'}`.slice(0, 100),
-      }),
-    });
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!res.ok) {
-      return { error: `Cursor API ${res.status}: ${JSON.stringify(data).slice(0, 400)}` };
-    }
-    const agent = (data.agent ?? data) as Record<string, unknown>;
-    return {
-      agentId: String(agent.id ?? ''),
-      agentUrl: String(agent.url ?? `https://cursor.com/agents/${agent.id ?? ''}`),
-      awaitingApproval: true,
-    };
-  }
-
-  const images: Array<{ data: string; mimeType: string }> = [];
-  if (job.screenshotDataUrl?.startsWith('data:')) {
-    const match = job.screenshotDataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (match) {
-      images.push({ mimeType: match[1], data: match[2] });
-    }
-  }
-
-  const res = await fetch('https://api.cursor.com/v1/agents', {
-    method: 'POST',
-    headers: {
-      Authorization: cursorAuthHeader(apiKey),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      prompt: {
-        text: buildAgentPrompt(job),
-        ...(images.length ? { images } : {}),
-      },
-      repos: [{ url: job.repoUrl || FRONTEND_REPO, startingRef: 'master' }],
-      autoCreatePR: true,
-      mode: 'agent',
-      name: `Builder Diddies surgical: ${job.errorCode || 'bug'}`.slice(0, 100),
-    }),
-  });
-
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) {
-    return { error: `Cursor API ${res.status}: ${JSON.stringify(data).slice(0, 400)}` };
-  }
-
-  const agent = (data.agent ?? data) as Record<string, unknown>;
-  const prUrl = extractPrUrlFromAgent(data);
-
   return {
-    agentId: String(agent.id ?? ''),
-    agentUrl: String(agent.url ?? `https://cursor.com/agents/${agent.id ?? ''}`),
-    prUrl: prUrl || undefined,
+    error: 'Cursor Cloud self-heal disabled. Use local Trae for code fixes.',
   };
 }
 
