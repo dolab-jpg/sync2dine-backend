@@ -227,7 +227,8 @@ export async function handleConnectorRoutes(
       fulfillmentAddressCity: body.fulfillmentAddressCity != null ? String(body.fulfillmentAddressCity) : undefined,
       fulfillmentAddressPostcode: body.fulfillmentAddressPostcode != null ? String(body.fulfillmentAddressPostcode) : undefined,
       fulfillmentAddressCountry: body.fulfillmentAddressCountry != null ? String(body.fulfillmentAddressCountry) : undefined,
-      posPush: body.posPush === 'on_place' || body.posPush === 'off' || body.posPush === 'manual_only'
+      posPush: body.posPush === 'automatic' || body.posPush === 'disabled' || body.posPush === 'manual_only'
+        || body.posPush === 'on_place' || body.posPush === 'off'
         ? body.posPush
         : undefined,
     };

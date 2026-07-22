@@ -1,6 +1,6 @@
 /**
  * Shared place-order engine for phone, staff till, and POST /api/orders.
- * Phone tools must call this ù do not duplicate pricing/delivery/allergy rules.
+ * Phone tools must call this ? do not duplicate pricing/delivery/allergy rules.
  */
 import {
   getDataStore,
@@ -13,10 +13,11 @@ import { formatSpokenGbp } from './spoken-money';
 import { expandMealDealOrderItems, listMenuItemsForOrg, type OrderLineInput } from './menu-catalog';
 import { allergenSafetyHint, customerAllergenConflict } from './allergens';
 import { getConnectorConfig } from './connectors/config-store';
-import { forwardOrderIfPosEnabled, isPosOutboundEnabled } from './connectors/pos-outbound';
-import type { ConnectorConfig } from './connectors/types';
+import { forwardJudieOrderToProviders } from './connectors/judie-order-forward';
+import { resolvePosPushMode, type PosPushMode } from './connectors/types';
 
-export type PosPushMode = 'manual_only' | 'on_place' | 'off';
+export type { PosPushMode };
+export { resolvePosPushMode };
 
 export interface PlaceFoodOrderInput {
   items: unknown[];
@@ -72,12 +73,6 @@ function firstString(...values: unknown[]): string | undefined {
   return undefined;
 }
 
-export function resolvePosPushMode(config: ConnectorConfig | null | undefined): PosPushMode {
-  const raw = (config as ConnectorConfig & { posPush?: string } | null | undefined)?.posPush;
-  if (raw === 'on_place' || raw === 'off' || raw === 'manual_only') return raw;
-  return 'manual_only';
-}
-
 function buildSpokenHint(opts: {
   orderNumber: string | number | undefined;
   spokenTotal: string;
@@ -101,11 +96,11 @@ function buildSpokenHint(opts: {
       : opts.paymentMethod === 'card'
         ? ' Paying by card on arrival.'
         : '';
-  const base = `Order ${opts.orderNumber} is on the kitchen board ù ${opts.spokenTotal}.${where}${opts.specialSpeak}${paySpeak}`;
-  if (opts.posMode === 'on_place') {
+  const base = `Order ${opts.orderNumber} is on the kitchen board ? ${opts.spokenTotal}.${where}${opts.specialSpeak}${paySpeak}`;
+  if (opts.posMode === 'automatic') {
     if (opts.posOk) return `${base} POS synced.`;
     if (opts.syncState === 'error' || opts.syncState === 'pending_out') {
-      return `${base} POS pending or failed ù staff can retry from the board.`;
+      return `${base} POS pending or failed ? staff can retry from the board.`;
     }
   }
   return base;
@@ -172,37 +167,40 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
   const postcode = firstString(input.postcode);
   const streetAddress = firstString(input.deliveryAddress);
 
+  let resolvedStreet = streetAddress;
+  let resolvedPostcode = postcode;
   if (orderType === 'delivery') {
-    if (!postcode && !streetAddress) {
+    const { validateDeliveryAddressForOrder } = await import('./food-order-guards');
+    const addressGate = validateDeliveryAddressForOrder({
+      streetAddress,
+      postcode,
+    });
+    if (!addressGate.ok) {
       return {
         ok: false,
-        error: 'delivery_address_required',
-        spokenHint: 'For delivery I need the street address and postcode first.',
+        error: addressGate.error,
+        spokenHint: addressGate.spokenHint,
       };
     }
-    if (!postcode) {
-      return {
-        ok: false,
-        error: 'postcode_required',
-        spokenHint: 'I just need the postcode so I can check we deliver there.',
-      };
-    }
+    resolvedStreet = addressGate.streetAddress;
+    resolvedPostcode = addressGate.postcode;
+
     const { matchDeliveryPostcode, normalizeDeliveryPrefixes } = await import('./delivery-areas');
     const prefixes = normalizeDeliveryPrefixes(getDataStore().agentSettings?.deliveryPostcodePrefixes);
     if (!prefixes.length) {
       return {
         ok: false,
         error: 'delivery_areas_not_configured',
-        spokenHint: 'Delivery areas are not set up yet ù shall I make this collection instead?',
+        spokenHint: 'Delivery areas are not set up yet ? shall I make this collection instead?',
       };
     }
-    const match = matchDeliveryPostcode(postcode, prefixes);
+    const match = matchDeliveryPostcode(resolvedPostcode, prefixes);
     if (!match.ok) {
       return {
         ok: false,
         error: 'out_of_delivery_area',
-        postcode: match.normalized || postcode,
-        spokenHint: 'We do not stretch that far for delivery yet ù collection instead, or a different postcode?',
+        postcode: match.normalized || resolvedPostcode,
+        spokenHint: 'We do not stretch that far for delivery yet ? collection instead, or a different postcode?',
       };
     }
   }
@@ -236,7 +234,21 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     };
   });
 
-  // Hard catalog gates (Wave 3): unknown / unavailable (filtered from list) rejected; catalog price wins.
+  {
+    const { validateCatalogOrderItems } = await import('./food-order-guards');
+    const catalogGate = validateCatalogOrderItems(
+      rawLines.map((l) => l.name).filter(Boolean),
+      catalog,
+    );
+    if (!catalogGate.ok) {
+      return {
+        ok: false,
+        error: catalogGate.error === 'unknown_menu_item' ? 'unknown_item' : catalogGate.error,
+        spokenHint: catalogGate.spokenHint,
+      };
+    }
+  }
+  // Hard catalog gates: unknown / unavailable rejected; catalog price wins.
   for (const line of rawLines) {
     if (!line.name) {
       return {
@@ -250,7 +262,7 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
       return {
         ok: false,
         error: 'unknown_item',
-        spokenHint: `I do not have ${line.name} on the menu ù pick something we offer.`,
+        spokenHint: `I do not have ${line.name} on the menu ? pick something we offer.`,
       };
     }
     line.price = match.price;
@@ -271,7 +283,7 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     return {
       ok: false,
       error: 'allergy_check_required',
-      spokenHint: 'Before I place that ù any allergies or intolerances we should know about?',
+      spokenHint: 'Before I place that ? any allergies or intolerances we should know about?',
     };
   }
 
@@ -395,9 +407,13 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
   }
 
   const { formatUkPostcodeDisplay, normalizeUkPostcode } = await import('./delivery-areas');
-  const normalizedPostcode = postcode ? formatUkPostcodeDisplay(postcode) : '';
-  const compactPc = postcode ? normalizeUkPostcode(postcode) : '';
-  let deliveryAddress = streetAddress || undefined;
+  const normalizedPostcode = (resolvedPostcode || postcode)
+    ? formatUkPostcodeDisplay(resolvedPostcode || postcode || '')
+    : '';
+  const compactPc = (resolvedPostcode || postcode)
+    ? normalizeUkPostcode(resolvedPostcode || postcode || '')
+    : '';
+  let deliveryAddress = resolvedStreet || streetAddress || undefined;
   if (orderType === 'delivery' && normalizedPostcode) {
     if (deliveryAddress) {
       const upper = deliveryAddress.toUpperCase().replace(/\s+/g, '');
@@ -424,7 +440,7 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     paymentStatus = 'paid';
   }
 
-  // Collection/delivery: pay at the door. Never hard-fail ó default cash if omitted.
+  // Collection/delivery: pay at the door. Never hard-fail ? default cash if omitted.
   // Judie still asks cash vs card in the playbook; this keeps place working if she forgets.
   if (
     (orderType === 'collection' || orderType === 'delivery')
@@ -471,15 +487,19 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
   const posMode = resolvePosPushMode(config);
   let posPush: { attempted: boolean; ok?: boolean; error?: string } | undefined;
 
-  if (posMode === 'on_place' && isPosOutboundEnabled(config)) {
-    const forwarded = await forwardOrderIfPosEnabled(orgId, record as Record<string, unknown>, config);
+  if (posMode === 'automatic') {
+    const forwarded = await forwardJudieOrderToProviders(
+      orgId,
+      record as Record<string, unknown>,
+      config,
+    );
     record = (forwarded.order as typeof record) ?? record;
     posPush = {
-      attempted: true,
-      ok: forwarded.push?.ok === true,
-      error: forwarded.push?.ok ? undefined : forwarded.push?.error,
+      attempted: forwarded.channel !== 'none',
+      ok: forwarded.ok,
+      error: forwarded.error,
     };
-  } else if (posMode === 'off') {
+  } else {
     posPush = { attempted: false };
   }
 

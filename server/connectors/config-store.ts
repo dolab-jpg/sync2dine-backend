@@ -55,7 +55,10 @@ const POS_PUSH_KEY = '__posPush';
 
 function extractPosPush(statusMap: Record<string, string> | undefined): ConnectorConfig['posPush'] {
   const v = statusMap?.[POS_PUSH_KEY];
-  if (v === 'on_place' || v === 'off' || v === 'manual_only') return v;
+  if (
+    v === 'on_place' || v === 'off' || v === 'manual_only'
+    || v === 'automatic' || v === 'disabled'
+  ) return v;
   return undefined;
 }
 
@@ -109,11 +112,15 @@ function rowToConfig(orgId: string, row: Record<string, unknown>): ConnectorConf
     lastOutboundAt: row.last_outbound_at != null ? String(row.last_outbound_at) : undefined,
     lastError: row.last_error != null ? String(row.last_error) : undefined,
     updatedAt: row.updated_at != null ? String(row.updated_at) : undefined,
-    posPush: posPush ?? (row.pos_push === 'on_place' || row.pos_push === 'off' || row.pos_push === 'manual_only'
-      ? row.pos_push
-      : row.posPush === 'on_place' || row.posPush === 'off' || row.posPush === 'manual_only'
-        ? row.posPush
-        : undefined),
+    posPush: posPush ?? (
+      row.pos_push === 'on_place' || row.pos_push === 'off' || row.pos_push === 'manual_only'
+      || row.pos_push === 'automatic' || row.pos_push === 'disabled'
+        ? row.pos_push as ConnectorConfig['posPush']
+        : row.posPush === 'on_place' || row.posPush === 'off' || row.posPush === 'manual_only'
+          || row.posPush === 'automatic' || row.posPush === 'disabled'
+          ? row.posPush as ConnectorConfig['posPush']
+          : undefined
+    ),
   };
 }
 

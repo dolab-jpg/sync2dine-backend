@@ -35,12 +35,24 @@ export interface ConnectorConfig {
   lastError?: string;
   updatedAt?: string;
   /**
-   * When to push to Square/POS after place:
+   * When to push to Square/POS/commerce after place:
    * - manual_only (default): staff retry / push API only
-   * - on_place: forwardOrderIfPosEnabled after OrderService.place
-   * - off: never auto-push
+   * - automatic: forward after OrderService.place (alias: on_place)
+   * - disabled: never auto-push (alias: off)
+   * Legacy on_place / off still accepted and normalized.
    */
-  posPush?: 'manual_only' | 'on_place' | 'off';
+  posPush?: 'manual_only' | 'automatic' | 'disabled' | 'on_place' | 'off';
+}
+
+export type PosPushMode = 'manual_only' | 'automatic' | 'disabled';
+
+/** Normalize legacy on_place/off and new automatic/disabled names. */
+export function resolvePosPushMode(config: ConnectorConfig | null | undefined): PosPushMode {
+  const raw = config?.posPush;
+  if (raw === 'automatic' || raw === 'on_place') return 'automatic';
+  if (raw === 'disabled' || raw === 'off') return 'disabled';
+  if (raw === 'manual_only') return 'manual_only';
+  return 'manual_only';
 }
 
 export interface InboundConnectorOrder {
