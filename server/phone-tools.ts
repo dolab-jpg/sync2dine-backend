@@ -559,7 +559,7 @@ export const PHONE_TOOLS = [
             type: 'string',
             enum: ['unpaid', 'cash', 'card'],
             description:
-              'For collection/delivery: required "cash" or "card" = pay on arrival (order stays unpaid). Do not use "paid" on phone. "unpaid" alone is not enough for collection/delivery.',
+              'For collection/delivery: pass "cash" or "card" after asking how they will pay on arrival (order stays unpaid). Do not use "paid" on phone. If omitted, defaults to cash at the door.',
           },
         },
         required: ['items'],

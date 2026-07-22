@@ -350,19 +350,15 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     paymentStatus = 'paid';
   }
 
-  // Collection/delivery: require cash|card (pay at door). Table orders may omit.
+  // Collection/delivery: pay at the door. Never hard-fail — default cash if omitted.
+  // Judie still asks cash vs card in the playbook; this keeps place working if she forgets.
   if (
     (orderType === 'collection' || orderType === 'delivery')
     && paymentStatus === 'unpaid'
     && paymentMethod !== 'cash'
     && paymentMethod !== 'card'
   ) {
-    return {
-      ok: false,
-      error: 'payment_method_required',
-      spokenHint:
-        'Will you pay cash or card when you collect or when it arrives? I need that before I place the order.',
-    };
+    paymentMethod = 'cash';
   }
 
   const channel = firstString(input.channel) ?? 'phone';
