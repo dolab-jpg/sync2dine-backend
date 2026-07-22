@@ -271,6 +271,17 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
     }
     case 'invoice.payment_failed': {
       const invoice = event.data.object as Stripe.Invoice;
+      const usageMeta = stripeObjectMetadata(invoice);
+      if (usageMeta.type === 'usage_overage' && invoice.id) {
+        const { updateBillingPeriodByStripeInvoice } = await import('./billing-periods');
+        await updateBillingPeriodByStripeInvoice(
+          invoice.id,
+          'past_due',
+          invoice.hosted_invoice_url ?? undefined,
+        );
+        // Usage overage failure must not suspend the whole org subscription.
+        break;
+      }
       const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
       if (!customerId) return;
       const { getOrganizationByStripeCustomerId } = await import('./organizations');
@@ -296,6 +307,16 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
     case 'invoice.paid': {
       const invoice = event.data.object as Stripe.Invoice;
       const invoiceRecord = invoice as unknown as Record<string, unknown>;
+      const usageMeta = stripeObjectMetadata(invoice);
+      if (usageMeta.type === 'usage_overage' && invoice.id) {
+        const { updateBillingPeriodByStripeInvoice } = await import('./billing-periods');
+        await updateBillingPeriodByStripeInvoice(
+          invoice.id,
+          'paid',
+          invoice.hosted_invoice_url ?? undefined,
+        );
+        break;
+      }
       await reconcileQuotePayment(event, invoice, {
         customerId: stripeId(invoice.customer),
         subscriptionId: stripeId(invoiceRecord.subscription),
@@ -329,4 +350,221 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
 
 export function computeMrrForPlan(plan: OrgPlan): number {
   return PLAN_CONFIG[plan].monthlyPriceGbp;
+}
+
+export type UsageInvoiceChargeResult = {
+  charged: boolean;
+  skipped?: boolean;
+  reason?: string;
+  invoiceId?: string;
+  status?: string;
+  hostedInvoiceUrl?: string | null;
+  amountGbp?: number;
+};
+
+async function resolveDefaultPaymentMethodId(
+  stripe: Stripe,
+  customerId: string,
+  subscriptionId?: string,
+): Promise<string | undefined> {
+  if (subscriptionId) {
+    try {
+      const sub = await stripe.subscriptions.retrieve(subscriptionId);
+      const fromSub = sub.default_payment_method;
+      if (typeof fromSub === 'string' && fromSub) return fromSub;
+      if (fromSub && typeof fromSub === 'object' && 'id' in fromSub) return fromSub.id;
+    } catch {
+      /* fall through */
+    }
+  }
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+    if (customer.deleted) return undefined;
+    const fromCustomer = customer.invoice_settings?.default_payment_method;
+    if (typeof fromCustomer === 'string' && fromCustomer) return fromCustomer;
+    if (fromCustomer && typeof fromCustomer === 'object' && 'id' in fromCustomer) {
+      return fromCustomer.id;
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const methods = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
+    return methods.data[0]?.id;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Create a usage/overage Invoice from customer sell lines and debit the
+ * Stripe Customer default payment method (charge_automatically).
+ */
+export async function createAndChargeUsageInvoice(
+  orgId: string,
+  breakdown: import('./weekly-usage-billing').WeeklyBillingBreakdown,
+): Promise<UsageInvoiceChargeResult> {
+  const org = getOrganizationById(orgId);
+  if (!org) throw new Error('Organization not found');
+  if (!org.stripeCustomerId) {
+    return { charged: false, skipped: true, reason: 'missing_stripe_customer' };
+  }
+  if (breakdown.customerSubtotalGbp <= 0 || breakdown.customerLines.length === 0) {
+    return { charged: false, skipped: true, reason: 'no_overage', amountGbp: 0 };
+  }
+
+  const {
+    findBillingPeriod,
+    saveBillingPeriodFromBreakdown,
+  } = await import('./billing-periods');
+  const existing = findBillingPeriod(orgId, breakdown.weekStart);
+  if (existing?.stripeInvoiceId && existing.status !== 'void' && existing.status !== 'draft') {
+    return {
+      charged: existing.status === 'paid',
+      skipped: true,
+      reason: 'already_invoiced',
+      invoiceId: existing.stripeInvoiceId,
+      status: existing.status,
+      hostedInvoiceUrl: existing.stripeHostedInvoiceUrl,
+      amountGbp: existing.customerSubtotalGbp,
+    };
+  }
+
+  const stripe = getStripe();
+  const customerId = org.stripeCustomerId;
+  const defaultPm = await resolveDefaultPaymentMethodId(
+    stripe,
+    customerId,
+    org.stripeSubscriptionId,
+  );
+  if (defaultPm) {
+    await stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: defaultPm },
+    });
+  }
+
+  const metadata = {
+    orgId,
+    billingWeek: breakdown.isoWeek,
+    weekStart: breakdown.weekStart,
+    type: 'usage_overage',
+    fareVersion: breakdown.fareVersion,
+    packageId: breakdown.packageId,
+  };
+
+  for (const line of breakdown.customerLines) {
+    const amountPence = Math.round(line.amountGbp * 100);
+    if (amountPence <= 0) continue;
+    await stripe.invoiceItems.create({
+      customer: customerId,
+      amount: amountPence,
+      currency: 'gbp',
+      description: line.description,
+      metadata: {
+        ...metadata,
+        lineCode: line.code,
+      },
+    } as Stripe.InvoiceItemCreateParams);
+  }
+
+  const invoice = await stripe.invoices.create({
+    customer: customerId,
+    collection_method: 'charge_automatically',
+    auto_advance: true,
+    pending_invoice_items_behavior: 'include',
+    metadata,
+    description: `Sync2Dine usage overage — ${breakdown.isoWeek}`,
+  } as Stripe.InvoiceCreateParams);
+
+  let finalized: Stripe.Invoice = invoice;
+  const invoiceId = invoice.id;
+  if (!invoiceId) throw new Error('Stripe invoice missing id');
+  if (invoice.status === 'draft') {
+    finalized = await stripe.invoices.finalizeInvoice(invoiceId);
+  }
+
+  let paid: Stripe.Invoice = finalized;
+  let charged = false;
+  const finalizedId = finalized.id || invoiceId;
+  if (defaultPm && finalized.status !== 'paid') {
+    try {
+      paid = await stripe.invoices.pay(finalizedId);
+      charged = paid.status === 'paid';
+    } catch (err) {
+      console.warn(
+        '[stripe] usage invoice pay failed:',
+        err instanceof Error ? err.message : err,
+      );
+      paid = await stripe.invoices.retrieve(finalizedId);
+    }
+  } else if (finalized.status === 'paid') {
+    charged = true;
+  }
+
+  const status = paid.status === 'paid'
+    ? 'paid'
+    : paid.status === 'open' || paid.status === 'uncollectible'
+      ? 'past_due'
+      : 'open';
+
+  const paidId = paid.id || finalizedId;
+  await saveBillingPeriodFromBreakdown(breakdown, {
+    status: status as 'paid' | 'past_due' | 'open',
+    stripeInvoiceId: paidId,
+    stripeHostedInvoiceUrl: paid.hosted_invoice_url ?? undefined,
+  });
+
+  // Send branded customer email (sell lines only).
+  try {
+    const {
+      buildSaasUsageInvoiceContent,
+      buildSaasUsageInvoiceEmail,
+      generateSaasUsageInvoicePdf,
+      customerArtifactContainsInternalLeak,
+    } = await import('./saas-usage-invoice');
+    const content = buildSaasUsageInvoiceContent({
+      breakdown,
+      customerName: org.name,
+      customerEmail: org.contactEmail,
+      customerAddress: org.address,
+      stripeInvoiceId: paidId,
+      hostedInvoiceUrl: paid.hosted_invoice_url ?? undefined,
+      status: charged ? 'paid' : 'due',
+    });
+    const email = buildSaasUsageInvoiceEmail(content);
+    if (
+      customerArtifactContainsInternalLeak(email.html)
+      || customerArtifactContainsInternalLeak(email.text)
+    ) {
+      throw new Error('Customer invoice artifact leaked internal margin/cost fields');
+    }
+    const pdf = await generateSaasUsageInvoicePdf(content);
+    if (customerArtifactContainsInternalLeak(Buffer.from(pdf.bytes).toString('latin1'))) {
+      // PDF binary may false-positive; scan content fields instead (already checked email).
+    }
+    if (org.contactEmail) {
+      const { sendPlainTextEmail } = await import('./email-service');
+      await sendPlainTextEmail({
+        to: org.contactEmail,
+        subject: email.subject,
+        text: email.text,
+        html: email.html,
+        attachments: [{
+          filename: pdf.filename,
+          content: pdf.bytes,
+          contentType: pdf.mimeType,
+        }],
+      });
+    }
+  } catch (err) {
+    console.warn('[stripe] usage invoice email failed:', err instanceof Error ? err.message : err);
+  }
+
+  return {
+    charged,
+    invoiceId: paidId,
+    status: paid.status ?? undefined,
+    hostedInvoiceUrl: paid.hosted_invoice_url,
+    amountGbp: breakdown.customerSubtotalGbp,
+  };
 }

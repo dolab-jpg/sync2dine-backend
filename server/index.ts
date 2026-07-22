@@ -31,6 +31,7 @@ import { startConnectorQueueWorker } from './connectors/outbound-queue';
 import { handleOrgOpenAIKeyRoutes } from './org-openai-key-routes';
 import { handleOrgIntegrationsRoutes } from './org-integrations-routes';
 import { handleOrgPhoneBillingRoutes } from './org-phone-billing-routes';
+import { handleWeeklyBillingRoutes } from './weekly-billing-routes';
 import { handleCyrusRoutes } from './cyrus-routes';
 import { handleCynthiaRoutes } from './cynthia-routes';
 import { handleChannelRoutes } from './channel-routes';
@@ -116,6 +117,8 @@ const server = createServer(async (req, res) => {
 
     if (await handleOrgPhoneBillingRoutes(req, res, pathname)) return;
 
+    if (await handleWeeklyBillingRoutes(req, res, pathname, url)) return;
+
     if (await handlePlatformRoutes(req, res, pathname)) return;
 
     if (await handleLeadsRoutes(req, res, pathname, url)) return;
@@ -187,6 +190,9 @@ server.listen(PORT, async () => {
   void warmSallyKnowledgeCache().catch(() => {});
   void import('./scheduled-message-worker').then(({ startScheduledMessageWorker }) => {
     startScheduledMessageWorker();
+  });
+  void import('./weekly-billing-worker').then(({ startWeeklyBillingWorker }) => {
+    startWeeklyBillingWorker();
   });
   void import('./code-fix-handler').then(({ startCodeFixWorker }) => startCodeFixWorker());
   void import('./whatsapp-web-client').then(({ initWWebClient }) => {

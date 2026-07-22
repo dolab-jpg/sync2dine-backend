@@ -292,6 +292,7 @@ export async function handlePlatformRoutes(
         currentPeriodEnd: body.currentPeriodEnd,
         stripeCustomerId: body.stripeCustomerId,
         stripeSubscriptionId: body.stripeSubscriptionId,
+        saasPackageId: body.saasPackageId,
       });
       if (!updated) {
         sendJson(res, 404, { error: 'Organization not found' });

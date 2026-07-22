@@ -29,6 +29,11 @@ export async function sendPlainTextEmail(opts: {
   subject: string;
   text: string;
   html?: string;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer | Uint8Array;
+    contentType?: string;
+  }>;
 }): Promise<{ ok: true; messageId?: string } | { ok: false; error: string }> {
   const transport = getTransport();
   if (!transport) {
@@ -48,6 +53,11 @@ export async function sendPlainTextEmail(opts: {
       subject: opts.subject,
       text: opts.text,
       html: opts.html,
+      attachments: opts.attachments?.map((a) => ({
+        filename: a.filename,
+        content: Buffer.from(a.content),
+        contentType: a.contentType,
+      })),
     });
     return { ok: true, messageId: info.messageId };
   } catch (err) {

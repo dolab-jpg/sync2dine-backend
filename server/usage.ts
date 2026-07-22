@@ -221,6 +221,23 @@ export function getProviderEventsThisMonth(orgId: string, provider: UsageProvide
   );
 }
 
+/** Inclusive start, exclusive end (ISO timestamps). */
+export function listUsageEventsInRange(
+  orgId: string,
+  startIso: string,
+  endIso: string,
+): UsageEvent[] {
+  const oid = normalizeUsageOrgId(orgId);
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return [];
+  return allEvents().filter((e) => {
+    if (e.orgId !== oid) return false;
+    const t = new Date(e.createdAt).getTime();
+    return t >= start && t < end;
+  });
+}
+
 export function getProviderQuantityThisMonth(orgId: string, provider: UsageProvider): number {
   return getProviderEventsThisMonth(orgId, provider).reduce(
     (sum, e) => sum + Number(e.quantity ?? e.totalTokens ?? 0),

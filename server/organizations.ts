@@ -45,6 +45,8 @@ export interface Organization {
   trialEndsAt?: string;
   whatsappPhoneNumberId?: string;
   phoneDid?: string;
+  /** SaaS fare package id (weekly catalog). */
+  saasPackageId?: string;
   createdAt: string;
   updatedAt: string;
   notes?: string;
@@ -106,6 +108,7 @@ function mapSupabaseRowToOrganization(row: Record<string, unknown>): Organizatio
     subscriptionStatus: row.subscription_status ? String(row.subscription_status) : undefined,
     currentPeriodEnd: row.current_period_end ? String(row.current_period_end) : undefined,
     trialEndsAt: row.trial_ends_at ? String(row.trial_ends_at) : undefined,
+    saasPackageId: row.saas_package_id ? String(row.saas_package_id) : undefined,
     createdAt: String(row.created_at ?? new Date().toISOString()),
     updatedAt: String(row.updated_at ?? new Date().toISOString()),
     notes: row.notes ? String(row.notes) : undefined,

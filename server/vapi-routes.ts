@@ -471,20 +471,39 @@ function finalizeVapiCall(
     },
   });
 
-  // Outbound phone-minute metering (mobile vs landline rates applied at summary time)
+  // Phone-minute metering: outbound trunk + AI talk time for weekly fare billing
   try {
     const dir = String(after?.direction || '').toLowerCase();
-    if (dir === 'outbound' && durationSec && durationSec > 0) {
-      const toNumber = String(after?.to || partyPhone || '');
-      void import('./phone-billing').then(({ recordOutboundPhoneUsage }) => {
-        recordOutboundPhoneUsage({
-          orgId: phoneOrgId(),
-          seconds: durationSec,
-          toNumber,
-          fromNumber: after?.from ? String(after.from) : undefined,
-          callId,
-        });
-      }).catch(() => {});
+    if (durationSec && durationSec > 0) {
+      if (dir === 'outbound') {
+        const toNumber = String(after?.to || partyPhone || '');
+        void import('./phone-billing').then(({ recordOutboundPhoneUsage }) => {
+          recordOutboundPhoneUsage({
+            orgId: phoneOrgId(),
+            seconds: durationSec,
+            toNumber,
+            fromNumber: after?.from ? String(after.from) : undefined,
+            callId,
+          });
+        }).catch(() => {});
+      } else {
+        void import('./usage').then(({ recordProviderUsage }) => {
+          recordProviderUsage({
+            orgId: phoneOrgId(),
+            provider: 'phone',
+            unit: 'seconds',
+            quantity: durationSec,
+            endpoint: 'phone.ai',
+            model: 'inbound',
+            metadata: {
+              billAs: 'ai',
+              callId,
+              direction: dir || 'inbound',
+            },
+            costUsd: 0,
+          });
+        }).catch(() => {});
+      }
     }
   } catch {
     /* metering must not break finalize */
