@@ -5,17 +5,66 @@ import {
   updateOrganization,
   type OrgPlan,
 } from './organizations';
-import { getStripeRuntimeConfig } from './stripe-config';
+import {
+  ensureStripeReady,
+  getStripeRuntimeConfig,
+  maskStripeKeyHint,
+} from './stripe-config';
 
 let stripeClient: Stripe | null = null;
+let stripeClientKey = '';
 
 export function getStripe(): Stripe {
-  if (!stripeClient) {
-    const key = getStripeRuntimeConfig().secretKey;
-    if (!key) throw new Error('STRIPE_SECRET_KEY is not configured');
+  const key = getStripeRuntimeConfig().secretKey;
+  if (!key) {
+    throw new Error(
+      'Platform Stripe is not configured. Open Integrations → Stripe on the platform owner account and Save/Test the secret key.',
+    );
+  }
+  if (!stripeClient || stripeClientKey !== key) {
     stripeClient = new Stripe(key);
+    stripeClientKey = key;
   }
   return stripeClient;
+}
+
+/** Prefer this for billing — hydrates platform-owner Stripe from Integrations if needed. */
+export async function getStripeReady(): Promise<Stripe> {
+  await ensureStripeReady();
+  return getStripe();
+}
+
+export async function getPlatformStripeStatus(): Promise<{
+  configured: boolean;
+  source: string;
+  keyHint?: string;
+  mode?: 'live' | 'test' | 'unknown';
+  accountId?: string;
+  error?: string;
+}> {
+  try {
+    const cfg = await ensureStripeReady();
+    const mode = cfg.secretKey.startsWith('sk_live')
+      ? 'live'
+      : cfg.secretKey.startsWith('sk_test')
+        ? 'test'
+        : 'unknown';
+    const stripe = getStripe();
+    const account = await stripe.accounts.retrieve();
+    return {
+      configured: true,
+      source: cfg.source,
+      keyHint: maskStripeKeyHint(cfg.secretKey),
+      mode,
+      accountId: account.id,
+    };
+  } catch (err) {
+    return {
+      configured: false,
+      source: getStripeRuntimeConfig().source,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 function priceIdForPlan(plan: OrgPlan): string {
@@ -430,7 +479,8 @@ export async function createAndChargeUsageInvoice(
     };
   }
 
-  const stripe = getStripe();
+  // Always charge on the platform-owner Stripe account (Integrations → Stripe).
+  const stripe = await getStripeReady();
   const customerId = org.stripeCustomerId;
   const defaultPm = await resolveDefaultPaymentMethodId(
     stripe,

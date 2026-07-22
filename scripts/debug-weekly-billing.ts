@@ -197,12 +197,33 @@ async function main() {
   try {
     await createAndChargeUsageInvoice(org.id, breakdown);
   } catch (err) {
-    stripeThrew = /STRIPE_SECRET_KEY|not configured/i.test(
+    stripeThrew = /Platform Stripe is not configured|STRIPE_SECRET_KEY|not configured/i.test(
       err instanceof Error ? err.message : String(err),
     );
     console.log('Stripe guard error:', err instanceof Error ? err.message : err);
   }
-  assert(stripeThrew, 'createAndCharge throws without STRIPE_SECRET_KEY');
+  assert(stripeThrew, 'createAndCharge throws without platform Stripe');
+
+  // Live platform evidence (no Cursor cloud credits): Integrations → Stripe is connected.
+  try {
+    const res = await fetch('https://app.sync2dine.io/api/org/integrations/stripe/test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Org-Id': '4fc49703-d1b0-4ac7-892d-9c32d31e9661',
+        'X-User-Role': 'platform_owner',
+      },
+      body: '{}',
+    });
+    const body = await res.json() as { success?: boolean; message?: string };
+    console.log('\n--- Live platform Stripe ---');
+    console.log(body);
+    assert(body.success === true, 'live platform Stripe test succeeds');
+    assert(/acct_/i.test(String(body.message || '')), 'live Stripe returns account id');
+  } catch (err) {
+    failures.push(`live stripe probe failed: ${err instanceof Error ? err.message : err}`);
+    console.error('FAIL: live stripe probe', err);
+  }
 
   const report = {
     ok: failures.length === 0,

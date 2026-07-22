@@ -99,6 +99,13 @@ export async function handleWeeklyBillingRoutes(
     return true;
   }
 
+  if (pathname === '/api/platform/stripe-status' && req.method === 'GET') {
+    if (!assertPlatform(req, res)) return true;
+    const { getPlatformStripeStatus } = await import('./stripe-service');
+    sendJson(res, 200, await getPlatformStripeStatus());
+    return true;
+  }
+
   // Platform: includes margins
   if (pathname === '/api/platform/weekly-billing/run' && req.method === 'POST') {
     if (!assertPlatform(req, res)) return true;

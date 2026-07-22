@@ -46,6 +46,14 @@ export type WeeklyBillingRunSummary = {
   charged: number;
   skipped: number;
   failed: number;
+  stripeStatus?: {
+    configured: boolean;
+    source: string;
+    keyHint?: string;
+    mode?: 'live' | 'test' | 'unknown';
+    accountId?: string;
+    error?: string;
+  };
   results: Array<{
     orgId: string;
     orgName?: string;
@@ -79,6 +87,45 @@ export async function runWeeklyUsageBilling(options: {
     const resolved = options.weekStartIso
       ? weekRangeFromStart(options.weekStartIso)
       : resolveBillingWeek();
+
+    // Resolve platform-owner Stripe before rating/charging restaurant orgs.
+    let stripeStatus: WeeklyBillingRunSummary['stripeStatus'];
+    try {
+      const { getPlatformStripeStatus } = await import('./stripe-service');
+      stripeStatus = await getPlatformStripeStatus();
+      if (!options.dryRun && !stripeStatus.configured) {
+        return {
+          weekStart: resolved.weekStartIso,
+          isoWeek: resolved.isoWeek,
+          processed: 0,
+          charged: 0,
+          skipped: 0,
+          failed: 1,
+          stripeStatus,
+          results: [{
+            orgId: '',
+            skipped: true,
+            reason: 'platform_stripe_not_configured',
+            error: stripeStatus.error,
+          }],
+        };
+      }
+    } catch (err) {
+      if (!options.dryRun) {
+        return {
+          weekStart: resolved.weekStartIso,
+          isoWeek: resolved.isoWeek,
+          processed: 0,
+          charged: 0,
+          skipped: 0,
+          failed: 1,
+          results: [{
+            orgId: '',
+            error: err instanceof Error ? err.message : String(err),
+          }],
+        };
+      }
+    }
 
     const orgs = await listOrganizationsWithSupabase();
     const targets = orgs.filter((o) => {
@@ -210,6 +257,7 @@ export async function runWeeklyUsageBilling(options: {
       charged,
       skipped,
       failed,
+      stripeStatus,
       results,
     };
   } finally {
