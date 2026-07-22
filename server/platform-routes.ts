@@ -134,7 +134,7 @@ export async function handlePlatformRoutes(
   if (pathname === '/api/platform/sally-phone-line' && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST')) {
     if (req.method === 'GET') {
       const line = getSallyPlatformPhoneLine();
-      sendJson(res, line ? 200 : 404, line ? { line } : { error: 'Sally phone line not configured' });
+      sendJson(res, 200, { line: line ?? null });
       return true;
     }
 
@@ -469,7 +469,7 @@ export async function handlePlatformRoutes(
 
     if (req.method === 'GET') {
       const line = getJudiePhoneLineForOrg(orgId);
-      sendJson(res, line ? 200 : 404, line ? { line } : { error: 'Judie phone line not configured' });
+      sendJson(res, 200, { line: line ?? null });
       return true;
     }
 
