@@ -86,6 +86,7 @@ function buildSpokenHint(opts: {
   syncState: string;
   posMode: PosPushMode;
   posOk?: boolean;
+  paymentMethod?: string;
 }): string {
   const where =
     opts.orderType === 'delivery' && opts.deliveryAddress
@@ -93,7 +94,13 @@ function buildSpokenHint(opts: {
       : opts.orderType === 'collection'
         ? ' Collection.'
         : '';
-  const base = `Order ${opts.orderNumber} is on the kitchen board ù ${opts.spokenTotal}.${where}${opts.specialSpeak}`;
+  const paySpeak =
+    opts.paymentMethod === 'cash'
+      ? ' Paying cash on arrival.'
+      : opts.paymentMethod === 'card'
+        ? ' Paying by card on arrival.'
+        : '';
+  const base = `Order ${opts.orderNumber} is on the kitchen board ù ${opts.spokenTotal}.${where}${opts.specialSpeak}${paySpeak}`;
   if (opts.posMode === 'on_place') {
     if (opts.posOk) return `${base} POS synced.`;
     if (opts.syncState === 'error' || opts.syncState === 'pending_out') {
@@ -280,7 +287,7 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     };
   });
 
-  // Catalog/deal pricing wins ó never trust client/AI total for money.
+  // Catalog/deal pricing wins ù never trust client/AI total for money.
   const totalBeforeSpecial = pricedTotal;
 
   const phone = firstString(input.customerPhone, input.callerPhone) ?? '';
@@ -341,6 +348,21 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     paymentMethod = payRaw;
   } else if (payRaw === 'paid') {
     paymentStatus = 'paid';
+  }
+
+  // Collection/delivery: require cash|card (pay at door). Table orders may omit.
+  if (
+    (orderType === 'collection' || orderType === 'delivery')
+    && paymentStatus === 'unpaid'
+    && paymentMethod !== 'cash'
+    && paymentMethod !== 'card'
+  ) {
+    return {
+      ok: false,
+      error: 'payment_method_required',
+      spokenHint:
+        'Will you pay cash or card when you collect or when it arrives? I need that before I place the order.',
+    };
   }
 
   const channel = firstString(input.channel) ?? 'phone';
@@ -412,6 +434,7 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     syncState,
     posMode,
     posOk: posPush?.ok,
+    paymentMethod,
   });
 
   return {

@@ -511,7 +511,7 @@ export const PHONE_TOOLS = [
     function: {
       name: 'placeFoodOrder',
       description:
-        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. For delivery, pass postcode (and address) after checkDeliveryArea succeeds. For meal deals (getMenu items with a deal object), pass qty plus dealChoices — one object per unit with main/side/drink (or whatever roles the deal lists). The kitchen receives expanded component lines.',
+        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. For collection/delivery: ask cash or card (pay on arrival) and pass paymentStatus cash or card — never paid. For delivery, pass postcode (and address) after checkDeliveryArea succeeds. For meal deals (getMenu items with a deal object), pass qty plus dealChoices — one object per unit with main/side/drink (or whatever roles the deal lists). The kitchen receives expanded component lines.',
       parameters: {
         type: 'object',
         properties: {
@@ -555,7 +555,12 @@ export const PHONE_TOOLS = [
             type: 'boolean',
             description: 'True after you asked about allergies (even if none)',
           },
-          paymentStatus: { type: 'string', enum: ['unpaid', 'cash', 'card'] },
+          paymentStatus: {
+            type: 'string',
+            enum: ['unpaid', 'cash', 'card'],
+            description:
+              'For collection/delivery: required "cash" or "card" = pay on arrival (order stays unpaid). Do not use "paid" on phone. "unpaid" alone is not enough for collection/delivery.',
+          },
         },
         required: ['items'],
       },
