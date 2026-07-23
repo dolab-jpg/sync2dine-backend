@@ -8,7 +8,8 @@ Start here before API / phone / billing work.
 2. **Route index:** [`server/README.md`](server/README.md) — domain folders + handler map.
 3. **Phone personalities:** [`docs/PHONE_ARCHITECTURE.md`](docs/PHONE_ARCHITECTURE.md).
 4. **Feature atlas (FE paths + API files):** sibling frontend [`../sync2dine-frontend/docs/APPLICATION_MASTER.md`](../sync2dine-frontend/docs/APPLICATION_MASTER.md) §24–§25.
-5. Live API: **https://app.sync2dine.io** / **https://app.b-diddies.com** (not `127.0.0.1:3001`) unless the user asks for local.
+5. Live API: **https://app.sync2dine.io** (not `127.0.0.1:3001`) unless the user asks for local.
+6. Post-restructure audit: [`../sync2dine-frontend/docs/POST_RESTRUCTURE_AUDIT.md`](../sync2dine-frontend/docs/POST_RESTRUCTURE_AUDIT.md).
 
 ## Domain folders (prefer these)
 
@@ -16,6 +17,7 @@ Start here before API / phone / billing work.
 |--------|------|
 | `server/brains/{sally,judie}/` | Brain packages (only two BrainIds) |
 | `server/phone/` | Telephony, VAPI, phone brain/tools/session/lines |
+| `server/sally/` | Web/offer Sally modules (facade `sally-sales.ts`); phone still uses `phone/sally-sales-phone.ts` — dual SoT until unified |
 | `server/orders/` | Order service, orders/menu/reservations routes, food guards |
 | `server/ai/` | Web orchestrator, staff AI, ai-proxy, Cynthia/Cyrus, AI Studio |
 | `server/billing/` | Stripe, weekly billing, org phone billing |
@@ -47,4 +49,4 @@ Canonical runtime sources are the non-suffixed modules under `server/phone/`, `s
 
 ## Naming drift
 
-Folder may be `sync2dine-backend`; remotes/docs may still say `tradepro-backend` / Builder Diddies — same product.
+Older docs/docker may still say `tradepro-*` / Builder Diddies / `app.b-diddies.com`. **Live Sync2Dine SoT is `app.sync2dine.io` + these repos.** Do not verify or deploy to b-diddies unless the user explicitly asks.

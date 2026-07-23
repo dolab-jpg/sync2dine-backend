@@ -1,18 +1,16 @@
-# Builder Diddies Backend
+# Sync2Dine backend
 
-Supabase + Node backend for the Builder Diddies bathroom sales / estimation platform.
+Supabase + Node API for Sync2Dine (phone AI, orders, billing, staff AI).
 
-(GitHub/repo folder name may remain `tradepro-backend` as a legacy infra codename; local folder is often `sync2dine-backend`.)
+**AI / agent navigation:** start at [AGENTS.md](AGENTS.md) and [server/README.md](server/README.md). Phone SoT: [docs/PHONE_ARCHITECTURE.md](docs/PHONE_ARCHITECTURE.md).
 
-**AI / agent navigation:** start at [AGENTS.md](AGENTS.md) and [server/README.md](server/README.md).
-
-**Full stack inventory / audit:** sibling frontend [`docs/APPLICATION_MASTER.md`](../sync2dine-frontend/docs/APPLICATION_MASTER.md) — single living SoT (includes §27 Mobile).
+Live API: **https://app.sync2dine.io**.
 
 ## Structure
 
 - `supabase/` — Postgres migrations, seed data, Edge Functions
-- `server/` — Node companion (AI, webhooks, telephony); see domain folders in `server/README.md`
-- `scripts/` — Data migration and type generation
+- `server/` — Node API; see domain folders in `server/README.md`
+- `scripts/` — Migration, smoke, and one-off split helpers
 - `shared/` — Generated Supabase TypeScript types
 
 ## Setup
@@ -38,21 +36,20 @@ npx supabase link --project-ref YOUR_PROJECT_REF
 npm run supabase:push
 ```
 
-## Development
+## Run API
 
 ```bash
-npm run dev              # Node companion on port 3001
-npm run gen:types        # sync DB types to frontend repo
-npm run migrate          # import legacy JSON from frontend repo
+npm run dev    # tsx watch
+npm start      # production-style
+npm test
 ```
 
-## Environment
+## Deploy
 
-See `.env.example` for required variables. **Never commit `.env`** — service role keys belong here only.
+From the sibling frontend repo:
 
-## Frontend
+```bash
+bash scripts/push-live-local.sh
+```
 
-The React app lives in the sibling folder `Bathroom Sales Estimation Platform/`. It connects via:
-
-- `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` (direct to Supabase)
-- `VITE_API_BASE_URL` (Node companion for AI/webhooks only)
+That syncs **this** backend tree to the VPS and restarts the API. Backend GitHub Actions on `master` can also SCP + restart. Never curl frontend `server-legacy/` prompts onto the VPS.

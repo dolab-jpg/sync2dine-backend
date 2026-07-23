@@ -34,6 +34,7 @@ import { handleOrgPhoneBillingRoutes } from './org-phone-billing-routes';
 import { handleWeeklyBillingRoutes } from './weekly-billing-routes';
 import { handleCyrusRoutes } from './cyrus-routes';
 import { handleCynthiaRoutes } from './cynthia-routes';
+import { handleSallyWebRoutes } from './sally-web-routes';
 import { handleChannelRoutes } from './channel-routes';
 import { handleAgentCredentialsRoutes } from './agent-credentials-routes';
 import { handlePushRoutes } from './push-routes';
@@ -58,9 +59,10 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const pathname = url.pathname;
 
-    // Widget on company site needs dynamic CORS — cyrus-routes sets it for /api/cyrus/web*
+    // Marketing widgets need their own CORS allowlists (not APP_BASE_URL alone).
     const isCyrusWeb = pathname.startsWith('/api/cyrus/web');
-    if (!isCyrusWeb) {
+    const isSallyWeb = pathname.startsWith('/api/sally/web');
+    if (!isCyrusWeb && !isSallyWeb) {
       res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
@@ -68,6 +70,7 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'OPTIONS') {
       if (isCyrusWeb && await handleCyrusRoutes(req, res, pathname)) return;
+      if (isSallyWeb && await handleSallyWebRoutes(req, res, pathname)) return;
       res.statusCode = 204;
       res.end();
       return;
@@ -134,6 +137,8 @@ const server = createServer(async (req, res) => {
     if (await handleCyrusRoutes(req, res, pathname)) return;
 
     if (await handleCynthiaRoutes(req, res, pathname)) return;
+
+    if (await handleSallyWebRoutes(req, res, pathname)) return;
 
     if (await handleChannelRoutes(req, res, pathname)) return;
 

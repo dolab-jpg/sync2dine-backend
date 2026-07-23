@@ -1,24 +1,25 @@
 ---
-description: TradePro repos, git push, and Supabase deploy — read this first; do not search the whole machine
+description: Sync2Dine backend deploy paths — matches frontend workspace rule
 alwaysApply: true
 ---
 
-# TradePro deployment and auth (persistent)
+# Sync2Dine backend deployment
 
-Same rule as frontend workspace. See:
+Same rule as frontend workspace. Canonical copy:
 
-`c:\Users\dolab\Downloads\Bathroom Sales Estimation Platform\.cursor\rules\tradepro-deployment.mdc`
+`c:\Users\dolab\Downloads\sync2dine-frontend\.cursor\rules\tradepro-deployment.mdc`
 
 ## This repo
 
 | Field | Value |
 |-------|-------|
-| Path | `c:\Users\dolab\Downloads\tradepro-backend` |
-| Remote | `https://github.com/dolab-jpg/tradepro-backend.git` |
+| Path | `c:\Users\dolab\Downloads\sync2dine-backend` |
+| Remote | `https://github.com/dolab-jpg/sync2dine-backend.git` |
 | Branch | `master` |
+| Live API | **https://app.sync2dine.io** |
 | Supabase migrations | `supabase/migrations/` |
 | Push DB | `npm run supabase:push` |
 
-Deploy secrets: `../Bathroom Sales Estimation Platform/.cursor/local/deploy.env` (gitignored)
+Deploy secrets: `../sync2dine-frontend/.cursor/local/deploy.env` (gitignored)
 
-Git push: `git push origin master` (Credential Manager user `dolab-jpg`)
+Live ship: from frontend run `bash scripts/push-live-local.sh` (API synced from this repo). Git push: `git push origin master`.
