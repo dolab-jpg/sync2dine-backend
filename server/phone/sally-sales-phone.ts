@@ -1,6 +1,8 @@
 /**
- * Sally — Sync2Dine sales AI (phone twin) for LIVE backend.
- * Voice/humour + close script must stay aligned with frontend server/sally-sales.ts.
+ * Sally Phone adapter — Vapi/telephony sales + staff PIN mode.
+ * Shared offer facts / objections: server/sally/offer.ts (do not fork prices here).
+ * Channel-specific: voice overlay, close script, meeting confirm, Cockney sales OS.
+ * See docs/SALLY_ARCHITECTURE.md.
  */
 import {
   appendCustomerCallActivity,
@@ -31,6 +33,10 @@ import { getHomeOrgId } from '../home-org';
 import { debugLog } from '../debug-session-log';
 import { buildApprovedSalesBrainPromptBlock } from '../sales-brain/inject';
 import { getSallyKnowledgePromptBlockCached } from '../sally-product-kb/inject';
+import {
+  formatObjectionPlaybook,
+  formatOfferFactsBlock,
+} from '../sally/offer';
 
 export const SALLY_PERSONA = 'sally';
 
@@ -136,41 +142,8 @@ export function buildOfferTermsPayload(): Record<string, unknown> {
   };
 }
 
-function formatOfferFactsBlock(): string {
-  const offer = buildOfferTermsPayload();
-  const lines = [
-    'OFFER FACTS (call getOfferTerms before quoting — never invent prices):',
-    `- Optional try-later line (ONLY if they ask): ${offer.demoPhone} — speak as: ${offer.spokenDemoPhone}`,
-    ...(offer.packageLines as string[]).map((l) => `- ${l}`),
-    '- USPs Judie: full order/booking into app; overflow/after-hours; you are the product voice.',
-    '- USPs Atmosphere (sell hard — from sync2dine.io + product truth):',
-    '  • Only company in England doing this strategic venue audio — manages the room for revenue, not a music stream.',
-    '  • Front of house: advertise to people already inside (specials, birthday parties, catering); example free-dip-for-review+share photo.',
-    '  • Day-to-day announcements (open/close), curated genre/brand playlists, volume monitor/control.',
-    '  • Back of house: kitchen training, rules, motivation, staff-genre music while they work.',
-    '  • Easy: app + connect phone/audio and it keeps running. Return often shows in the first weeks.',
-    '- Complete = Atmosphere + Judie Starter — best value upsell (phone + room).',
-    '- CROSS-UPSELL (always): Judie lean → push Atmosphere. Atmosphere lean → push Judie. Both pains → Complete.',
-  ];
-  return lines.join('\n');
-}
-
-function formatObjectionPlaybook(): string {
-  return [
-    'OBJECTIONS (acknowledge → explore real concern → evidence → ask next question; short Cockney):',
-    '- Too expensive: Ack → ask what they compared to / busiest hours → launch rates + Complete vs buying both → size minutes → meeting?',
-    '- Need to think / send info: Ack → what specifically to think about → email summary AFTER sendSalesFollowUp → book meeting so thinking has a deadline.',
-    '- Call later / busy: Ack → get best time + who → bookCallback or meeting hold → do not pitch full stack now.',
-    '- Not interested: Ack → one curiosity question on missed calls OR room revenue → if still no, DNC-respect and end.',
-    '- Already have supplier / receptionist: Ack → explore gaps (overflow, after-hours, full orders into app) → Judie covers those → meeting.',
-    '- No budget / need approval: Ack → who signs / when budget cycle → still book install chat with decision-maker → no fake discounts.',
-    '- Want separate demo: THIS CALL IS THE DEMO — they are hearing Judie now → book 20-min install meeting.',
-    '- Afraid of unlimited bills: Weekly allowance + published overage — never sell unlimited.',
-    '- What if Judie fails: Transfer-to-human on restaurant line; staff stay in control. Do not take diner orders on this call.',
-  ].join('\n');
-}
-
-const SALLY_SALES_OS = [
+/** Phone-channel sales OS (spoken close / Cockney). Offer prices come from sally/offer.ts. */
+const SALLY_PHONE_SALES_OS = [
   'You are Sally, Sync2Dine’s dedicated sales AI (phone).',
   'IDENTITY: On this sales channel your name is Sally. You are the same person / same voice as Judie under a sales name. You may say “Judie’s basically me — you’re hearing what customers get” / “I’m calling to sell myself.” Never say Cynthia, Judie, or Builder Diddies.',
   'BRAINS: This call is the SALES brain only. After they buy, diners get Judie with order tools. Do NOT take food orders on this call.',
@@ -364,10 +337,11 @@ export function buildSallyBrainPrompt(input: {
       ].join('\n')
     : '';
   const instructions = [
-    SALLY_SALES_OS,
+    SALLY_PHONE_SALES_OS,
     buildSallyPhoneVoiceOverlay(),
     formatOfferFactsBlock(),
     formatObjectionPlaybook(),
+    'PHONE OBJECTION STYLE: acknowledge → explore real concern → evidence → ask next; short Cockney. This call is the demo — do not push a separate demo as the primary CTA.',
     SALLY_PHONE_CLOSE_SCRIPT,
     approvedBrain,
     productKb,

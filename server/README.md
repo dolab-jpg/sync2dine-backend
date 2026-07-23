@@ -72,6 +72,6 @@ Many modules remain at `server/` root (auth, data-store, WhatsApp, platform, …) 
 - **Primary:** Supabase (`supabase-admin.ts`, feature `supabase-*.ts`, migrations under `../supabase/migrations/`).
 - **`data/`:** local JSON cache — not production SoT.
 
-## Deploy variants — do not edit for product work
+## Quarantine — do not edit for product work
 
-Ignore unless you are doing a deliberate deploy fork: `*.vps.ts`, `*.local-full.ts` at repo `server/` root. Canonical runtime is the non-suffixed modules under domain folders + `index.ts` mounts.
+Unused forks live in [`_quarantine/`](_quarantine/). Canonical runtime is the non-suffixed modules under domain folders + `index.ts` mounts.

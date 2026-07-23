@@ -1,23 +1,16 @@
 /**
  * Public Ask Sync2Dine website chat — Sally sales brain for marketing visitors.
  * CORS allowlist for sync2dine.io apex + app + localhost.
+ *
+ * Channel adapter only: business intelligence lives in server/sally/* (web-chat).
  */
 import type { IncomingMessage, ServerResponse } from 'http';
 import { OpenAIConnectionError, mapOpenAIError } from './openai-connection';
 import { setRequestOrgId } from './data-store';
 import { getHomeOrgId } from './home-org';
 import type { OrchestratorMessage } from './orchestrator-types';
-
-/** Avoid importing sally-sales (pulls saas-* modules not always present on VPS). */
-function resolveSallySessionKey(opts: { webSessionId?: string }): string {
-  if (opts.webSessionId) return `web:${opts.webSessionId}`;
-  return 'web:default';
-}
-
-function buildSallyCheckoutHandoff(_sessionKey: string): { startPath: string } {
-  // App storefront is login-gated; marketing CTA stays on WordPress enquiry.
-  return { startPath: '/inquiry/' };
-}
+import { buildSallyCheckoutHandoff, resolveSallySessionKey } from './sally/offer';
+import { runSallyWebChat } from './sally/web-chat';
 
 const ALLOWED_HOSTS = new Set([
   'sync2dine.io',
@@ -64,7 +57,6 @@ function hostAllowed(host: string | null): boolean {
 
 function isAllowedOrigin(originHeader: string | undefined, referer?: string): boolean {
   if (!originHeader) {
-    // Same-origin SPA fetches may omit Origin; allow when Referer is ours
     if (referer) {
       try {
         return hostAllowed(new URL(referer).host.toLowerCase());
@@ -72,7 +64,7 @@ function isAllowedOrigin(originHeader: string | undefined, referer?: string): bo
         return false;
       }
     }
-    return true; // server-to-server / curl without Origin
+    return true;
   }
   if (originHeader === 'null') return false;
   const host = originHost(originHeader);
@@ -178,39 +170,31 @@ export async function handleSallyWebRoutes(
 
     const orgId = getHomeOrgId();
     setRequestOrgId(orgId);
-    const sessionKey = resolveSallySessionKey({ webSessionId: sessionId });
+    const requestId = `sw_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
     appendHistory(sessionId, 'user', text);
     const messages = [...(historyBySession.get(sessionId) || [])];
 
     try {
-      const { handleOrchestrator } = await import('./orchestrator-handler');
-      const result = await handleOrchestrator({
+      const result = await runSallyWebChat({
         orgId,
-        orchestratorMode: 'sally',
-        channel: 'website',
-        companyName: 'Sync2Dine',
+        sessionId,
+        text,
+        page: body.page,
+        visitorName: body.visitorName,
         messages,
-        staffContext: {
-          role: 'prospect',
-          route: String(body.page || '/').slice(0, 200),
-        },
-        customerContext: {
-          customerId: sessionId,
-          customerName: body.visitorName?.trim() || 'Website visitor',
-          role: 'prospect',
-        },
+        requestId,
       });
 
-      const reply = String(result.content || 'How can I help you today?').trim();
-      appendHistory(sessionId, 'assistant', reply);
-
-      const handoff = buildSallyCheckoutHandoff(sessionKey);
+      appendHistory(sessionId, 'assistant', result.reply);
+      const handoff = buildSallyCheckoutHandoff(result.sessionKey);
       sendJson(res, 200, {
         sessionId,
-        reply,
+        reply: result.reply,
         messages: historyBySession.get(sessionId) || [],
         checkoutHandoff: handoff,
+        requestId: result.requestId,
+        toolsUsed: result.toolsUsed,
         landline: {
           display: '020 3745 3233',
           tel: '+442037453233',
@@ -222,6 +206,7 @@ export async function handleSallyWebRoutes(
       sendJson(res, mapped instanceof OpenAIConnectionError ? 503 : 500, {
         error: mapped.message,
         code: mapped instanceof OpenAIConnectionError ? mapped.code : 'error',
+        requestId,
       });
     }
     return true;

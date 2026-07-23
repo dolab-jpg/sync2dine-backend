@@ -7,9 +7,11 @@ Start here before API / phone / billing work.
 1. **Boot + mount order:** [`server/index.ts`](server/index.ts) — single HTTP process; handlers return boolean when they claim the request.
 2. **Route index:** [`server/README.md`](server/README.md) — domain folders + handler map.
 3. **Phone personalities:** [`docs/PHONE_ARCHITECTURE.md`](docs/PHONE_ARCHITECTURE.md).
-4. **Feature atlas (FE paths + API files):** sibling frontend [`../sync2dine-frontend/docs/APPLICATION_MASTER.md`](../sync2dine-frontend/docs/APPLICATION_MASTER.md) §24–§25.
-5. Live API: **https://app.sync2dine.io** (not `127.0.0.1:3001`) unless the user asks for local.
-6. Post-restructure audit: [`../sync2dine-frontend/docs/POST_RESTRUCTURE_AUDIT.md`](../sync2dine-frontend/docs/POST_RESTRUCTURE_AUDIT.md).
+4. **Sally (shared BI + adapters):** [`docs/SALLY_ARCHITECTURE.md`](docs/SALLY_ARCHITECTURE.md).
+5. **Feature atlas:** sibling frontend [`../sync2dine-frontend/docs/APPLICATION_MASTER.md`](../sync2dine-frontend/docs/APPLICATION_MASTER.md) (Sync2Dine orientation at top).
+6. Live API: **https://app.sync2dine.io** (Node on VPS port **3011** — not tradepro `:3001`) unless the user asks for local.
+7. Post-restructure audit: [`../sync2dine-frontend/docs/POST_RESTRUCTURE_AUDIT.md`](../sync2dine-frontend/docs/POST_RESTRUCTURE_AUDIT.md).
+8. Quarantined forks: [`server/_quarantine/`](server/_quarantine/) — do not edit for product work.
 
 ## Domain folders (prefer these)
 
@@ -17,7 +19,7 @@ Start here before API / phone / billing work.
 |--------|------|
 | `server/brains/{sally,judie}/` | Brain packages (only two BrainIds) |
 | `server/phone/` | Telephony, VAPI, phone brain/tools/session/lines |
-| `server/sally/` | Web/offer Sally modules (facade `sally-sales.ts`); phone still uses `phone/sally-sales-phone.ts` — dual SoT until unified |
+| `server/sally/` | Shared Sally BI + web chat adapter (`web-chat.ts`); phone adapter remains `phone/sally-sales-phone.ts` |
 | `server/orders/` | Order service, orders/menu/reservations routes, food guards |
 | `server/ai/` | Web orchestrator, staff AI, ai-proxy, Cynthia/Cyrus, AI Studio |
 | `server/billing/` | Stripe, weekly billing, org phone billing |
@@ -31,9 +33,10 @@ Many root `server/*.ts` files are **thin re-exports** of the domain folders so o
 ## Phone brains
 
 - Two BrainIds: `sally` | `judie` via `server/brains/index.ts`.
-- Three modes: **Judie** (diner), **Sally sales**, **Sally staff** (PIN / Cynthia-style on phone).
-- Live path: `phone/vapi-routes.ts` + `vapi-assistant.ts` — **not** legacy `phone/phone-orchestrator.ts`.
-- Web staff chat orchestrator: `server/ai/orchestrator-handler.ts` (separate from Vapi).
+- Three modes: **Judie** (diner), **Sally sales**, **Sally staff** (PIN).
+- Live path: `phone/vapi-routes.ts` + `vapi-assistant.ts` — **not** quarantined `phone-orchestrator`.
+- Sally Web: `POST /api/sally/web` ? `sally/web-chat.ts` (not Cynthia staff orchestrator).
+- Web staff chat: `server/ai/orchestrator-handler.ts` (Cynthia).
 
 ## Persistence
 
@@ -41,11 +44,10 @@ Many root `server/*.ts` files are **thin re-exports** of the domain folders so o
 - **`server/data/*.json`:** local cache / offline fallback — **do not treat as production SoT**.
 - Gateway: `server/supabase-admin.ts`, `data-store.ts`, feature `supabase-*.ts` modules.
 
-## Deploy variants — ignore unless deploying
+## Quarantine
 
-- `*.vps.ts`, `*.local-full.ts`
-
-Canonical runtime sources are the non-suffixed modules under `server/phone/`, `server/ai/`, etc.
+- `server/_quarantine/` — unused `phone-orchestrator` implementation and stale `*.vps.ts` / `*.local-full.ts` forks.
+- Root stubs may still re-export quarantined phone-orchestrator (throws if called).
 
 ## Naming drift
 

@@ -248,9 +248,9 @@ export async function runPhoneOrchestrator(
 export async function handleOrchestrator(body: OrchestratorRequest): Promise<OrchestratorResult> {
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const lastMessage = messages[messages.length - 1]?.content ?? '';
-  const { mapOpenAIError } = await import('./openai-connection');
-  const { createLLMClientForOrg } = await import('./llm-connection');
-  const { resolveOrgIdFromBody } = await import('../org-context');
+  const { mapOpenAIError } = await import('../openai-connection');
+  const { createLLMClientForOrg } = await import('../llm-connection');
+  const { resolveOrgIdFromBody } = await import('../../org-context');
   const orgId = resolveOrgIdFromBody(body as { orgId?: string });
   const mode = resolveMode(body);
 
@@ -289,7 +289,7 @@ export async function runStaffOrchestrator(
   body: OrchestratorRequest,
   messages: OrchestratorMessage[]
 ): Promise<OrchestratorResult> {
-  const { resolveOrgIdFromBody } = await import('../org-context');
+  const { resolveOrgIdFromBody } = await import('../../org-context');
   const orgId = resolveOrgIdFromBody(body as { orgId?: string });
   const model = body.model ?? 'gpt-4o-mini';
   const mode = resolveMode(body);
@@ -408,7 +408,7 @@ export async function runStaffOrchestrator(
         output = toolName === 'updateLeadStatus'
           ? executeUpdateLeadStatus(parsedInput)
           : parsedInput;
-        const { resolveOpenAIApiKeyAsync } = await import('./openai-connection');
+        const { resolveOpenAIApiKeyAsync } = await import('../openai-connection');
         const visionKey = await resolveOpenAIApiKeyAsync(body.apiKey, orgId) ?? '';
         const executedOutput = await executeVisionTool(
           toolName,

@@ -1,62 +1,16 @@
 /**
- * Sally — Sync2Dine platform_owner outbound sales agent.
- * Sells Sync2Dine to restaurants; researches profile; confirms; provisions tenant org.
- * Hard-split from Lizzie (restaurant food-order agent).
+ * Sally channel prompts — shared sales OS + phone/chat/web overlays.
+ * Offer facts come from offer.ts so pricing cannot diverge silently.
  */
-import { randomBytes } from 'crypto';
+import type { RestaurantProfileDraft } from '../restaurant-research';
 import {
-  appendCustomerCallActivity,
-  enqueueOutboundCall,
-  getAgentSettings,
-  getCallById,
-  getDataStore,
-  saveCall,
-  saveCustomerRecord,
-  syncData,
-} from '../data-store';
-import { getHomeOrgId } from '../home-org';
-import {
-  draftToAboutUs,
-  researchRestaurantProfile,
-  spokenConfirmForField,
-  type RestaurantProfileDraft,
-  type RestaurantProfileField,
-} from '../restaurant-research';
-import { END_CALL_FUNCTION_TOOL, SET_CALL_LANGUAGE_TOOL } from '../phone-brain';
-import { PHONE_TOOLS } from '../phone-tools';
-import { getSallyOfferStored, resolveStoredProductPrices, isLaunchOfferActive, allPackageSnapshots } from '../sally-offer-store';
-import {
-  SAAS_PRODUCTS,
-  formatProductsSummary,
-  normalizeSaasProductIds,
-  resolveProductLines,
-  resolvePackageLine,
-  sumMonthly,
-  sumQuoteTotal,
-  type SaasProductId,
-  type SaasProductPrices,
-} from '../saas-products';
-import {
-  FARE_SCHEDULE_VERSION,
-  OUTBOUND_OVERAGE,
-  SAAS_PACKAGE_IDS,
-  SAAS_PACKAGES,
-  type OverageAction,
-  type SaasPackageId,
-  formatFareSummary,
-  getPackage,
-  isSaasPackageId,
-  monthlyEquivalentFromWeekly,
-} from '../saas-packages';
-import { PLAN_CONFIG } from '../organizations';
-import {
-  assertContractSignedForCheckout,
-  contractEmailBody,
-  createSaasContract,
-  getSaasContractById,
-  markSaasContractSent,
-} from '../saas-contracts';
-import { getSallyOfferTerms } from './offer';
+  formatObjectionPlaybook,
+  formatOfferFactsBlock,
+  type SallyTermsRecord,
+} from './offer';
+import { SALLY_SALES_OS } from './sales-os';
+
+export { SALLY_SALES_OS };
 
 export function buildSallyBrainPrompt(input: {
   partyPhone: string;
