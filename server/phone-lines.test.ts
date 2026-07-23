@@ -23,6 +23,10 @@ const MASK = '••••••';
 describe('phone-lines platform provisioning', () => {
   let orgA: string;
   let orgB: string;
+  /** Unique per run so leftover local org JSON cannot collide with fixed demo DIDs. */
+  const didSuffix = String(Date.now()).slice(-7);
+  const didA = `0203${didSuffix}`;
+  const didB = `0204${didSuffix}`;
   const createdOrgIds: string[] = [];
   const createdLines: Array<{ orgId: string; lineId: string }> = [];
 
@@ -71,7 +75,7 @@ describe('phone-lines platform provisioning', () => {
       label: 'Judie main',
       sipUsername: 'userA',
       sipPassword: 'passwordA-secret',
-      did: '02039990001',
+      did: didA,
       purpose: 'aria',
       connectionType: 'soho66',
     });
@@ -106,13 +110,13 @@ describe('phone-lines platform provisioning', () => {
           label: 'Judie B',
           sipUsername: 'userB',
           sipPassword: 'passwordB-secret',
-          did: '02039990001',
+          did: didA,
           purpose: 'aria',
         }),
       /DID already in use/,
     );
 
-    const conflict = findDidConflict('02039990001');
+    const conflict = findDidConflict(didA);
     assert.ok(conflict);
     assert.equal(conflict!.orgId, orgA);
   });
@@ -127,15 +131,16 @@ describe('phone-lines platform provisioning', () => {
   });
 
   it('resolves inbound DID to the owning org and syncs org.phoneDid', () => {
-    const resolved = resolveOrgIdForInboundDid('02039990001');
+    const resolved = resolveOrgIdForInboundDid(didA);
     assert.equal(resolved, orgA);
 
     const orgs = listOrganizations();
     const a = orgs.find((o) => o.id === orgA);
     assert.ok(a?.phoneDid);
+    const digits = didA.replace(/\D/g, '');
     assert.ok(
-      String(a!.phoneDid).includes('02039990001')
-        || a!.phoneDid!.replace(/\D/g, '').endsWith('2039990001'),
+      String(a!.phoneDid).includes(didA)
+        || a!.phoneDid!.replace(/\D/g, '').endsWith(digits),
     );
   });
 
@@ -145,14 +150,14 @@ describe('phone-lines platform provisioning', () => {
       label: 'Judie B unique',
       sipUsername: 'userB',
       sipPassword: 'passwordB-secret',
-      did: '02039990002',
+      did: didB,
       purpose: 'aria',
     });
     createdLines.push({ orgId: orgB, lineId: lineB.id });
 
-    assert.equal(resolveOrgIdForInboundDid('02039990001'), orgA);
-    assert.equal(resolveOrgIdForInboundDid('02039990002'), orgB);
-    assert.notEqual(resolveOrgIdForInboundDid('02039990001'), orgB);
+    assert.equal(resolveOrgIdForInboundDid(didA), orgA);
+    assert.equal(resolveOrgIdForInboundDid(didB), orgB);
+    assert.notEqual(resolveOrgIdForInboundDid(didA), orgB);
   });
 
   it('lists lines across orgs for platform owner', () => {

@@ -1,4 +1,5 @@
-import { ensureOrgOpenAIKeyLoaded, getOrgOpenAIApiKey } from '../organizations';
+import { ensureOrgOpenAIKeyLoaded, getOrgOpenAIApiKey, listOrganizations } from '../organizations';
+import { getHomeOrgId } from '../home-org';
 
 export type OpenAIConnectionReason = 'missing' | 'rejected';
 
@@ -10,6 +11,44 @@ export class OpenAIConnectionError extends Error {
     this.name = 'OpenAIConnectionError';
     this.code = code;
   }
+}
+
+/**
+ * Resolve Company AI Brain OpenAI key: preferred org → home → any org key → env.
+ */
+export async function resolveCompanyAiBrainOpenAIKey(preferredOrgId?: string | null): Promise<{
+  apiKey: string;
+  orgId: string | null;
+}> {
+  const candidates = [
+    preferredOrgId?.trim(),
+    getHomeOrgId(),
+    ...listOrganizations().map((o) => o.id),
+  ].filter((id): id is string => Boolean(id && id !== 'default'));
+
+  const seen = new Set<string>();
+  for (const orgId of candidates) {
+    if (seen.has(orgId)) continue;
+    seen.add(orgId);
+    await ensureOrgOpenAIKeyLoaded(orgId);
+    const key = getOrgOpenAIApiKey(orgId);
+    if (key) return { apiKey: key, orgId };
+  }
+
+  for (const orgId of [preferredOrgId?.trim(), getHomeOrgId()].filter(Boolean) as string[]) {
+    if (seen.has(orgId)) continue;
+    await ensureOrgOpenAIKeyLoaded(orgId);
+    const key = getOrgOpenAIApiKey(orgId);
+    if (key) return { apiKey: key, orgId };
+  }
+
+  const envKey = (process.env.OPENAI_API_KEY || '').trim();
+  if (envKey) return { apiKey: envKey, orgId: preferredOrgId?.trim() || getHomeOrgId() || null };
+
+  throw new OpenAIConnectionError(
+    'OpenAI API key not configured — add a Company AI Brain key in Settings → Integrations.',
+    'missing',
+  );
 }
 
 export function sanitizeBodyApiKey(bodyApiKey?: string): string | undefined {
