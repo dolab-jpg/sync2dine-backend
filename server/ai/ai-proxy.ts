@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { OpenAIConnectionError } from './openai-connection';
 import { resolveOrgIdForRequest, isAuthEnforced, requireAuth } from '../auth';
 import { getProfileByBearer } from '../account-auth';
@@ -60,6 +61,16 @@ function attachOrgContext(req: IncomingMessage, body: Record<string, unknown>, a
   return orgId;
 }
 
+function hasMessages(body: Record<string, unknown>): body is Record<string, unknown> & { messages: unknown[] } {
+  return Array.isArray(body.messages);
+}
+
+function requireMessages(res: ServerResponse, body: Record<string, unknown>): body is Record<string, unknown> & { messages: unknown[] } {
+  if (hasMessages(body)) return true;
+  sendJson(res, 400, { error: 'messages must be an array' });
+  return false;
+}
+
 export async function handleAiRequest(req: IncomingMessage, res: ServerResponse, pathname: string) {
   if (pathname === '/api/ai/health') {
     const { handleOpenAIHealth } = await import('../openai-health');
@@ -105,7 +116,8 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   if (pathname === '/api/ai/cyrus') {
     const { handleCyrusChat } = await import('./cyrus-handler');
     try {
-      const result = await handleCyrusChat(body);
+      if (!requireMessages(res, body)) return;
+      const result = await handleCyrusChat(body as unknown as Parameters<typeof handleCyrusChat>[0]);
       sendJson(res, 200, result);
     } catch (err) {
       sendOpenAIConnectionError(res, err);
@@ -116,7 +128,8 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   if (pathname === '/api/ai/project') {
     const { handleProjectAI } = await import('../project-ai-handler');
     try {
-      const result = await handleProjectAI(body);
+      if (!requireMessages(res, body)) return;
+      const result = await handleProjectAI(body as unknown as Parameters<typeof handleProjectAI>[0]);
       sendJson(res, 200, result);
     } catch (err) {
       sendOpenAIConnectionError(res, err);
@@ -127,7 +140,8 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   if (pathname === '/api/ai/orchestrate') {
     const { handleOrchestrator } = await import('./orchestrator-handler');
     try {
-      const result = await handleOrchestrator(body);
+      if (!requireMessages(res, body)) return;
+      const result = await handleOrchestrator(body as unknown as Parameters<typeof handleOrchestrator>[0]);
       sendJson(res, 200, result);
     } catch (err) {
       sendOpenAIConnectionError(res, err);
@@ -138,7 +152,8 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   if (pathname === '/api/ai/orchestrate/stream') {
     const { handleOrchestrateStream } = await import('./orchestrate-stream');
     try {
-      await handleOrchestrateStream(req, res, body as Parameters<typeof handleOrchestrateStream>[2]);
+      if (!requireMessages(res, body)) return;
+      await handleOrchestrateStream(req, res, body as unknown as Parameters<typeof handleOrchestrateStream>[2]);
     } catch (err) {
       sendOpenAIConnectionError(res, err);
     }
@@ -148,7 +163,8 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   if (pathname === '/api/ai/staff') {
     const { handleStaffAI } = await import('./staff-ai-handler');
     try {
-      const result = await handleStaffAI(body);
+      if (!requireMessages(res, body)) return;
+      const result = await handleStaffAI(body as unknown as Parameters<typeof handleStaffAI>[0]);
       sendJson(res, 200, result);
     } catch (err) {
       sendOpenAIConnectionError(res, err);
@@ -159,7 +175,8 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   if (pathname === '/api/ai/building-control') {
     const { handleBuildingControl } = await import('./building-control-handler');
     try {
-      const result = await handleBuildingControl(body);
+      if (!requireMessages(res, body)) return;
+      const result = await handleBuildingControl(body as unknown as Parameters<typeof handleBuildingControl>[0]);
       sendJson(res, 200, result);
     } catch (err) {
       sendOpenAIConnectionError(res, err);
@@ -170,7 +187,8 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   if (pathname === '/api/ai/planning') {
     const { handlePlanningAI } = await import('./planning-ai-handler');
     try {
-      const result = await handlePlanningAI(body);
+      if (!requireMessages(res, body)) return;
+      const result = await handlePlanningAI(body as unknown as Parameters<typeof handlePlanningAI>[0]);
       sendJson(res, 200, result);
     } catch (err) {
       sendOpenAIConnectionError(res, err);
@@ -181,7 +199,8 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   if (pathname === '/api/ai/summarize') {
     const { handleSummarizeChat } = await import('./summarize-handler');
     try {
-      const result = await handleSummarizeChat(body);
+      if (!requireMessages(res, body)) return;
+      const result = await handleSummarizeChat(body as unknown as Parameters<typeof handleSummarizeChat>[0]);
       sendJson(res, 200, result);
     } catch (err) {
       sendOpenAIConnectionError(res, err);
@@ -203,7 +222,13 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   if (pathname === '/api/ai/categorize-transaction') {
     const { handleCategorizeTransaction } = await import('./categorize-transaction-handler');
     try {
-      const result = await handleCategorizeTransaction(body);
+      if (!body.transaction || typeof body.transaction !== 'object') {
+        sendJson(res, 400, { error: 'transaction must be an object' });
+        return;
+      }
+      const result = await handleCategorizeTransaction(
+        body as unknown as Parameters<typeof handleCategorizeTransaction>[0],
+      );
       sendJson(res, 200, result);
     } catch (err) {
       sendOpenAIConnectionError(res, err);
@@ -236,11 +261,24 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
     });
 
     if (pathname === '/api/ai/chat') {
+      if (!hasMessages(body)) {
+        sendJson(res, 400, { error: 'messages must be an array' });
+        return;
+      }
+      const messages: ChatCompletionMessageParam[] = body.messages.flatMap((message) => {
+        if (!message || typeof message !== 'object') return [];
+        const { role, content } = message as Record<string, unknown>;
+        if (
+          (role !== 'user' && role !== 'assistant' && role !== 'system')
+          || typeof content !== 'string'
+        ) return [];
+        return [{ role, content }];
+      });
       const completion = await openai.chat.completions.create({
         model: defaultChatModelForProvider(brainProvider, (body.model as string) ?? 'gpt-4o-mini'),
         messages: [
           { role: 'system', content: (body.systemPrompt as string) ?? 'You are a helpful construction assistant.' },
-          ...(body.messages as Array<{ role: string; content: string }>),
+          ...messages,
         ],
       });
       sendJson(res, 200, { content: completion.choices[0]?.message?.content ?? '' });

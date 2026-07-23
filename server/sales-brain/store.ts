@@ -71,7 +71,7 @@ export type SalesPlaybookSnippet = {
   updatedAt: string;
 };
 
-type StoreShape = {
+export type StoreShape = {
   jobs: SalesBrainJob[];
   insights: SalesCallInsight[];
   recommendations: SalesBrainRecommendation[];

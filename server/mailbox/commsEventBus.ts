@@ -89,7 +89,6 @@ export async function processInboundEmail(message: CachedEmailMessage, orgId = '
         customerId: resolved.customerId,
         customerName: resolved.customerName,
         projectId: resolved.projectId ?? undefined,
-        channel: 'email',
       },
       projectContext: resolved.projectId ? { projectId: resolved.projectId } : undefined,
     });

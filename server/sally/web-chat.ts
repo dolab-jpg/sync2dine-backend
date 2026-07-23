@@ -100,7 +100,7 @@ export async function runSallyWebChat(input: SallyWebChatInput): Promise<SallyWe
     let finalContent: string | null = null;
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-      const response = await (client as {
+      const response = await (client as unknown as {
         chat: {
           completions: {
             create: (args: Record<string, unknown>) => Promise<{

@@ -63,6 +63,15 @@ import {
   getSallyDraftForSession,
   getSallyTermsForSession,
   buildSallyCheckoutHandoff,
+  readDraft,
+  writeDraft,
+  requireTermsConfirmed,
+  readTermsConfirmed,
+  writeTermsConfirmed,
+  parseBoolish,
+  generateTempPassword,
+  seedTenantProfile,
+  linkCrmToSallyOrg,
   type SallyOfferTerms,
   type SallyTermsRecord,
   SALLY_PERSONA,
@@ -1003,15 +1012,7 @@ export async function executeSallyTool(
         }
       }
 
-      const url = await createCheckoutSessionForOrg(organizationId, {
-        metadata: {
-          sallySession: sessionKey,
-          customerEmail: toEmail || org?.contactEmail || '',
-          contractId: signedContract.id,
-          ...(quoteId ? { quoteId } : {}),
-        },
-        lineItems,
-      });
+      const url = await createCheckoutSessionForOrg(organizationId);
       const msg = [
         'Your Sync2Dine payment link is ready.',
         `Pay securely here: ${url}`,

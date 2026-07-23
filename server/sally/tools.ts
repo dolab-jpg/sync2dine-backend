@@ -59,6 +59,7 @@ import {
 import {
   SALLY_PERSONA,
   SALLY_EXCLUSIVE_TOOLS,
+  SALLY_TOOL_NAMES,
 } from './offer';
 
 export const SALLY_PHONE_TOOLS = [

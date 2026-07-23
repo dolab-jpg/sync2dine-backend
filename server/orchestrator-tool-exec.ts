@@ -277,7 +277,7 @@ export function executeCustomerTool(
           total: Number(q.total ?? q.totalCustomerCost ?? 0),
         }));
     }
-    const top = quotes[0];
+    const top = quotes[0] as ({ customerName?: unknown; tradeName?: unknown } & typeof quotes[number]) | undefined;
     const spokenHint = top
       ? `${String(top.customerName || 'That')} ${String(top.tradeName || 'quote')} is ${String(top.spokenTotal)}.`
       : 'No matching quotes found.';

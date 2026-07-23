@@ -6,6 +6,12 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+type DataTable = {
+  Row: { id: string; org_id: string; data: Json; [key: string]: Json | undefined }
+  Insert: { id: string; org_id: string; data?: Json; [key: string]: Json | undefined }
+  Update: Partial<{ id: string; org_id: string; data: Json; [key: string]: Json | undefined }>
+}
+
 export type Database = {
   public: {
     Tables: {
@@ -19,7 +25,7 @@ export type Database = {
           contact_phone: string
           address: string | null
           status: 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled'
-          plan: 'starter' | 'pro' | 'enterprise'
+          plan: 'starter' | 'pro' | 'enterprise' | 'sync2dine_platform' | 'sync2dine_kiosk'
           openai_api_key_encrypted: string
           monthly_token_cap: number
           stripe_customer_id: string | null
@@ -149,6 +155,66 @@ export type Database = {
           order_number: number
         }
         Update: Partial<Database['public']['Tables']['orders']['Row']>
+      }
+      calls: DataTable
+      outbound_queue: DataTable
+      recruitment_jobs: DataTable
+      recruitment_candidates: DataTable
+      recruitment_interviews: DataTable
+      recruitment_applications: DataTable
+      recruitment_onboarding_tasks: DataTable
+      bank_accounts: DataTable
+      bank_transactions: DataTable
+      client_receipts: DataTable
+      planning_applications: DataTable
+      phone_lines: DataTable
+      whatsapp_groups: DataTable
+      agent_settings: {
+        Row: {
+          org_id: string
+          is_active: boolean
+          active_voice_id: string | null
+          updated_at: string
+          data: Json
+        }
+        Insert: {
+          org_id: string
+          is_active?: boolean
+          active_voice_id?: string | null
+          updated_at?: string
+          data?: Json
+        }
+        Update: Partial<Database['public']['Tables']['agent_settings']['Insert']>
+      }
+      whatsapp_sessions: {
+        Row: {
+          org_id: string
+          phone: string
+          channel: string
+          group_id: string | null
+          last_inbound_at: string
+        }
+        Insert: {
+          org_id: string
+          phone: string
+          channel?: string
+          group_id?: string | null
+          last_inbound_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['whatsapp_sessions']['Insert']>
+      }
+      integrations: {
+        Row: {
+          org_id: string
+          integration_id: string
+          values_encrypted: Json | null
+        }
+        Insert: {
+          org_id: string
+          integration_id: string
+          values_encrypted?: Json | null
+        }
+        Update: Partial<Database['public']['Tables']['integrations']['Insert']>
       }
     }
     Views: Record<string, never>

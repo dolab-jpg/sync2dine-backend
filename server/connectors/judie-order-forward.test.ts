@@ -31,7 +31,7 @@ mock.module('./commerce-outbound.ts', {
   namedExports: { forwardOrderToCommerceHub },
 });
 
-const { forwardJudieOrderToProviders, isCommerceOutboundEnabled } = await import('./judie-order-forward.ts');
+const { forwardJudieOrderToProviders, isCommerceOutboundEnabled } = await import('./judie-order-forward.js');
 
 describe('isCommerceOutboundEnabled', () => {
   it('requires enabled outbound commerce provider with url+secret', () => {

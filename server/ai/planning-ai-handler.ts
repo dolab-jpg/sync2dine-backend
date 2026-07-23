@@ -8,6 +8,7 @@
  */
 
 import { PLANNING_TOOLS } from './planning-tools';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 interface PlanningMessage {
   role: string;
@@ -180,9 +181,9 @@ export async function handlePlanningAI(body: PlanningRequest): Promise<PlanningR
   const model = defaultChatModelForProvider(provider, body.model ?? 'gpt-4o-mini');
   const systemPrompt = buildSystemPrompt(body);
 
-  const chatMessages: Array<Record<string, unknown>> = [
+  const chatMessages: ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
-    ...messages.map((m) => ({
+    ...messages.map<ChatCompletionMessageParam>((m) => ({
       role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
       content: m.content,
     })),

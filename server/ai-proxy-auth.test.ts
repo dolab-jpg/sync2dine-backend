@@ -44,7 +44,7 @@ mock.module('./ai/orchestrator-handler.ts', {
   namedExports: { handleOrchestrator },
 });
 
-const { handleAiRequest } = await import('./ai/ai-proxy.ts');
+const { handleAiRequest } = await import('./ai/ai-proxy.js');
 
 class MockRequest extends EventEmitter {
   method = 'POST';

@@ -90,7 +90,7 @@ export async function sendWhatsAppAudio(
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': mimeType,
     },
-    body: audioBuffer,
+    body: new Uint8Array(audioBuffer),
   });
   const upload = await uploadRes.json() as { id?: string };
   if (!upload.id) {
@@ -324,13 +324,16 @@ export async function handleWhatsAppWebhookPost(
   res.statusCode = 200;
   res.end('OK');
 
+  let from: string | undefined;
+  let phoneNumberId: string | undefined;
+  let accessToken: string | undefined;
   try {
     const entry = body.entry?.[0];
     const change = entry?.changes?.[0];
     const value = change?.value;
     const field = change?.field;
 
-    const phoneNumberId = value?.metadata?.phone_number_id ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
+    phoneNumberId = value?.metadata?.phone_number_id ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
     if (phoneNumberId) {
       const org = getOrganizationByWhatsAppPhoneNumberId(String(phoneNumberId));
       setRequestOrgId(org?.id ?? 'default');
@@ -344,12 +347,13 @@ export async function handleWhatsAppWebhookPost(
     const message = value?.messages?.[0];
     if (!message) return;
 
-    const from = message.from as string;
+    from = typeof message.from === 'string' ? message.from : undefined;
+    if (!from) return;
     const groupId = message.group_id as string | undefined;
     const isGroup = Boolean(groupId);
     updateWhatsAppSession(from, isGroup ? 'group' : 'individual', groupId);
 
-    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+    accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
     if (!accessToken || !phoneNumberId) return;
 
     const builderInbound = findBuilderInboundProject(from);
@@ -375,7 +379,7 @@ export async function handleWhatsAppWebhookPost(
             const { default: OpenAI } = await import('openai');
             const waOrgId = getRequestOrgId();
             const openai = new OpenAI({ apiKey: await resolveOpenAIApiKeyAsync(undefined, waOrgId) });
-            const file = new File([media.buffer], 'voice.ogg', { type: media.mimeType });
+            const file = new File([new Uint8Array(media.buffer)], 'voice.ogg', { type: media.mimeType });
             const transcript = await openai.audio.transcriptions.create({
               model: 'whisper-1',
               file,

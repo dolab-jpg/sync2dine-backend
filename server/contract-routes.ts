@@ -65,11 +65,11 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 
 function getContracts(): ServerContract[] {
   const store = getDataStore();
-  return (store.contracts ?? []) as ServerContract[];
+  return (store.contracts ?? []) as unknown as ServerContract[];
 }
 
 function saveContracts(contracts: ServerContract[]): void {
-  syncData({ contracts });
+  syncData({ contracts: contracts as unknown as Record<string, unknown>[] });
 }
 
 function findByToken(token: string): ServerContract | undefined {

@@ -6,7 +6,7 @@
 import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth, MessageMedia, MessageAck } = pkg;
 type WAClient = InstanceType<typeof Client>;
-type WAMessage = InstanceType<typeof pkg.Message>;
+type WAMessage = Awaited<ReturnType<WAClient['sendMessage']>>;
 
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';

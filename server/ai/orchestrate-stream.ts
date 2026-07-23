@@ -148,7 +148,7 @@ export async function handleTranscribeUpload(req: IncomingMessage, res: ServerRe
   }
   const openai = new OpenAI({ apiKey });
   const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm';
-  const file = new File([audioBuffer], `upload.${ext}`, { type: mimeType });
+  const file = new File([new Uint8Array(audioBuffer)], `upload.${ext}`, { type: mimeType });
   const transcript = await openai.audio.transcriptions.create({ model: 'whisper-1', file });
   res.statusCode = 200;
   res.setHeader('Content-Type', 'application/json');

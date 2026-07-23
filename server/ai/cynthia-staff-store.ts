@@ -157,7 +157,7 @@ function buildDefaultActions(
     actions.push({ label: 'Open customer', kind: 'navigate', value: `/customers` });
   }
   if (!actions.some((a) => a.kind === 'navigate')) {
-    actions.push({ label: 'Open Cynthia', kind: 'navigate', value: `/cynthia?card=${card.id ?? ''}` });
+    actions.push({ label: 'Open Cynthia', kind: 'navigate', value: '/cynthia' });
   }
   return actions;
 }

@@ -4,6 +4,7 @@
  */
 import { getSupabaseAdmin, resolveOrgUuid, DEFAULT_ORG_UUID } from './supabase-admin.js';
 import type { SyncedData, AgentSettings, PhoneLine } from './data-store.js';
+import type { Json } from '../shared/database.types.js';
 
 const defaultAgentSettings: AgentSettings = {
   isActive: true,
@@ -14,8 +15,8 @@ function isSupabaseConfigured(): boolean {
   return Boolean(process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
 }
 
-function rowToRecord<T extends Record<string, unknown>>(rows: Array<{ id: string; data: unknown }>): T[] {
-  return rows.map(r => ({ id: r.id, ...(r.data as Record<string, unknown>) })) as T[];
+function rowToRecord<T extends object>(rows: Array<{ id: string; data: unknown }>): T[] {
+  return rows.map(r => ({ id: r.id, ...(r.data as Record<string, unknown>) }) as unknown as T);
 }
 
 export async function loadSyncedDataFromSupabase(orgId?: string | null): Promise<SyncedData> {
@@ -60,7 +61,7 @@ export async function loadSyncedDataFromSupabase(orgId?: string | null): Promise
 
   const whatsappGroups: Record<string, Record<string, unknown>> = {};
   for (const g of waGroupsRes.data ?? []) {
-    whatsappGroups[g.project_id] = g.data as Record<string, unknown>;
+    whatsappGroups[String(g.project_id)] = g.data as Record<string, unknown>;
   }
 
   const sessions = (waSessionsRes.data ?? []).map(s => ({
@@ -97,6 +98,8 @@ export async function loadSyncedDataFromSupabase(orgId?: string | null): Promise
     recruitmentJobs: rowToRecord(jobsRes.data ?? []),
     recruitmentCandidates: rowToRecord(candidatesRes.data ?? []),
     recruitmentInterviews: rowToRecord(interviewsRes.data ?? []),
+    recruitmentApplications: [],
+    recruitmentOnboardingTasks: [],
     quotes: rowToRecord(quotesRes.data ?? []),
     customers: rowToRecord(customersRes.data ?? []),
     bankAccounts: rowToRecord(bankAccountsRes.data ?? []),
@@ -113,24 +116,30 @@ export async function syncDataToSupabase(data: Partial<SyncedData>, orgId?: stri
   if (!isSupabaseConfigured()) return;
   const orgUuid = await resolveOrgUuid(orgId);
   const supabase = getSupabaseAdmin();
+  const writableSupabase = supabase as unknown as {
+    from(table: string): {
+      upsert(payload: unknown, options?: { onConflict?: string }): Promise<unknown>;
+    };
+  };
 
   const upsertRows = async (
     table: string,
-    rows: Array<Record<string, unknown>> | undefined,
+    rows: Array<object> | undefined,
     extra?: (row: Record<string, unknown>) => Record<string, unknown>,
   ) => {
     if (!rows?.length) return;
-    const payload = rows.map(row => {
+    const payload = rows.map(source => {
+      const row = source as Record<string, unknown>;
       const id = String(row.id);
       const { id: _id, ...rest } = row;
       return {
         id,
         org_id: orgUuid,
-        data: rest,
+        data: rest as unknown as Json,
         ...(extra ? extra(row) : {}),
       };
     });
-    await supabase.from(table).upsert(payload, { onConflict: 'org_id,id' });
+    await writableSupabase.from(table).upsert(payload, { onConflict: 'org_id,id' });
   };
 
   if (data.projects) {
@@ -144,11 +153,11 @@ export async function syncDataToSupabase(data: Partial<SyncedData>, orgId?: stri
         customer_id: customerId ? String(customerId) : null,
         quote_id: quoteId ? String(quoteId) : null,
         portal_token: portalToken ? String(portalToken) : null,
-        data: rest,
+        data: rest as unknown as Json,
         updated_at: new Date().toISOString(),
       };
     });
-    await supabase.from('projects').upsert(payload, { onConflict: 'org_id,id' });
+    await writableSupabase.from('projects').upsert(payload, { onConflict: 'org_id,id' });
   }
 
   await upsertRows('contacts', data.contacts);
@@ -174,11 +183,11 @@ export async function syncDataToSupabase(data: Partial<SyncedData>, orgId?: stri
       updatedAt: _updatedAt,
       ...agentExtras
     } = data.agentSettings as AgentSettings & Record<string, unknown>;
-    await supabase.from('agent_settings').upsert({
+    await writableSupabase.from('agent_settings').upsert({
       org_id: orgUuid,
       is_active: isActive,
       active_voice_id: activeVoiceId ?? null,
-      data: agentExtras,
+      data: agentExtras as unknown as Json,
       updated_at: new Date().toISOString(),
     });
   }
@@ -187,16 +196,16 @@ export async function syncDataToSupabase(data: Partial<SyncedData>, orgId?: stri
     const payload = Object.entries(data.whatsappGroups).map(([projectId, group]) => ({
       project_id: projectId,
       org_id: orgUuid,
-      data: group,
+      data: group as unknown as Json,
     }));
     if (payload.length) {
-      await supabase.from('whatsapp_groups').upsert(payload, { onConflict: 'org_id,project_id' });
+      await writableSupabase.from('whatsapp_groups').upsert(payload, { onConflict: 'org_id,project_id' });
     }
   }
 
   if (data.sessions) {
     for (const s of data.sessions) {
-      await supabase.from('whatsapp_sessions').upsert({
+      await writableSupabase.from('whatsapp_sessions').upsert({
         org_id: orgUuid,
         phone: String(s.phone),
         channel: String(s.channel ?? 'individual'),

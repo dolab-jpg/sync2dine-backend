@@ -71,7 +71,30 @@ import {
   firstString,
   wrapMockResult,
   staffMockGreetingContent,
+  safeParseObject,
+  buildActionsSummaryText,
+  executeVisionTool,
 } from './helpers';
+
+/** Minimal OpenAI chat client shape used by orchestrator runners. */
+export type OpenAIChatClient = {
+  chat: {
+    completions: {
+      create: (input: Record<string, unknown>) => Promise<{
+        choices: Array<{
+          message: {
+            content?: string | null;
+            tool_calls?: Array<{
+              id: string;
+              type: string;
+              function: { name: string; arguments?: string };
+            }>;
+          };
+        }>;
+      }>;
+    };
+  };
+};
 
 export async function runCustomerOrchestrator(
   openai: OpenAIChatClient,
@@ -389,7 +412,7 @@ export async function runStaffOrchestrator(
       if (SERVER_READ_TOOLS.has(toolName)) {
         output = await executeServerReadTool(toolName, parsedInput, body);
       } else if (RESTAURANT_TOOL_NAMES.has(toolName)) {
-        output = await executeRestaurantTool(toolName, parsedInput, { ...body, orgId });
+        output = await executeRestaurantTool(toolName, parsedInput, { ...body, orgId: orgId ?? undefined });
         proposedActions.push({
           action: toolName,
           input: parsedInput,
@@ -398,7 +421,7 @@ export async function runStaffOrchestrator(
       } else if (toolName === 'sendToStaffCynthia') {
         // Persist the Cynthia card server-side so phone/WhatsApp/channel paths land
         // even when no browser client is online to run toolRuntime.
-        output = await executePhoneTool(toolName, parsedInput, { ...body, orgId });
+        output = await executePhoneTool(toolName, parsedInput, { ...body, orgId: orgId ?? undefined });
         proposedActions.push({
           action: toolName,
           input: parsedInput,

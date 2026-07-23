@@ -1075,11 +1075,11 @@ async function executeTool(
     || name === 'sendSalesFollowUp'
   )) {
     const route = resolveOrgRouteForVapiCall(call);
-    return executeSallySalesPhoneTool(name, args, {
+    return await executeSallySalesPhoneTool(name, args as unknown as Record<string, unknown>, {
       callId,
       partyPhone,
       orgId: route.ok ? route.orgId : undefined,
-    });
+    }) as Record<string, unknown>;
   }
 
   if (CUSTOMER_TOOL_NAMES.has(name)) {

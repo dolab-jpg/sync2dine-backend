@@ -34,9 +34,9 @@ function debugLog(hypothesisId: string, location: string, message: string, data:
   // #endregion
 }
 
-const FRONTEND_REPO = 'https://github.com/dolab-jpg/tradepro-frontend';
-const BACKEND_REPO = 'https://github.com/dolab-jpg/tradepro-backend';
-const REQUIRED_REPOS = ['dolab-jpg/tradepro-frontend', 'dolab-jpg/tradepro-backend'] as const;
+const FRONTEND_REPO = 'https://github.com/dolab-jpg/sync2dine-frontend';
+const BACKEND_REPO = 'https://github.com/dolab-jpg/sync2dine-backend';
+const REQUIRED_REPOS = ['dolab-jpg/sync2dine-frontend', 'dolab-jpg/sync2dine-backend'] as const;
 const MAX_CONCURRENCY = 2;
 const MAX_ATTEMPTS = 3;
 const STUCK_MS = 30 * 60 * 1000;

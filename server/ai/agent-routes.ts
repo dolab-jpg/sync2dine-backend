@@ -281,7 +281,7 @@ async function handlePostVoice(req: IncomingMessage, res: ServerResponse) {
 
   const formData = new FormData();
   formData.append('name', name);
-  formData.append('file', new Blob([fileBuffer]), filename);
+  formData.append('file', new Blob([new Uint8Array(fileBuffer)]), filename);
 
   const headers: Record<string, string> = {};
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
@@ -434,7 +434,7 @@ async function handlePostLine(req: IncomingMessage, res: ServerResponse) {
     did,
     sipDomain: typeof body.sipDomain === 'string' ? body.sipDomain : undefined,
     enabled: body.enabled !== false,
-    assignedUserId: parseAssignedUserId(body.assignedUserId),
+    assignedUserId: parseAssignedUserId(body.assignedUserId) ?? undefined,
     purpose: parsePurpose(body.purpose, 'staff'),
   });
   sendJson(res, 200, { line: maskPhoneLine(line) });
@@ -460,8 +460,8 @@ async function handlePatchLine(req: IncomingMessage, res: ServerResponse, lineId
     did: typeof body.did === 'string' ? body.did : existing.did,
     enabled: typeof body.enabled === 'boolean' ? body.enabled : existing.enabled,
     status: existing.status,
-    assignedUserId: assignedParsed !== undefined ? assignedParsed : existing.assignedUserId,
-    purpose: body.purpose !== undefined ? parsePurpose(body.purpose, existing.purpose ?? 'staff') : existing.purpose,
+    assignedUserId: (assignedParsed !== undefined ? assignedParsed : existing.assignedUserId) ?? undefined,
+    purpose: (body.purpose !== undefined ? parsePurpose(body.purpose, existing.purpose ?? 'staff') : existing.purpose) ?? undefined,
   });
   if (body.enabled === false) {
     await unregisterLine(lineId);

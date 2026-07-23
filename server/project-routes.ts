@@ -319,22 +319,29 @@ function filterProjectForPortal(project: Record<string, unknown>) {
     finishDate: project.finishDate,
     description: project.description,
     totalCustomerCost: project.totalCustomerCost,
-    tasks: (project.tasks as unknown[] ?? []).map((t: Record<string, unknown>) => ({
+    tasks: (project.tasks as unknown[] ?? []).map((value) => {
+      const t = value as Record<string, unknown>;
+      return {
       id: t.id,
       title: t.title,
       status: t.status,
       targetDate: t.targetDate,
-    })),
+      };
+    }),
     milestones: project.milestones,
-    paymentStages: (project.paymentStages as unknown[] ?? []).map((s: Record<string, unknown>) => ({
+    paymentStages: (project.paymentStages as unknown[] ?? []).map((value) => {
+      const s = value as Record<string, unknown>;
+      return {
       id: s.id,
       name: s.name,
       amount: s.amount,
       status: s.status,
       dueDate: s.dueDate,
-    })),
+      };
+    }),
     messages: project.messages,
-    changeOrders: (project.changeOrders as unknown[] ?? []).map((order: Record<string, unknown>) => {
+    changeOrders: (project.changeOrders as unknown[] ?? []).map((value) => {
+      const order = value as Record<string, unknown>;
       const status = String(order.status ?? 'proposed');
       const isVisibleToCustomer = status !== 'proposed';
       return {
@@ -350,14 +357,17 @@ function filterProjectForPortal(project: Record<string, unknown>) {
         amountMax: isVisibleToCustomer ? order.amountMax : undefined,
       };
     }),
-    files: (project.files as unknown[] ?? []).map((f: Record<string, unknown>) => ({
+    files: (project.files as unknown[] ?? []).map((value) => {
+      const f = value as Record<string, unknown>;
+      return {
       id: f.id,
       filename: f.filename,
       mimeType: f.mimeType,
       source: f.source,
       takenAt: f.takenAt,
       dataUrl: f.dataUrl,
-    })),
+      };
+    }),
     photos: project.photos,
   };
 }

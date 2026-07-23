@@ -2,6 +2,7 @@ import {
   getDataStore,
   syncData,
   type ConversationHandoffMode,
+  type TeamMemberRecord,
   type WhatsAppConversationRecord,
 } from './data-store';
 
@@ -59,6 +60,20 @@ export interface TeamMember {
   phonePinHash?: string;
   phonePinUpdatedAt?: string;
   updatedAt: string;
+}
+
+function toTeamMember(member: TeamMemberRecord): TeamMember {
+  const stored = member as unknown as { updatedAt?: unknown };
+  const role = member.role === 'super_admin' || member.role === 'manager'
+    || member.role === 'staff' || member.role === 'builder'
+    ? member.role
+    : 'staff';
+  return {
+    ...member,
+    userId: member.userId ?? member.id,
+    role,
+    updatedAt: typeof stored.updatedAt === 'string' ? stored.updatedAt : new Date(0).toISOString(),
+  };
 }
 
 /** Normalize any session key (phone digits or web_/portal_ prefix). */
@@ -266,7 +281,7 @@ export function consumePendingConfirmation(
 }
 
 export function listTeamMembers(orgId?: string): TeamMember[] {
-  return [...(getDataStore(orgId).teamMembers ?? [])];
+  return (getDataStore(orgId).teamMembers ?? []).map(toTeamMember);
 }
 
 export function upsertTeamMember(member: Omit<TeamMember, 'updatedAt'> & { updatedAt?: string }): TeamMember {
@@ -274,7 +289,7 @@ export function upsertTeamMember(member: Omit<TeamMember, 'updatedAt'> & { updat
   const now = new Date().toISOString();
   const record: TeamMember = { ...member, updatedAt: member.updatedAt ?? now };
   const idx = (store.teamMembers ?? []).findIndex((m) => m.id === record.id || m.phone === record.phone);
-  const members = [...(store.teamMembers ?? [])];
+  const members: TeamMember[] = (store.teamMembers ?? []).map(toTeamMember);
   if (idx >= 0) {
     const prev = members[idx];
     // Preserve existing PIN hash unless a new one is explicitly provided

@@ -20,7 +20,7 @@ export async function transcribeAudioBuffer(
   const apiKey = await requireOpenAIApiKeyAsync(undefined, resolvedOrg);
   const { default: OpenAI } = await import('openai');
   const openai = new OpenAI({ apiKey });
-  const file = new File([buffer], filename, { type: mimeType });
+  const file = new File([new Uint8Array(buffer)], filename, { type: mimeType });
   const transcript = await openai.audio.transcriptions.create({
     model: 'whisper-1',
     file,

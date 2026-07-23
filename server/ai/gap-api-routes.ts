@@ -149,6 +149,8 @@ export async function handleGapApiRoutes(
         starter: process.env.STRIPE_PRICE_STARTER,
         pro: process.env.STRIPE_PRICE_PRO,
         enterprise: process.env.STRIPE_PRICE_ENTERPRISE,
+        sync2dine_platform: process.env.STRIPE_PRICE_SYNC2DINE_PLATFORM,
+        sync2dine_kiosk: process.env.STRIPE_PRICE_SYNC2DINE_KIOSK,
       };
       const priceId = priceEnv[body.newPlanId]?.trim();
       if (!priceId) {

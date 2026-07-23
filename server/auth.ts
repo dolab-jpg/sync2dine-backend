@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import { getOrganizationById } from './organizations';
 import { getUserById, sanitizeUser, verifyPassword, getUserByEmail, type PlatformUser } from './users';
 import { getHomeOrgId, sanitizeOrgId } from './home-org';
+import { resolveJwtSecret } from './jwt-secret';
 
 const JWT_EXPIRY = '7d';
 
@@ -14,9 +15,7 @@ export interface AuthPayload {
 }
 
 function jwtSecret(): string {
-  const secret = process.env.JWT_SECRET?.trim();
-  if (!secret) return 'tradepro-dev-jwt-secret-change-in-production';
-  return secret;
+  return resolveJwtSecret();
 }
 
 export function signToken(user: PlatformUser): string {

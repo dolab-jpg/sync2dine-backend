@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -10,7 +11,17 @@ import {
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
 export const DEFAULT_ORG_ID = 'default';
 
-let requestOrgId = DEFAULT_ORG_ID;
+type RequestOrgStore = { orgId: string };
+
+/**
+ * Per-async-request org scope. Concurrent requests must enter via
+ * `runWithRequestOrgContext` (see server/index.ts) so `setRequestOrgId`
+ * cannot leak across in-flight handlers.
+ */
+const requestOrgAls = new AsyncLocalStorage<RequestOrgStore>();
+
+/** Fallback only for boot/workers outside a request ALS scope. */
+let fallbackOrgId = DEFAULT_ORG_ID;
 const memoryStores = new Map<string, SyncedData>();
 let legacyHomeMigrated = false;
 
@@ -25,31 +36,52 @@ function resolveStorageOrgId(orgId: string | null | undefined): string {
 }
 
 export function setRequestOrgId(orgId: string | null | undefined): void {
-  requestOrgId = resolveStorageOrgId(orgId);
+  const resolved = resolveStorageOrgId(orgId);
+  const store = requestOrgAls.getStore();
+  if (store) {
+    store.orgId = resolved;
+    return;
+  }
+  fallbackOrgId = resolved;
 }
 
 export function getRequestOrgId(): string {
-  return requestOrgId;
+  return requestOrgAls.getStore()?.orgId ?? fallbackOrgId;
 }
 
 export function withOrgContext<T>(orgId: string, fn: () => T): T {
-  const prev = requestOrgId;
-  requestOrgId = resolveStorageOrgId(orgId);
-  try {
-    return fn();
-  } finally {
-    requestOrgId = prev;
+  const resolved = resolveStorageOrgId(orgId);
+  const parent = requestOrgAls.getStore();
+  if (parent) {
+    const prev = parent.orgId;
+    parent.orgId = resolved;
+    try {
+      return fn();
+    } finally {
+      parent.orgId = prev;
+    }
   }
+  return requestOrgAls.run({ orgId: resolved }, fn);
 }
 
 export async function withOrgContextAsync<T>(orgId: string, fn: () => Promise<T>): Promise<T> {
-  const prev = requestOrgId;
-  requestOrgId = resolveStorageOrgId(orgId);
-  try {
-    return await fn();
-  } finally {
-    requestOrgId = prev;
+  const resolved = resolveStorageOrgId(orgId);
+  const parent = requestOrgAls.getStore();
+  if (parent) {
+    const prev = parent.orgId;
+    parent.orgId = resolved;
+    try {
+      return await fn();
+    } finally {
+      parent.orgId = prev;
+    }
   }
+  return requestOrgAls.run({ orgId: resolved }, fn);
+}
+
+/** Enter a fresh request-scoped org store (defaults to home/default org). */
+export function runWithRequestOrgContext<T>(fn: () => T): T {
+  return requestOrgAls.run({ orgId: resolveStorageOrgId(undefined) }, fn);
 }
 
 function dataFileForOrg(orgId: string): string {
@@ -440,7 +472,7 @@ function ensureOrgLoaded(orgId: string): SyncedData {
 }
 
 export function getDataStore(orgId?: string): SyncedData {
-  const id = resolveStorageOrgId(orgId ?? requestOrgId);
+  const id = resolveStorageOrgId(orgId ?? getRequestOrgId());
   const store = ensureOrgLoaded(id);
   if (store.projects.length === 0 && store.contacts.length === 0 && store.phoneLines.length === 0) {
     const loaded = loadFromDisk(id);
@@ -451,7 +483,7 @@ export function getDataStore(orgId?: string): SyncedData {
 }
 
 export function syncData(data: Partial<SyncedData>, orgId?: string): void {
-  const id = resolveStorageOrgId(orgId ?? requestOrgId);
+  const id = resolveStorageOrgId(orgId ?? getRequestOrgId());
   const memoryStore = ensureOrgLoaded(id);
   const next: SyncedData = {
     ...memoryStore,

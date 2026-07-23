@@ -17,4 +17,4 @@ Canonical telephony / Vapi / DID routing / call session tools.
 | `phone-webhook.ts` | Non-Vapi / telephony webhook edge |
 | `phone-orchestrator.ts` | **LEGACY** — not on live Vapi path |
 
-Brain packages: `../brains/{sally,judie}/`.
+Brain packages: `../brains/{sally,judie,cynthia}/` — `cynthia` is selected only when persona/purpose is `cynthia` (construction). Default diner brain is Judie. See [`docs/PHONE_ARCHITECTURE.md`](../../docs/PHONE_ARCHITECTURE.md) and [`docs/ARCHITECTURE_DIAGRAMS.md`](../../docs/ARCHITECTURE_DIAGRAMS.md).

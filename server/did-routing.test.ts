@@ -159,9 +159,9 @@ describe('DID routing cross-org isolation', () => {
   });
 
   it('POS push modes stay org-controlled', () => {
-    assert.equal(resolvePosPushMode({ ...({} as never), posPush: 'manual_only' }), 'manual_only');
-    assert.equal(resolvePosPushMode({ ...({} as never), posPush: 'automatic' }), 'automatic');
-    assert.equal(resolvePosPushMode({ ...({} as never), posPush: 'on_place' }), 'automatic');
+    assert.equal(resolvePosPushMode({ posPush: 'manual_only' } as unknown as Parameters<typeof resolvePosPushMode>[0]), 'manual_only');
+    assert.equal(resolvePosPushMode({ posPush: 'automatic' } as unknown as Parameters<typeof resolvePosPushMode>[0]), 'automatic');
+    assert.equal(resolvePosPushMode({ posPush: 'on_place' } as unknown as Parameters<typeof resolvePosPushMode>[0]), 'automatic');
   });
 
   it('clearing org config fails safely', () => {

@@ -11,6 +11,12 @@
     "resolveJsonModule": true,
     "declaration": true
   },
-  "include": ["server/**/*", "scripts/**/*", "shared/**/*"],
-  "exclude": ["node_modules", "supabase/functions"]
+  "include": ["server/**/*", "shared/**/*"],
+  "exclude": [
+    "node_modules",
+    "supabase/functions",
+    "server/_quarantine/**",
+    "scripts/**",
+    "server/_repair-*.mts"
+  ]
 }

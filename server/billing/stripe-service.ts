@@ -3,8 +3,10 @@ import {
   getOrganizationById,
   PLAN_CONFIG,
   updateOrganization,
+  type Organization,
   type OrgPlan,
 } from '../organizations';
+import type { Database } from '../../shared/database.types.js';
 import {
   ensureStripeReady,
   getStripeRuntimeConfig,
@@ -67,6 +69,38 @@ export async function getPlatformStripeStatus(): Promise<{
   }
 }
 
+/**
+ * Returns the locally persisted billing state used by staff-facing tools.
+ * Stripe webhooks keep these organization fields current, so this must not
+ * make a new Stripe API request during a conversation.
+ */
+export function getOrgPaymentStatus(
+  orgId: string,
+): { paid: boolean; status: string; subscriptionStatus?: string | null } | null {
+  const org = getOrganizationById(orgId);
+  if (!org) return null;
+  const subscriptionStatus = org.subscriptionStatus ?? null;
+  return {
+    paid: org.status === 'active' || subscriptionStatus === 'active',
+    status: org.status,
+    subscriptionStatus,
+  };
+}
+
+function subscriptionPeriodEnd(subscription: unknown): string | undefined {
+  if (!subscription || typeof subscription !== 'object') return undefined;
+  const items = (subscription as { items?: unknown }).items;
+  if (!items || typeof items !== 'object') return undefined;
+  const data = (items as { data?: unknown }).data;
+  if (!Array.isArray(data)) return undefined;
+  const periodEnd = data[0] && typeof data[0] === 'object'
+    ? (data[0] as { current_period_end?: unknown }).current_period_end
+    : undefined;
+  return typeof periodEnd === 'number'
+    ? new Date(periodEnd * 1000).toISOString()
+    : undefined;
+}
+
 function priceIdForPlan(plan: OrgPlan): string {
   const map: Record<OrgPlan, string | undefined> = {
     starter: process.env.STRIPE_PRICE_STARTER,
@@ -115,9 +149,7 @@ export async function createSubscriptionForOrg(
   updateOrganization(orgId, {
     stripeSubscriptionId: subscription.id,
     subscriptionStatus: subscription.status,
-    currentPeriodEnd: subscription.current_period_end
-      ? new Date(subscription.current_period_end * 1000).toISOString()
-      : undefined,
+    currentPeriodEnd: subscriptionPeriodEnd(subscription),
   });
 }
 
@@ -193,7 +225,10 @@ async function syncOrgBillingToSupabase(
     if (patch.stripeCustomerId) row.stripe_customer_id = patch.stripeCustomerId;
     if (patch.stripeSubscriptionId) row.stripe_subscription_id = patch.stripeSubscriptionId;
     if (patch.currentPeriodEnd) row.current_period_end = patch.currentPeriodEnd;
-    const { error } = await supabase.from('organizations').update(row).eq('id', orgId);
+    const { error } = await supabase
+      .from('organizations')
+      .update(row as unknown as Database['public']['Tables']['organizations']['Update'])
+      .eq('id', orgId);
     if (error) console.warn('[stripe] Supabase org sync failed:', error.message);
   } catch (err) {
     console.warn('[stripe] Supabase org sync unavailable:', err instanceof Error ? err.message : err);
@@ -289,7 +324,7 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
       }
       if (!org && orgId) {
         // Supabase-provisioned orgs may not exist in the disk store yet.
-        org = { id: orgId } as ReturnType<typeof getOrganizationById>;
+        org = { id: orgId } as unknown as Organization;
       }
       if (!org) return;
 
@@ -297,9 +332,7 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
         ? 'cancelled'
         : mapStripeStatusToOrgStatus(sub.status);
 
-      const periodEnd = sub.current_period_end
-        ? new Date(sub.current_period_end * 1000).toISOString()
-        : undefined;
+      const periodEnd = subscriptionPeriodEnd(sub);
 
       if (getOrganizationById(org.id)) {
         updateOrganization(org.id, {
@@ -343,7 +376,7 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
             .select('id')
             .eq('stripe_customer_id', customerId)
             .maybeSingle();
-          if (data?.id) org = { id: String(data.id) } as typeof org;
+          if (data?.id) org = { id: String(data.id) } as unknown as Organization;
         } catch { /* ignore */ }
       }
       if (!org) return;
@@ -382,7 +415,7 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
             .select('id')
             .eq('stripe_customer_id', customerId)
             .maybeSingle();
-          if (data?.id) org = { id: String(data.id) } as typeof org;
+          if (data?.id) org = { id: String(data.id) } as unknown as Organization;
         } catch { /* ignore */ }
       }
       if (!org) return;

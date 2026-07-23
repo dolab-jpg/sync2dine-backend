@@ -193,8 +193,8 @@ export async function setMenuItemExternalIds(
   else if (externalIds.square !== undefined) prev.square = String(externalIds.square).trim();
   if (externalIds.epos_now === null) delete prev.epos_now;
   else if (externalIds.epos_now !== undefined) prev.epos_now = String(externalIds.epos_now).trim();
-  const nextData = { ...existing, externalIds: prev };
-  if (!Object.keys(prev).length) delete nextData.externalIds;
+  const nextData: Record<string, unknown> = { ...existing };
+  if (Object.keys(prev).length) nextData.externalIds = prev;
   const { error: upErr } = await client.from('products').upsert(
     { org_id: resolvedOrg, id, data: nextData },
     { onConflict: 'org_id,id' },

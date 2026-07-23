@@ -250,7 +250,7 @@ export interface ProjectContextContractor {
 export function readAssignedContractors(projectContext: Record<string, unknown> | undefined): ProjectContextContractor[] {
   const contractors = projectContext?.assignedContractors;
   if (!Array.isArray(contractors)) return [];
-  return contractors
+  const parsed: Array<ProjectContextContractor | null> = contractors
     .map((value) => {
       if (!value || typeof value !== 'object') return null;
       const raw = value as Record<string, unknown>;
@@ -262,9 +262,9 @@ export function readAssignedContractors(projectContext: Record<string, unknown> 
         name,
         tradeId: firstString(raw.tradeId),
         trade: firstString(raw.trade),
-      } satisfies ProjectContextContractor;
+      };
     })
-    .filter((item): item is ProjectContextContractor => Boolean(item));
+  return parsed.filter((item): item is ProjectContextContractor => item !== null);
 }
 
 export function getTradePhaseSummary(tradeId: string | undefined): string {

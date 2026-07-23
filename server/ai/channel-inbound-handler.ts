@@ -92,7 +92,7 @@ function buildBusinessSnapshot(orgId: string, staffContext: OrchestratorRequest[
   const snapshot = executeBusinessSnapshot(body);
   return {
     ...snapshot,
-    officeTeamRoster: getOfficeTeamRoster(),
+    officeTeamRoster: getOfficeTeamRoster() as unknown as Record<string, unknown>[],
   };
 }
 

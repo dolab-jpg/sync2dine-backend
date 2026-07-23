@@ -18,6 +18,7 @@ jobs:
         with:
           node-version: '20'
       - run: npm ci
+      - run: npm run typecheck
       - run: npm test
 
   deploy:
@@ -61,8 +62,10 @@ jobs:
             test -f server/phone/sally-sales-phone.ts
             test -f server/ai/orchestrator-prompt.ts
             test -f server/brains/index.ts
-            grep -n "VOICE & HUMOUR" server/sally-sales.ts | head -5 || true
             grep -n "VOICE & HUMOUR" server/phone/sally-sales-phone.ts | head -5 || true
+            test -f server/phone/vapi-routes.ts
+            test -f server/sally/web-chat.ts
+            test -f server/orders/orders-routes.ts
             npm ci --omit=dev
             if command -v pm2 >/dev/null 2>&1; then
               pm2 restart sync2dine-backend || pm2 start "npm run start" --name sync2dine-backend

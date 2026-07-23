@@ -32,7 +32,7 @@ import {
 import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from '../../restaurant-ai-tools';
 import { resolveCallbackIso } from '../callback-time';
 import { firstString } from './util';
-import { captureOrUpdateLead, normalizeDialableE164 } from './leads';
+import { captureOrUpdateLead, normalizeDialableE164, isStaffPartyPhone } from './leads';
 import { PHONE_TOOLS, PHONE_AUTO_ACTIONS } from './catalog';
 
 export async function executePhoneTool(
@@ -40,7 +40,7 @@ export async function executePhoneTool(
   input: Record<string, unknown>,
   body: OrchestratorRequest,
 ): Promise<Record<string, unknown>> {
-  const { SALLY_RECEPTIONIST_TOOL_NAMES, executeSallyReceptionistTool } = await import('../sally-receptionist');
+  const { SALLY_RECEPTIONIST_TOOL_NAMES, executeSallyReceptionistTool } = await import('../../sally-receptionist');
   if (SALLY_RECEPTIONIST_TOOL_NAMES.has(name)) {
     return executeSallyReceptionistTool(name, input, {
       callId: firstString(body.callContext?.callId),
@@ -236,7 +236,7 @@ export async function executePhoneTool(
     }
     const englishMessage = englishGuard.english;
     try {
-      const { isMetaWhatsAppEnabled, sendWhatsAppText } = await import('../whatsapp-webhook');
+      const { isMetaWhatsAppEnabled, sendWhatsAppText } = await import('../../whatsapp-webhook');
       const waToken = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
       const waPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
       if (isMetaWhatsAppEnabled() && waToken && waPhoneId) {
@@ -738,7 +738,7 @@ export async function executePhoneTool(
   }
 
   if (name === 'getDeliveryAreas') {
-    const { normalizeDeliveryPrefixes } = await import('../delivery-areas');
+    const { normalizeDeliveryPrefixes } = await import('../../delivery-areas');
     const { formatSpokenGbp } = await import('../spoken-money');
     const settings = getDataStore().agentSettings;
     const prefixes = normalizeDeliveryPrefixes(settings?.deliveryPostcodePrefixes);
@@ -781,7 +781,7 @@ export async function executePhoneTool(
   }
 
   if (name === 'checkDeliveryArea') {
-    const { matchDeliveryPostcode, normalizeDeliveryPrefixes } = await import('../delivery-areas');
+    const { matchDeliveryPostcode, normalizeDeliveryPrefixes } = await import('../../delivery-areas');
     const settings = getDataStore().agentSettings;
     const prefixes = normalizeDeliveryPrefixes(settings?.deliveryPostcodePrefixes);
     const postcode = firstString(input.postcode) ?? '';
@@ -824,7 +824,7 @@ export async function executePhoneTool(
   }
 
   if (name === 'placeFoodOrder') {
-    const { placeFoodOrder } = await import('../order-service');
+    const { placeFoodOrder } = await import('../../order-service');
     return placeFoodOrder({
       items: Array.isArray(input.items) ? input.items : [],
       orderType: firstString(input.orderType),

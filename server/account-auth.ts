@@ -283,7 +283,7 @@ export async function handleAccountAuthRoutes(
         sendJson(res, 404, { error: 'Invite not found' });
         return true;
       }
-      const row = invite as {
+      const row = invite as unknown as {
         token: string;
         email: string;
         role: string;

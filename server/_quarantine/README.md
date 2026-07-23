@@ -1,6 +1,6 @@
 ﻿# Quarantined server forks
 
-These files are **not** mounted by `server/index.ts`.
+These files are **not** mounted by `server/index.ts` and are **excluded** from `tsc` via `tsconfig.json` (`server/_quarantine/**`).
 
 | File | Why quarantined |
 |------|-----------------|
@@ -9,4 +9,4 @@ These files are **not** mounted by `server/index.ts`.
 
 Do **not** edit these for product work. Canonical sources live under `server/phone/`, `server/ai/`, etc.
 
-Restore: move back + wire an explicit import only after proving a caller.
+Restore: move back + wire an explicit import only after proving a caller, then remove the tsconfig exclude entry for that path.

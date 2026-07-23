@@ -29,7 +29,7 @@ export interface OrgIntegrationPublic {
   configuredFields: Record<string, string>;
   hasSecrets: boolean;
   updatedAt?: string;
-  source?: 'supabase' | 'memory' | 'none';
+  source?: 'supabase' | 'env' | 'runtime' | 'both' | 'memory' | 'none';
 }
 
 /** In-memory fallback when Supabase service role is unavailable. */

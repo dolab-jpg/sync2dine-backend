@@ -1,9 +1,18 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../shared/database.types.js';
 
-let adminClient: SupabaseClient<Database> | null = null;
+type DatabaseWithRelationships = {
+  public: Omit<Database['public'], 'Tables'> & {
+    Tables: {
+      [Name in keyof Database['public']['Tables']]:
+        Database['public']['Tables'][Name] & { Relationships: [] };
+    };
+  };
+};
 
-export function getSupabaseAdmin(): SupabaseClient<Database> {
+let adminClient: SupabaseClient<DatabaseWithRelationships> | null = null;
+
+export function getSupabaseAdmin(): SupabaseClient<DatabaseWithRelationships> {
   if (adminClient) return adminClient;
 
   const url = process.env.SUPABASE_URL?.trim();
@@ -13,19 +22,19 @@ export function getSupabaseAdmin(): SupabaseClient<Database> {
     throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');
   }
 
-  adminClient = createClient<Database>(url, key, {
+  adminClient = createClient<DatabaseWithRelationships>(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
   return adminClient;
 }
 
-export function getSupabaseAnon(): SupabaseClient<Database> {
+export function getSupabaseAnon(): SupabaseClient<DatabaseWithRelationships> {
   const url = process.env.SUPABASE_URL?.trim();
   const key = process.env.SUPABASE_ANON_KEY?.trim();
   if (!url || !key) {
     throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY are required');
   }
-  return createClient<Database>(url, key);
+  return createClient<DatabaseWithRelationships>(url, key);
 }
 
 export const DEFAULT_ORG_UUID = '00000000-0000-0000-0000-000000000001';

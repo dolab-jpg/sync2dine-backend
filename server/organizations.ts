@@ -366,8 +366,22 @@ export function setOrgAIBrainConfig(
 
 async function getSupabaseServiceClient(): Promise<{
   from: (table: string) => {
-    select: (cols: string) => { eq: (col: string, val: string) => { maybeSingle: () => Promise<{ data: { openai_api_key_encrypted?: string } | null }> } };
-    update: (row: Record<string, unknown>) => { eq: (col: string, val: string) => Promise<{ error: { message: string } | null }> };
+    select: (cols: string) => {
+      eq: (col: string, val: string) => {
+        maybeSingle: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+      };
+      order: (col: string, options?: { ascending?: boolean }) => Promise<{
+        data: Record<string, unknown>[] | null;
+        error: { message: string } | null;
+      }>;
+    };
+    update: (row: Record<string, unknown>) => {
+      eq: (col: string, val: string) => Promise<{ error: { message: string } | null }>;
+    };
+    upsert: (
+      row: Record<string, unknown>,
+      options?: { onConflict?: string },
+    ) => Promise<{ error: { message: string } | null }>;
   };
 } | null> {
   const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim();
@@ -467,7 +481,9 @@ export async function ensureOrgOpenAIKeyLoaded(orgId: string): Promise<void> {
       .select('openai_api_key_encrypted')
       .eq('id', orgId)
       .maybeSingle();
-    const encrypted = data?.openai_api_key_encrypted?.trim();
+    const encrypted = typeof data?.openai_api_key_encrypted === 'string'
+      ? data.openai_api_key_encrypted.trim()
+      : '';
     if (!encrypted) {
       // Key may be saved moments later — allow a future retry.
       orgOpenAIKeyLoadAttempts.delete(orgId);

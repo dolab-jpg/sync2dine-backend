@@ -56,16 +56,27 @@ export const SENSITIVE_FIELD_KEYS = new Set([
 const STAFF_ROLES = new Set<ServerAgentRole>(['super_admin', 'manager', 'staff']);
 
 const READ_MATRIX: Record<ServerAgentRole, Set<DataCollection> | '*'> = {
+  platform_owner: '*',
   super_admin: '*',
   manager: '*',
   staff: '*',
   recruitment: new Set(['customers', 'quotes', 'projects', 'recruitmentAccess']),
   builder: new Set(['projects']),
   customer: new Set(['customers', 'quotes', 'projects']),
+  agent: new Set(),
   unknown: new Set(),
 };
 
 const WRITE_MATRIX: Record<ServerAgentRole, Partial<Record<DataCollection, Set<WriteOperation>>>> = {
+  platform_owner: {
+    customers: new Set(['create', 'update', 'delete']),
+    quotes: new Set(['create', 'update', 'delete']),
+    products: new Set(['create', 'update', 'delete']),
+    pricingRules: new Set(['create', 'update', 'delete']),
+    projects: new Set(['create', 'update', 'delete']),
+    builders: new Set(['create', 'update', 'delete']),
+    recruitmentAccess: new Set(['update']),
+  },
   super_admin: {
     customers: new Set(['create', 'update', 'delete']),
     quotes: new Set(['create', 'update', 'delete']),
@@ -101,6 +112,7 @@ const WRITE_MATRIX: Record<ServerAgentRole, Partial<Record<DataCollection, Set<W
   customer: {
     projects: new Set(['update']),
   },
+  agent: {},
   unknown: {},
 };
 

@@ -268,7 +268,7 @@ export function savePlatformPhoneLine(input: {
       enabled: input.enabled,
       purpose: input.purpose,
       connectionType: parseConnectionType(input.connectionType, existing?.connectionType ?? 'soho66'),
-      assignedUserId: input.assignedUserId,
+      assignedUserId: input.assignedUserId ?? undefined,
       status: input.status ?? existing?.status,
     }),
   );

@@ -11,11 +11,12 @@ Start here before API / phone / billing work.
 5. [`docs/WORKERS.md`](docs/WORKERS.md)
 6. [`docs/ROUTE_MAP.md`](docs/ROUTE_MAP.md)
 7. [`docs/PHONE_ARCHITECTURE.md`](docs/PHONE_ARCHITECTURE.md) / [`SALLY_ARCHITECTURE.md`](docs/SALLY_ARCHITECTURE.md)
-8. [`docs/LEGACY_ALIASES.md`](docs/LEGACY_ALIASES.md)
-9. FE [`CAPABILITY_INVENTORY.md`](../sync2dine-frontend/docs/CAPABILITY_INVENTORY.md), [`DEPLOYMENT_MAP.md`](../sync2dine-frontend/docs/DEPLOYMENT_MAP.md), [`CHANGE_IMPACT.md`](../sync2dine-frontend/docs/CHANGE_IMPACT.md)
-10. Generated evidence: [`docs/_generated/`](docs/_generated/)
-11. ADRs: [`docs/adr/`](docs/adr/)
-12. Report: [`../sync2dine-frontend/docs/ENGINEERING_KNOWLEDGE_REPORT.md`](../sync2dine-frontend/docs/ENGINEERING_KNOWLEDGE_REPORT.md)
+8. [`docs/ARCHITECTURE_DIAGRAMS.md`](docs/ARCHITECTURE_DIAGRAMS.md) (code-verified Mermaid)
+9. [`docs/LEGACY_ALIASES.md`](docs/LEGACY_ALIASES.md)
+10. FE [`CAPABILITY_INVENTORY.md`](../sync2dine-frontend/docs/CAPABILITY_INVENTORY.md), [`DEPLOYMENT_MAP.md`](../sync2dine-frontend/docs/DEPLOYMENT_MAP.md), [`CHANGE_IMPACT.md`](../sync2dine-frontend/docs/CHANGE_IMPACT.md)
+11. Generated evidence: [`docs/_generated/`](docs/_generated/)
+12. ADRs: [`docs/adr/`](docs/adr/)
+13. Engineering audit: [`../sync2dine-frontend/docs/ENGINEERING_AUDIT_REPORT.md`](../sync2dine-frontend/docs/ENGINEERING_AUDIT_REPORT.md)
 
 ## Domain folders
 

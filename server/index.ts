@@ -41,7 +41,7 @@ import { handlePushRoutes } from './push-routes';
 import { handleWWebRoutes } from './whatsapp-web-routes';
 import { handleGapApiRoutes } from './gap-api-routes';
 import { handleAgentActivityRoutes } from './agent-activity-routes';
-import { initDataFromSupabase } from './data-store';
+import { initDataFromSupabase, runWithRequestOrgContext } from './data-store';
 import { startMailboxPoller } from './mailbox/imapSyncService';
 import { startOutboundWorker } from './outbound-worker';
 import { ensureBdiddiesHomeOrg } from './organizations';
@@ -50,11 +50,15 @@ import { startSalesBrainWorker } from './sales-brain/worker';
 import { handleSallyKnowledgeRoutes } from './sally-product-kb/routes';
 import { startSallyKnowledgeWorker } from './sally-product-kb/worker';
 import { warmSallyKnowledgeCache } from './sally-product-kb/inject';
+import { assertJwtSecretForBoot } from './jwt-secret';
+
+assertJwtSecretForBoot();
 
 const PORT = Number(process.env.PORT) || 3001;
 const ALLOWED_ORIGIN = process.env.APP_BASE_URL?.trim() || '*';
 
 const server = createServer(async (req, res) => {
+  await runWithRequestOrgContext(async () => {
   try {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const pathname = url.pathname;
@@ -169,6 +173,7 @@ const server = createServer(async (req, res) => {
       }));
     }
   }
+  });
 });
 
 server.on('upgrade', (req, socket, head) => {
