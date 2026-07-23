@@ -1,17 +1,28 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
+import { isProductionRuntime } from './jwt-secret';
 
 const ALGO = 'aes-256-gcm';
+
+/** Dev-only fallback. Must not be coupled to JWT_SECRET — rotating JWT must not break org secrets. */
+export const KNOWN_DEV_ENCRYPTION_SECRET = 'tradepro-dev-encryption-key-change-in-production';
 
 function deriveKey(secret: string): Buffer {
   return createHash('sha256').update(secret).digest();
 }
 
 function encryptionSecret(): string {
-  return (
-    process.env.ORG_ENCRYPTION_KEY?.trim()
-    || process.env.JWT_SECRET?.trim()
-    || 'tradepro-dev-encryption-key-change-in-production'
-  );
+  const orgKey = process.env.ORG_ENCRYPTION_KEY?.trim();
+  if (orgKey) return orgKey;
+
+  // Intentionally do NOT fall back to JWT_SECRET. That coupling caused a live outage
+  // when JWT_SECRET was rotated for production fail-closed auth.
+  if (isProductionRuntime()) {
+    throw new Error(
+      'ORG_ENCRYPTION_KEY is required in production. Refusing to encrypt/decrypt with JWT_SECRET or a development fallback.',
+    );
+  }
+
+  return KNOWN_DEV_ENCRYPTION_SECRET;
 }
 
 export function encryptSecret(plaintext: string): string {
