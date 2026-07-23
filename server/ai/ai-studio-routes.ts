@@ -4,8 +4,8 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STUDIO_PATH = join(__dirname, 'data', 'ai-studio.json');
-const RETENTION_PATH = join(__dirname, 'data', 'ai-studio-meta.json');
+const STUDIO_PATH = join(__dirname, '..', 'data', 'ai-studio.json');
+const RETENTION_PATH = join(__dirname, '..', 'data', 'ai-studio-meta.json');
 
 interface StudioMeta {
   conversationRetentionDays: number;

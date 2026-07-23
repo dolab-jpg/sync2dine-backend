@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { readStudioMeta } from './ai-studio-routes';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const LOG_PATH = join(__dirname, 'data', 'conversation-logs.json');
+const LOG_PATH = join(__dirname, '..', 'data', 'conversation-logs.json');
 
 interface LogEntry {
   id: string;
