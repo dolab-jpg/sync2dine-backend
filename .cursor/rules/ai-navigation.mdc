@@ -1,0 +1,16 @@
+---
+description: AI navigation — open AGENTS.md + server README before API work
+alwaysApply: true
+---
+
+# AI navigation (backend code map)
+
+Before API, phone, orders, or billing work:
+
+1. Read root **`AGENTS.md`**.
+2. Read **`server/README.md`** (route / domain index) and **`server/index.ts`** (mount order).
+3. For UI ? API location pairs, use sibling frontend **`docs/APPLICATION_MASTER.md` §24–§25**.
+4. Prefer domain folders: `server/phone/`, `server/orders/`, `server/ai/`, `server/billing/`, `server/brains/{sally,judie}/`. Root `server/*.ts` files may be re-export stubs — edit the domain file.
+5. **Supabase is primary.** Do not treat `server/data/*.json` as production source of truth.
+6. Ignore `*.vps.ts` / `*.local-full.ts` unless the task is explicitly deploy-related.
+7. Phone packages: **sally** (sales + staff PIN) and **judie** (diner ordering). No third phone brain for staff tools.

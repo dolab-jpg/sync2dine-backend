@@ -1,5 +1,5 @@
 /** Shared phone brain package contract — sally | judie only. */
-import type { PhoneCallerIdentity } from '../phone-auth';
+import type { PhoneCallerIdentity } from '../phone/phone-auth';
 
 export type BrainId = 'sally' | 'judie';
 

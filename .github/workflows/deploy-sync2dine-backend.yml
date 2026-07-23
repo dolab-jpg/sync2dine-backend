@@ -55,13 +55,14 @@ jobs:
             set -e
             BE="/var/www/vhosts/sync2dine.io/sync2dine-backend"
             cd "$BE"
-            # Pull Cockney Sally sales OS from frontend master (live web/chat source of truth)
-            curl -fsSL "https://raw.githubusercontent.com/dolab-jpg/sync2dine-frontend/master/server/sally-sales.ts" \
-              -o server/sally-sales.ts
-            curl -fsSL "https://raw.githubusercontent.com/dolab-jpg/sync2dine-frontend/master/server/orchestrator-prompt.ts" \
-              -o server/orchestrator-prompt.ts || true
-            grep -n "VOICE & HUMOUR" server/sally-sales.ts | head -5
-            grep -n "VOICE & HUMOUR" server/sally-sales-phone.ts | head -5 || true
+            # Backend master is SoT for phone/AI (server/phone, server/ai, …).
+            # Do NOT curl frontend legacy server/*.ts onto this tree — that overwrites
+            # re-export stubs and breaks domain folders after the navigability regroup.
+            test -f server/phone/sally-sales-phone.ts
+            test -f server/ai/orchestrator-prompt.ts
+            test -f server/brains/index.ts
+            grep -n "VOICE & HUMOUR" server/sally-sales.ts | head -5 || true
+            grep -n "VOICE & HUMOUR" server/phone/sally-sales-phone.ts | head -5 || true
             npm ci --omit=dev
             if command -v pm2 >/dev/null 2>&1; then
               pm2 restart sync2dine-backend || pm2 start "npm run start" --name sync2dine-backend

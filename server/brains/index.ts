@@ -1,4 +1,4 @@
-import { isSallySalesCall } from '../sally-sales-phone';
+import { isSallySalesCall } from '../phone/sally-sales-phone';
 import type { BrainBuildInput, BrainId, BrainPackage, BrainSession } from './types';
 import { sallyBrain } from './sally/index';
 import { judieBrain } from './judie/index';

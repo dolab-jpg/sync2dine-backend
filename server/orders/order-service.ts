@@ -1,0 +1,545 @@
+/**
+ * Shared place-order engine for phone, staff till, and POST /api/orders.
+ * Phone tools must call this ? do not duplicate pricing/delivery/allergy rules.
+ */
+import {
+  getDataStore,
+  getRequestOrgId,
+  listOrderRecords,
+  lookupContactByPhone,
+  saveOrderRecord,
+} from '../data-store';
+import { formatSpokenGbp } from '../spoken-money';
+import { expandMealDealOrderItems, listMenuItemsForOrg, type OrderLineInput } from '../menu-catalog';
+import { allergenSafetyHint, customerAllergenConflict } from './allergens';
+import { getConnectorConfig } from '../connectors/config-store';
+import { forwardJudieOrderToProviders } from '../connectors/judie-order-forward';
+import { resolvePosPushMode, type PosPushMode } from '../connectors/types';
+
+export type { PosPushMode };
+export { resolvePosPushMode };
+
+export interface PlaceFoodOrderInput {
+  items: unknown[];
+  orderType?: string;
+  postcode?: string;
+  deliveryAddress?: string;
+  customerAllergies?: string;
+  allergyConfirmed?: boolean;
+  customerPhone?: string;
+  customerName?: string;
+  customerId?: string;
+  specialName?: string;
+  notes?: string;
+  paymentStatus?: string;
+  total?: number;
+  channel?: string;
+  source?: string;
+  sourceCallId?: string;
+  callIds?: string[];
+  orgId?: string;
+  /** When set, used for CRM phone fallback (phone agent). */
+  callerPhone?: string;
+}
+
+export type PlaceFoodOrderResult =
+  | {
+      ok: true;
+      orderId: string;
+      orderNumber: string | number | undefined;
+      total: number;
+      spokenTotal: string;
+      specialName: string | null;
+      deliveryAddress: string | null;
+      deliveryPostcode: string | null;
+      customerId: string | null;
+      syncState: string;
+      spokenHint: string;
+      order: Record<string, unknown>;
+      posPush?: { attempted: boolean; ok?: boolean; error?: string };
+    }
+  | {
+      ok: false;
+      error: string;
+      spokenHint: string;
+      postcode?: string;
+      allergenWarnings?: string[];
+    };
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function buildSpokenHint(opts: {
+  orderNumber: string | number | undefined;
+  spokenTotal: string;
+  orderType: string;
+  deliveryAddress?: string;
+  specialSpeak: string;
+  syncState: string;
+  posMode: PosPushMode;
+  posOk?: boolean;
+  paymentMethod?: string;
+}): string {
+  const where =
+    opts.orderType === 'delivery' && opts.deliveryAddress
+      ? ` Delivery to ${opts.deliveryAddress}.`
+      : opts.orderType === 'collection'
+        ? ' Collection.'
+        : '';
+  const paySpeak =
+    opts.paymentMethod === 'cash'
+      ? ' Paying cash on arrival.'
+      : opts.paymentMethod === 'card'
+        ? ' Paying by card on arrival.'
+        : '';
+  const base = `Order ${opts.orderNumber} is on the kitchen board ? ${opts.spokenTotal}.${where}${opts.specialSpeak}${paySpeak}`;
+  if (opts.posMode === 'automatic') {
+    if (opts.posOk) return `${base} POS synced.`;
+    if (opts.syncState === 'error' || opts.syncState === 'pending_out') {
+      return `${base} POS pending or failed ? staff can retry from the board.`;
+    }
+  }
+  return base;
+}
+
+/**
+ * Validate, price, persist a food order. Optional POS push when pos_push === on_place.
+ */
+export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceFoodOrderResult> {
+  const orgId = firstString(input.orgId) ?? getRequestOrgId();
+  const settings = getDataStore().agentSettings;
+  if (settings?.orderingEnabled === false) {
+    return {
+      ok: false,
+      error: 'ordering_suspended',
+      spokenHint: 'We are not taking new orders right now ? please try again later or call in for help.',
+    };
+  }
+
+  const rawItems = Array.isArray(input.items) ? input.items : [];
+  if (!rawItems.length) {
+    return { ok: false, error: 'items_required', spokenHint: 'Tell me what you would like to order first.' };
+  }
+
+  const channelEarly = (firstString(input.channel) ?? 'phone').toLowerCase();
+  const callIdEarly = firstString(input.sourceCallId);
+  // Phone/Judie double-place guard: one successful order per call id.
+  if (callIdEarly && (channelEarly === 'phone' || channelEarly === 'kiosk' || channelEarly === 'vapi')) {
+    try {
+      const existing = await listOrderRecords(orgId);
+      const prior = existing.find((o) => {
+        const sc = String(o.sourceCallId ?? '');
+        const st = String(o.status ?? '').toLowerCase();
+        return sc === callIdEarly && st !== 'cancelled';
+      });
+      if (prior) {
+        const spokenTotal = formatSpokenGbp(Number(prior.total ?? 0));
+        const orderNumber =
+          typeof prior.orderNumber === 'string' || typeof prior.orderNumber === 'number'
+            ? prior.orderNumber
+            : undefined;
+        return {
+          ok: true,
+          orderId: String(prior.id),
+          orderNumber,
+          total: Number(prior.total ?? 0),
+          spokenTotal,
+          specialName: prior.specialName != null ? String(prior.specialName) : null,
+          deliveryAddress: prior.deliveryAddress != null ? String(prior.deliveryAddress) : null,
+          deliveryPostcode: prior.deliveryPostcode != null ? String(prior.deliveryPostcode) : null,
+          customerId: prior.customerId != null ? String(prior.customerId) : null,
+          syncState: String(prior.syncState ?? 'local'),
+          spokenHint: `Order ${orderNumber ?? prior.id} is already on the kitchen board ? ${spokenTotal}. No need to place it again.`,
+          order: prior,
+          posPush: { attempted: false },
+        };
+      }
+    } catch {
+      /* continue to place if lookup fails */
+    }
+  }
+
+  const orderType = firstString(input.orderType) ?? 'collection';
+  const postcode = firstString(input.postcode);
+  const streetAddress = firstString(input.deliveryAddress);
+
+  let resolvedStreet = streetAddress;
+  let resolvedPostcode = postcode;
+  if (orderType === 'delivery') {
+    const { validateDeliveryAddressForOrder } = await import('./food-order-guards');
+    const addressGate = validateDeliveryAddressForOrder({
+      streetAddress,
+      postcode,
+    });
+    if (!addressGate.ok) {
+      return {
+        ok: false,
+        error: addressGate.error,
+        spokenHint: addressGate.spokenHint,
+      };
+    }
+    resolvedStreet = addressGate.streetAddress;
+    resolvedPostcode = addressGate.postcode;
+
+    const { matchDeliveryPostcode, normalizeDeliveryPrefixes } = await import('./delivery-areas');
+    const prefixes = normalizeDeliveryPrefixes(getDataStore().agentSettings?.deliveryPostcodePrefixes);
+    if (!prefixes.length) {
+      return {
+        ok: false,
+        error: 'delivery_areas_not_configured',
+        spokenHint: 'Delivery areas are not set up yet ? shall I make this collection instead?',
+      };
+    }
+    const match = matchDeliveryPostcode(resolvedPostcode, prefixes);
+    if (!match.ok) {
+      return {
+        ok: false,
+        error: 'out_of_delivery_area',
+        postcode: match.normalized || resolvedPostcode,
+        spokenHint: 'We do not stretch that far for delivery yet ? collection instead, or a different postcode?',
+      };
+    }
+  }
+
+  let catalog: Awaited<ReturnType<typeof listMenuItemsForOrg>> = [];
+  try {
+    catalog = await listMenuItemsForOrg(orgId);
+  } catch {
+    catalog = [];
+  }
+
+  const rawLines: OrderLineInput[] = rawItems.map((row) => {
+    const r = row as Record<string, unknown>;
+    const dealChoices = Array.isArray(r.dealChoices)
+      ? (r.dealChoices as Array<Record<string, unknown>>).map((unit) => {
+          const mapped: Record<string, string> = {};
+          for (const [k, v] of Object.entries(unit ?? {})) {
+            if (v != null && String(v).trim()) mapped[String(k).toLowerCase()] = String(v).trim();
+          }
+          return mapped;
+        })
+      : undefined;
+    return {
+      name: String(r.name ?? '').trim(),
+      qty: Number(r.qty ?? 1) || 1,
+      price: r.price != null ? Number(r.price) : undefined,
+      dealChoices,
+      dealName: r.dealName != null ? String(r.dealName) : undefined,
+      role: r.role != null ? String(r.role) : undefined,
+      dealIndex: r.dealIndex != null ? Number(r.dealIndex) : undefined,
+    };
+  });
+
+  {
+    const { validateCatalogOrderItems } = await import('./food-order-guards');
+    const catalogGate = validateCatalogOrderItems(
+      rawLines.map((l) => l.name).filter(Boolean),
+      catalog,
+    );
+    if (!catalogGate.ok) {
+      return {
+        ok: false,
+        error: catalogGate.error === 'unknown_menu_item' ? 'unknown_item' : catalogGate.error,
+        spokenHint: catalogGate.spokenHint,
+      };
+    }
+  }
+  // Hard catalog gates: unknown / unavailable rejected; catalog price wins.
+  for (const line of rawLines) {
+    if (!line.name) {
+      return {
+        ok: false,
+        error: 'item_name_required',
+        spokenHint: 'I need the dish name for each line.',
+      };
+    }
+    const match = catalog.find((c) => c.name.toLowerCase() === line.name.toLowerCase());
+    if (!match) {
+      return {
+        ok: false,
+        error: 'unknown_item',
+        spokenHint: `I do not have ${line.name} on the menu ? pick something we offer.`,
+      };
+    }
+    line.price = match.price;
+  }
+
+  const expanded = expandMealDealOrderItems(rawLines, catalog);
+  if (!expanded.ok) {
+    return {
+      ok: false,
+      error: expanded.error,
+      spokenHint: expanded.spokenHint,
+    };
+  }
+
+  const customerAllergies = firstString(input.customerAllergies) ?? '';
+  const allergyConfirmed = input.allergyConfirmed === true;
+  if (!allergyConfirmed) {
+    return {
+      ok: false,
+      error: 'allergy_check_required',
+      spokenHint: 'Before I place that ? any allergies or intolerances we should know about?',
+    };
+  }
+
+  const allergenWarnings: string[] = [];
+  const channelLower = (firstString(input.channel) ?? 'phone').toLowerCase();
+  const staffChannel = channelLower === 'staff' || channelLower === 'sync2dine';
+  for (const line of expanded.items) {
+    const match = catalog.find((c) => c.name.toLowerCase() === String(line.name).toLowerCase());
+    if (!match) continue;
+    // Phone: undeclared allergens hard-fail. Staff till: allergyConfirmed already required.
+    if (!staffChannel) {
+      const safety = allergenSafetyHint(match);
+      if (safety) allergenWarnings.push(safety);
+    }
+    const allergyNote = (customerAllergies || '').trim().toLowerCase();
+    if (allergyNote && allergyNote !== 'none') {
+      const conflicts = customerAllergenConflict(customerAllergies, match.allergensContains ?? []);
+      if (conflicts.length) {
+        allergenWarnings.push(
+          `${match.name} contains ${conflicts.join(', ')} which matches the caller allergies - suggest alternatives or kitchen check.`,
+        );
+      }
+    }
+  }
+  if (allergenWarnings.length) {
+    return {
+      ok: false,
+      error: 'allergen_review_required',
+      allergenWarnings,
+      spokenHint: allergenWarnings[0],
+    };
+  }
+
+  let pricedTotal = 0;
+  for (const line of rawLines) {
+    if (!line.name) continue;
+    const qty = Math.max(1, Number(line.qty ?? 1) || 1);
+    const match = catalog.find((c) => c.name.toLowerCase() === line.name.toLowerCase());
+    if (match?.deal) {
+      pricedTotal += match.price * qty;
+    } else {
+      const unit = Number(line.price ?? match?.price ?? 0);
+      pricedTotal += (Number.isFinite(unit) ? unit : 0) * qty;
+    }
+  }
+  pricedTotal = Math.round(pricedTotal * 100) / 100;
+
+  const items = expanded.items.map((row) => {
+    const price = Number(row.price ?? 0);
+    const filled =
+      (!Number.isFinite(price) || price < 0) && row.name
+        ? catalog.find((c) => c.name.toLowerCase() === row.name.toLowerCase())?.price
+        : price;
+    return {
+      name: row.name,
+      qty: Math.max(1, Number(row.qty ?? 1) || 1),
+      price: Number.isFinite(Number(filled)) ? Number(filled) : 0,
+      ...(row.dealName ? { dealName: row.dealName } : {}),
+      ...(row.dealIndex != null ? { dealIndex: row.dealIndex } : {}),
+      ...(row.role ? { role: row.role } : {}),
+    };
+  });
+
+  // Catalog/deal pricing wins ? never trust client/AI total for money.
+  const totalBeforeSpecial = pricedTotal;
+
+  const phone = firstString(input.customerPhone, input.callerPhone) ?? '';
+  let customerId = firstString(input.customerId);
+  if (!customerId && phone) {
+    const found = lookupContactByPhone(phone);
+    if (found.found && found.customerId) customerId = found.customerId;
+  }
+
+  const store = getDataStore();
+  const customerRow = customerId
+    ? store.customers.find((c) => String(c.id) === customerId)
+    : undefined;
+  const crmSpecialName = customerRow?.specialName != null ? String(customerRow.specialName).trim() : '';
+  const crmSpecialNote = customerRow?.specialDealNote != null ? String(customerRow.specialDealNote).trim() : '';
+  const appliedSpecialName = firstString(input.specialName) || undefined;
+  let total = totalBeforeSpecial;
+  let specialAppliedNote = '';
+  if (appliedSpecialName && crmSpecialNote) {
+    const pctMatch = crmSpecialNote.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (pctMatch) {
+      const pct = Math.min(100, Math.max(0, Number(pctMatch[1])));
+      if (Number.isFinite(pct) && pct > 0) {
+        total = Math.round(totalBeforeSpecial * (1 - pct / 100) * 100) / 100;
+        specialAppliedNote = `${appliedSpecialName}: ${pct}% off (${formatSpokenGbp(totalBeforeSpecial)} to ${formatSpokenGbp(total)})`;
+      }
+    }
+    if (!specialAppliedNote) {
+      specialAppliedNote = `${appliedSpecialName}: ${crmSpecialNote}`;
+    }
+  } else if (appliedSpecialName && crmSpecialName) {
+    specialAppliedNote = `Special: ${appliedSpecialName}${crmSpecialNote ? ` ? ${crmSpecialNote}` : ''}`;
+  }
+
+  // Delivery economics from restaurant criteria (Settings chart).
+  const minOrder = Number(settings?.minOrderGbp ?? 0);
+  const deliveryFeeCfg = Number(settings?.deliveryFeeGbp ?? 0);
+  const freeOver = Number(settings?.freeDeliveryOverGbp ?? 0);
+  let deliveryFeeApplied = 0;
+  if (orderType === 'delivery') {
+    if (Number.isFinite(minOrder) && minOrder > 0 && total + 1e-9 < minOrder) {
+      const shortBy = Math.round((minOrder - total) * 100) / 100;
+      return {
+        ok: false,
+        error: 'below_minimum_order',
+        spokenHint: `Our minimum for delivery is ${formatSpokenGbp(minOrder)} ? you are ${formatSpokenGbp(shortBy)} short. Add a bit more, or make it collection?`,
+      };
+    }
+    if (Number.isFinite(deliveryFeeCfg) && deliveryFeeCfg > 0) {
+      const qualifiesFree =
+        Number.isFinite(freeOver) && freeOver > 0 && total + 1e-9 >= freeOver;
+      if (!qualifiesFree) {
+        deliveryFeeApplied = deliveryFeeCfg;
+        total = Math.round((total + deliveryFeeApplied) * 100) / 100;
+      }
+    }
+  }
+
+  const { formatUkPostcodeDisplay, normalizeUkPostcode } = await import('./delivery-areas');
+  const normalizedPostcode = (resolvedPostcode || postcode)
+    ? formatUkPostcodeDisplay(resolvedPostcode || postcode || '')
+    : '';
+  const compactPc = (resolvedPostcode || postcode)
+    ? normalizeUkPostcode(resolvedPostcode || postcode || '')
+    : '';
+  let deliveryAddress = resolvedStreet || streetAddress || undefined;
+  if (orderType === 'delivery' && normalizedPostcode) {
+    if (deliveryAddress) {
+      const upper = deliveryAddress.toUpperCase().replace(/\s+/g, '');
+      if (!upper.includes(compactPc)) {
+        deliveryAddress = `${deliveryAddress.replace(/,\s*$/, '')}, ${normalizedPostcode}`;
+      }
+    } else {
+      deliveryAddress = normalizedPostcode;
+    }
+  }
+
+  const baseNotes = firstString(input.notes) ?? '';
+  const deliveryFeeNote =
+    deliveryFeeApplied > 0 ? `Delivery fee ${formatSpokenGbp(deliveryFeeApplied)}` : '';
+  const notes = [baseNotes, specialAppliedNote, deliveryFeeNote].filter(Boolean).join(' | ');
+
+  const payRaw = (firstString(input.paymentStatus) ?? 'unpaid').toLowerCase();
+  let paymentStatus = 'unpaid';
+  let paymentMethod: string | undefined;
+  if (payRaw === 'cash' || payRaw === 'card') {
+    paymentStatus = 'unpaid';
+    paymentMethod = payRaw;
+  } else if (payRaw === 'paid') {
+    paymentStatus = 'paid';
+  }
+
+  // Collection/delivery: pay at the door. Never hard-fail ? default cash if omitted.
+  // Judie still asks cash vs card in the playbook; this keeps place working if she forgets.
+  if (
+    (orderType === 'collection' || orderType === 'delivery')
+    && paymentStatus === 'unpaid'
+    && paymentMethod !== 'cash'
+    && paymentMethod !== 'card'
+  ) {
+    paymentMethod = 'cash';
+  }
+
+  const channel = firstString(input.channel) ?? 'phone';
+  const source = firstString(input.source) ?? channel;
+  const callId = firstString(input.sourceCallId);
+
+  let record = await saveOrderRecord(
+    {
+      customerId: customerId || undefined,
+      customerName: firstString(input.customerName) ?? 'Guest',
+      customerPhone: phone,
+      channel,
+      orderType,
+      status: 'new',
+      paymentStatus,
+      paymentMethod,
+      items,
+      total,
+      deliveryAddress,
+      deliveryPostcode: normalizedPostcode || undefined,
+      specialName: appliedSpecialName,
+      notes,
+      customerAllergies,
+      allergyConfirmed,
+      sourceCallId: callId,
+      callIds: input.callIds ?? (callId ? [callId] : []),
+      source,
+      syncState: 'local',
+      placedAt: new Date().toISOString(),
+      etaMinutes: orderType === 'delivery' ? 40 : 20,
+    },
+    orgId,
+  );
+
+  const config = await getConnectorConfig(orgId);
+  const posMode = resolvePosPushMode(config);
+  let posPush: { attempted: boolean; ok?: boolean; error?: string } | undefined;
+
+  if (posMode === 'automatic') {
+    const forwarded = await forwardJudieOrderToProviders(
+      orgId,
+      record as Record<string, unknown>,
+      config,
+    );
+    record = (forwarded.order as typeof record) ?? record;
+    posPush = {
+      attempted: forwarded.channel !== 'none',
+      ok: forwarded.ok,
+      error: forwarded.error,
+    };
+  } else {
+    posPush = { attempted: false };
+  }
+
+  const rec = record as Record<string, unknown>;
+  const syncState = String(rec.syncState ?? 'local');
+  const spokenTotal = formatSpokenGbp(Number(rec.total));
+  const specialSpeak = specialAppliedNote ? ` Special applied: ${appliedSpecialName}.` : '';
+  const orderNumber =
+    typeof rec.orderNumber === 'string' || typeof rec.orderNumber === 'number'
+      ? rec.orderNumber
+      : undefined;
+  const resolvedDeliveryAddress =
+    typeof rec.deliveryAddress === 'string'
+      ? rec.deliveryAddress
+      : deliveryAddress;
+  const spokenHint = buildSpokenHint({
+    orderNumber,
+    spokenTotal,
+    orderType,
+    deliveryAddress: resolvedDeliveryAddress,
+    specialSpeak,
+    syncState,
+    posMode,
+    posOk: posPush?.ok,
+    paymentMethod,
+  });
+
+  return {
+    ok: true,
+    orderId: String(rec.id),
+    orderNumber,
+    total: Number(rec.total),
+    spokenTotal,
+    specialName: appliedSpecialName ?? null,
+    deliveryAddress: resolvedDeliveryAddress ?? null,
+    deliveryPostcode: normalizedPostcode || null,
+    customerId: (typeof rec.customerId === 'string' ? rec.customerId : null) ?? customerId ?? null,
+    syncState,
+    spokenHint,
+    order: rec,
+    posPush,
+  };
+}

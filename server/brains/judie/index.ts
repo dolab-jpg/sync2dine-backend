@@ -2,7 +2,7 @@ import type { BrainBuildInput, BrainPackage, BrainSession, ChatFunctionTool } fr
 import {
   buildPhoneBrainPrompt,
   getPhoneSessionChatTools,
-} from '../../phone-brain';
+} from '../../phone/phone-brain';
 import { DEFAULT_ORG_ID } from '../../data-store';
 
 /**

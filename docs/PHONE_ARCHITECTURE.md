@@ -1,0 +1,86 @@
+# Phone architecture (runtime SoT)
+
+Follow this document over folder folklore. Live entry: `server/index.ts` ? `phone/phone-webhook.ts` + `phone/vapi-routes.ts`.
+
+## The three phone personalities
+
+Runtime phone AI is **two brain packages** (`BrainId`: `sally` | `judie`) with a **third mode** inside Sally:
+
+| Personality | BrainId | Line purpose | Role |
+|-------------|---------|--------------|------|
+| **Judie** | `judie` | `aria` (restaurant DID) | Diner ordering, bookings, transfer-to-human |
+| **Sally (sales)** | `sally` | `sally` (platform DID) | Sync2Dine SaaS sales close |
+| **Sally (staff)** | `sally` + `identity.kind` staff/foreman | Same Sally DID / staff caller CLI | PIN-gated inbox/CRM/email tools (Cynthia-style on phone) |
+
+There is **no third BrainId**. Legacy aliases: `lizzie` ? Judie; “Cynthia on phone” ? Sally staff mode. Web Cynthia chat is separate (`ai/cynthia-routes.ts`, staff orchestrator) and is not a Vapi brain package.
+
+Line purpose `staff` = human softphone assignment, **not** an AI persona (Vapi registers `aria` + `sally` only).
+
+## Routing
+
+```
+Inbound DID
+  ? resolveInboundDidRoute (phone/phone-lines.ts)
+  ? orgId + linePurpose (aria|sally|staff)
+  ? agentPersona = sally | judie
+  ? buildVapiAssistantForParty (phone/vapi-assistant.ts)
+  ? buildBrainSession (brains/index.ts)
+  ? Sally or Judie package
+```
+
+- Unknown DID (present, unmatched): fail safe — no menu/org guess.
+- Missing DID: optional demo-kitchen fallback for controlled tests only.
+- Tool/order `orgId` always from call-resolved context, never from LLM args.
+
+## Live call path (Vapi)
+
+1. Provider webhook ? `handleVapiRoutes` (`phone/vapi-routes.ts`)
+2. `assistant-request` ? DID route ? `buildVapiAssistantForParty` ? brain session (prompt + tools + voice)
+3. Speech: Vapi / Deepgram (STT) + ElevenLabs-style voice config (`phone/phone-voices.ts`)
+4. `tool-calls` ? Judie tools (`phone-tools` / order-service) or Sally tools (`sally-sales-phone`) or staff PIN tools (`phone-brain`)
+5. Orders ? `orders/order-service.ts` + Supabase orders; CRM/calls ? `data-store` + Supabase
+6. `end-of-call-report` ? transcript/recording metadata, CRM activity, Sally notify, billing hooks
+7. Phone usage metering ? `phone/phone-billing.ts` + `billing/*` weekly usage
+
+## Orchestrator — two different things
+
+| Name | Path | Used by live phone? |
+|------|------|---------------------|
+| **Brain session builder** | `brains/*` + `vapi-assistant` | **Yes** — primary phone “orchestration” |
+| **Web/staff orchestrator** | `ai/orchestrator-handler.ts` | Staff/Cynthia **chat** + `ai-proxy`; not the Vapi turn loop |
+| **Legacy phone orchestrator** | `phone/phone-orchestrator.ts` (`handlePhoneTurn`) | **No** — not imported by routes; retained for reference / old adapters |
+
+Do not conflate `orchestrator-handler` with Vapi personality selection.
+
+## Shared phone infrastructure
+
+| Concern | Location |
+|---------|----------|
+| DID / lines | `phone/phone-lines.ts`, `data-store` phoneLines |
+| Brains | `brains/{sally,judie}/`, `brains/index.ts` |
+| Shared diner prompt/tools | `phone/phone-brain.ts`, `phone/phone-tools.ts` |
+| Sally sales OS | `phone/sally-sales-phone.ts` (+ root `sally-sales.ts` for web/chat offer) |
+| Vapi adapter | `phone/vapi-routes.ts`, `vapi-assistant.ts`, `vapi-client.ts` |
+| Telephony adapters | `telephony/` |
+| Auth / PIN | `phone/phone-auth.ts` |
+| Recordings | `phone/call-recording-*.ts` |
+| Transfer | `phone/transfer-numbers.ts` (Judie only; Sally `allowTransfer: false`) |
+| Product KB (Sally) | `sally-product-kb/` |
+| Orders | `orders/` |
+| Billing | `billing/` + `phone/phone-billing.ts` |
+
+## Intentionally retained (do not delete)
+
+- Root `server/*.ts` **re-export stubs** ? domain folders (compat for imports + deploy)
+- `*.vps.ts` / `*.local-full.ts` — deploy variants; not live `index.ts` mounts
+- `phone/phone-orchestrator.ts` — unused by Vapi; keep until softphone/legacy callers confirmed gone
+- FE `server/` — legacy Tree; **not** production API (see frontend AGENTS.md)
+- `sally-receptionist.ts` — platform inbox tools used by Sally staff/sales paths
+
+## Separation rules
+
+- Judie never gets Sally sales tools or staff PIN CRM suite.
+- Sally sales never warm-transfers (product close path).
+- Staff tools only when Sally brain + staff/foreman identity (+ PIN verify).
+- Restaurant menu/orders scoped to DID-resolved `orgId`.
+- Sally model keys use home/platform org; Judie uses restaurant org.

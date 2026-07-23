@@ -32,18 +32,19 @@ mock.module('./account-auth.ts', {
   namedExports: { getProfileByBearer },
 });
 
-mock.module('./openai-connection.ts', {
+// Domain modules live under server/ai/; root paths are re-export stubs.
+mock.module('./ai/openai-connection.ts', {
   namedExports: {
     OpenAIConnectionError: class OpenAIConnectionError extends Error {},
     resolveOpenAIApiKeyAsync: async () => 'test-key',
   },
 });
 
-mock.module('./orchestrator-handler.ts', {
+mock.module('./ai/orchestrator-handler.ts', {
   namedExports: { handleOrchestrator },
 });
 
-const { handleAiRequest } = await import('./ai-proxy.ts');
+const { handleAiRequest } = await import('./ai/ai-proxy.ts');
 
 class MockRequest extends EventEmitter {
   method = 'POST';

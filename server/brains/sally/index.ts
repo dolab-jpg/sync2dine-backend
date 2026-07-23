@@ -2,8 +2,8 @@ import type { BrainBuildInput, BrainPackage, BrainSession, ChatFunctionTool } fr
 import {
   buildSallyBrainPrompt,
   getSallyPhoneSessionChatTools,
-} from '../../sally-sales-phone';
-import { getPhoneSessionChatTools, VERIFY_PIN_TOOL } from '../../phone-brain';
+} from '../../phone/sally-sales-phone';
+import { getPhoneSessionChatTools, VERIFY_PIN_TOOL } from '../../phone/phone-brain';
 import { warmSallyKnowledgeCache } from '../../sally-product-kb/inject';
 import { debugLog } from '../../debug-session-log';
 
@@ -72,7 +72,8 @@ export const sallyBrain: BrainPackage = {
 
     return {
       id: 'sally',
-      silencePersona: 'sally',
+      // Staff callers get the shorter staff dead-air ladder (see phone/vapi-assistant.ts).
+      silencePersona: staffMode ? 'staff' : 'sally',
       instructions: prompt.instructions,
       language: prompt.language,
       firstMessage,

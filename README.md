@@ -2,14 +2,16 @@
 
 Supabase + Node backend for the Builder Diddies bathroom sales / estimation platform.
 
-(GitHub/repo folder name remains `tradepro-backend` as a legacy infra codename.)
+(GitHub/repo folder name may remain `tradepro-backend` as a legacy infra codename; local folder is often `sync2dine-backend`.)
 
-**Full stack inventory / audit (frontend · backend · Flutter mobile · GitHub · VPS · Supabase):** sibling frontend [`docs/APPLICATION_MASTER.md`](../Bathroom%20Sales%20Estimation%20Platform/docs/APPLICATION_MASTER.md) — single living SoT (includes §27 Mobile).
+**AI / agent navigation:** start at [AGENTS.md](AGENTS.md) and [server/README.md](server/README.md).
+
+**Full stack inventory / audit:** sibling frontend [`docs/APPLICATION_MASTER.md`](../sync2dine-frontend/docs/APPLICATION_MASTER.md) — single living SoT (includes §27 Mobile).
 
 ## Structure
 
 - `supabase/` — Postgres migrations, seed data, Edge Functions
-- `server/` — Slim Node companion (AI, webhooks, telephony)
+- `server/` — Node companion (AI, webhooks, telephony); see domain folders in `server/README.md`
 - `scripts/` — Data migration and type generation
 - `shared/` — Generated Supabase TypeScript types
 
