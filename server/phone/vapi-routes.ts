@@ -196,7 +196,13 @@ function resolveOrgRouteForVapiCall(
       ok: true,
       orgId: priorOrg,
       lineDid: '',
-      purpose: priorPurpose === 'sally' ? 'sally' : (priorPurpose === 'staff' ? 'staff' : 'aria'),
+      purpose: priorPurpose === 'sally'
+        ? 'sally'
+        : priorPurpose === 'staff'
+          ? 'staff'
+          : priorPurpose === 'cynthia'
+            ? 'cynthia'
+            : 'aria',
       source: 'phone_line',
       lineId: meta.lineId != null ? String(meta.lineId) : undefined,
     };
@@ -226,7 +232,11 @@ function applyRouteToCallMeta(
       lineDid: route.lineDid || existingMeta.lineDid,
     };
   }
-  const agentPersona = route.purpose === 'sally' ? SALLY_PERSONA : 'judie';
+  const agentPersona = route.purpose === 'sally'
+    ? SALLY_PERSONA
+    : route.purpose === 'cynthia'
+      ? 'cynthia'
+      : 'judie';
   return {
     ...existingMeta,
     resolvedOrgId: route.orgId,
@@ -801,7 +811,9 @@ async function buildTransientAssistant(message: Record<string, unknown>) {
   if (route.ok) setRequestOrgId(orgId);
   const agentPersona = route.ok && route.purpose === 'sally'
     ? SALLY_PERSONA
-    : String(meta.agentPersona || 'judie');
+    : route.ok && route.purpose === 'cynthia'
+      ? 'cynthia'
+      : String(meta.agentPersona || 'judie');
   const identity = resolvePhoneCallerIdentity(partyPhone);
   const { assistant } = await buildVapiAssistantForParty({
     partyPhone,

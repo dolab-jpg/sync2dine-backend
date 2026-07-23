@@ -60,7 +60,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
 }
 
 function parsePhoneLinePurpose(value: unknown, fallback: PhoneLinePurpose = 'aria'): PhoneLinePurpose {
-  if (value === 'staff' || value === 'sally' || value === 'aria') return value;
+  if (value === 'staff' || value === 'sally' || value === 'aria' || value === 'cynthia') return value;
   return fallback;
 }
 

@@ -1,0 +1,171 @@
+{
+  "generatedAt": "2026-07-23T12:43:04.404Z",
+  "phoneBrains": [
+    {
+      "id": "sally",
+      "file": "server/brains/sally/index.ts",
+      "kind": "phone_brain"
+    },
+    {
+      "id": "judie",
+      "file": "server/brains/judie/index.ts",
+      "kind": "phone_brain"
+    },
+    {
+      "id": "cynthia",
+      "file": "server/brains/cynthia/index.ts",
+      "kind": "phone_brain"
+    }
+  ],
+  "brainRefs": [
+    {
+      "id": "brain_ref",
+      "file": "server/brains/sally/index.ts",
+      "note": "brains package reference"
+    },
+    {
+      "id": "brain_ref",
+      "file": "server/brains/types.ts",
+      "note": "brains package reference"
+    }
+  ],
+  "envGates": [
+    {
+      "env": "VAPI_ELEVENLABS_VOICE_ID",
+      "file": "server/action-layer.test.ts"
+    },
+    {
+      "env": "ELEVENLABS_VOICE_ID",
+      "file": "server/action-layer.test.ts"
+    },
+    {
+      "env": "VOICE_PROVIDER",
+      "file": "server/action-layer.test.ts"
+    },
+    {
+      "env": "VOICE_PROVIDER",
+      "file": "server/agent-credentials-routes.ts"
+    },
+    {
+      "env": "WHATSAPP_META_ENABLED",
+      "file": "server/ai/gap-api-routes.ts"
+    },
+    {
+      "env": "AI_TOOL_FACADE",
+      "file": "server/ai/tool-facade.ts"
+    },
+    {
+      "env": "DISABLE_WEEKLY_BILLING_WORKER",
+      "file": "server/billing/weekly-billing-worker.ts"
+    },
+    {
+      "env": "IVR_ENABLED",
+      "file": "server/debug-smoke.ts"
+    },
+    {
+      "env": "WHATSAPP_META_ENABLED",
+      "file": "server/integrations-test.ts"
+    },
+    {
+      "env": "ELEVENLABS_VOICE_ID",
+      "file": "server/org-elevenlabs.ts"
+    },
+    {
+      "env": "VAPI_ELEVENLABS_VOICE_ID",
+      "file": "server/org-integrations-status.ts"
+    },
+    {
+      "env": "ELEVENLABS_VOICE_ID",
+      "file": "server/org-integrations-status.ts"
+    },
+    {
+      "env": "DISABLE_OUTBOUND_WORKER",
+      "file": "server/outbound-worker.ts"
+    },
+    {
+      "env": "IVR_ENABLED",
+      "file": "server/phone/ivr-handler.ts"
+    },
+    {
+      "env": "VAPI_ELEVENLABS_VOICE_MAP",
+      "file": "server/phone/phone-voices.ts"
+    },
+    {
+      "env": "VAPI_ELEVENLABS_VOICE_ID",
+      "file": "server/phone/phone-voices.ts"
+    },
+    {
+      "env": "ELEVENLABS_VOICE_ID",
+      "file": "server/phone/phone-voices.ts"
+    },
+    {
+      "env": "SALLY_VOICEMAIL_MESSAGE",
+      "file": "server/phone/vapi-assistant.ts"
+    },
+    {
+      "env": "VAPI_ELEVENLABS_VOICE_ID",
+      "file": "server/phone/vapi-client.ts"
+    },
+    {
+      "env": "ELEVENLABS_VOICE_ID",
+      "file": "server/phone/vapi-client.ts"
+    },
+    {
+      "env": "WHATSAPP_META_ENABLED",
+      "file": "server/project-routes.ts"
+    },
+    {
+      "env": "VAPI_ELEVENLABS_VOICE_ID",
+      "file": "server/provider-gates.ts"
+    },
+    {
+      "env": "ELEVENLABS_VOICE_ID",
+      "file": "server/provider-gates.ts"
+    },
+    {
+      "env": "VOICE_PROVIDER",
+      "file": "server/provider-gates.ts"
+    },
+    {
+      "env": "REALTIME_VOICE",
+      "file": "server/realtime-routes.ts"
+    },
+    {
+      "env": "DISABLE_SALES_BRAIN_WORKER",
+      "file": "server/sales-brain/worker.ts"
+    },
+    {
+      "env": "DISABLE_SALLY_KB_WORKER",
+      "file": "server/sally-product-kb/worker.ts"
+    },
+    {
+      "env": "DISABLE_SCHEDULED_MESSAGE_WORKER",
+      "file": "server/scheduled-message-worker.ts"
+    },
+    {
+      "env": "VOICE_PROVIDER",
+      "file": "server/telephony/index.ts"
+    },
+    {
+      "env": "AI_TOOL_FACADE",
+      "file": "server/tool-facade.test.ts"
+    },
+    {
+      "env": "ELEVENLABS_VOICE_ID",
+      "file": "server/tts.ts"
+    },
+    {
+      "env": "VAPI_ELEVENLABS_VOICE_ID",
+      "file": "server/tts.ts"
+    },
+    {
+      "env": "WHATSAPP_META_ENABLED",
+      "file": "server/whatsapp-webhook.ts"
+    },
+    {
+      "env": "WHATSAPP_VOICE_REPLY",
+      "file": "server/whatsapp-webhook.ts"
+    }
+  ],
+  "note": "Classification belongs in AI_REGISTRY.md � this is discovery evidence only."
+}

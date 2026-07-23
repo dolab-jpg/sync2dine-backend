@@ -1,9 +1,9 @@
-/** Shared phone brain package contract — sally | judie only. */
+/** Shared phone brain package contract — sally | judie | cynthia. */
 import type { PhoneCallerIdentity } from '../phone/phone-auth';
 
-export type BrainId = 'sally' | 'judie';
+export type BrainId = 'sally' | 'judie' | 'cynthia';
 
-export type SilencePersona = 'sally' | 'judie' | 'staff';
+export type SilencePersona = 'sally' | 'judie' | 'staff' | 'cynthia';
 
 export type ChatFunctionTool = {
   type: 'function';

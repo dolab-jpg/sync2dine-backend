@@ -1,0 +1,285 @@
+{
+  "generatedAt": "2026-07-23T12:43:04.404Z",
+  "bootFromIndex": [
+    {
+      "name": "startMailboxPoller",
+      "caller": "server/index.ts",
+      "status": "boot"
+    },
+    {
+      "name": "startOutboundWorker",
+      "caller": "server/index.ts",
+      "status": "boot"
+    },
+    {
+      "name": "startConnectorQueueWorker",
+      "caller": "server/index.ts",
+      "status": "boot"
+    },
+    {
+      "name": "startSalesBrainWorker",
+      "caller": "server/index.ts",
+      "status": "boot"
+    },
+    {
+      "name": "startSallyKnowledgeWorker",
+      "caller": "server/index.ts",
+      "status": "boot"
+    },
+    {
+      "name": "warmSallyKnowledgeCache",
+      "caller": "server/index.ts",
+      "status": "boot"
+    },
+    {
+      "name": "startScheduledMessageWorker",
+      "caller": "server/index.ts",
+      "status": "boot"
+    },
+    {
+      "name": "startWeeklyBillingWorker",
+      "caller": "server/index.ts",
+      "status": "boot"
+    },
+    {
+      "name": "startCodeFixWorker",
+      "caller": "server/index.ts",
+      "status": "boot"
+    },
+    {
+      "name": "initWWebClient",
+      "caller": "server/index.ts",
+      "status": "boot"
+    }
+  ],
+  "discoveredFunctions": [
+    {
+      "name": "startWeeklyBillingWorker",
+      "file": "server/billing/weekly-billing-worker.ts",
+      "kind": "function"
+    },
+    {
+      "name": "setInterval",
+      "file": "server/billing/weekly-billing-worker.ts",
+      "kind": "interval"
+    },
+    {
+      "name": "startCodeFixWorker",
+      "file": "server/code-fix-handler.ts",
+      "kind": "function"
+    },
+    {
+      "name": "setInterval",
+      "file": "server/code-fix-handler.ts",
+      "kind": "interval"
+    },
+    {
+      "name": "startConnectorQueueWorker",
+      "file": "server/connectors/outbound-queue.ts",
+      "kind": "function"
+    },
+    {
+      "name": "setInterval",
+      "file": "server/connectors/outbound-queue.ts",
+      "kind": "interval"
+    },
+    {
+      "name": "initDataFromSupabase",
+      "file": "server/data-store.ts",
+      "kind": "function"
+    },
+    {
+      "name": "startOfTodayLocal",
+      "file": "server/data-store.ts",
+      "kind": "function"
+    },
+    {
+      "name": "startMailboxPoller",
+      "file": "server/mailbox/imapSyncService.ts",
+      "kind": "function"
+    },
+    {
+      "name": "setInterval",
+      "file": "server/mailbox/imapSyncService.ts",
+      "kind": "interval"
+    },
+    {
+      "name": "startOutboundWorker",
+      "file": "server/outbound-worker.ts",
+      "kind": "function"
+    },
+    {
+      "name": "setInterval",
+      "file": "server/outbound-worker.ts",
+      "kind": "interval"
+    },
+    {
+      "name": "startSalesBrainWorker",
+      "file": "server/sales-brain/worker.ts",
+      "kind": "function"
+    },
+    {
+      "name": "setInterval",
+      "file": "server/sales-brain/worker.ts",
+      "kind": "interval"
+    },
+    {
+      "name": "startSallyKnowledgeWorker",
+      "file": "server/sally-product-kb/worker.ts",
+      "kind": "function"
+    },
+    {
+      "name": "setInterval",
+      "file": "server/sally-product-kb/worker.ts",
+      "kind": "interval"
+    },
+    {
+      "name": "startScheduledMessageWorker",
+      "file": "server/scheduled-message-worker.ts",
+      "kind": "function"
+    },
+    {
+      "name": "setInterval",
+      "file": "server/scheduled-message-worker.ts",
+      "kind": "interval"
+    },
+    {
+      "name": "startOfMonth",
+      "file": "server/usage.ts",
+      "kind": "function"
+    },
+    {
+      "name": "startScreencast",
+      "file": "server/whatsapp-web-browser-login.ts",
+      "kind": "function"
+    },
+    {
+      "name": "startBrowserLogin",
+      "file": "server/whatsapp-web-browser-login.ts",
+      "kind": "function"
+    },
+    {
+      "name": "initWWebClient",
+      "file": "server/whatsapp-web-client.ts",
+      "kind": "function"
+    }
+  ],
+  "dynamicImports": [
+    {
+      "specifier": "../code-fix-handler",
+      "file": "server/ai/ai-proxy.ts"
+    },
+    {
+      "specifier": "../whatsapp-web-client",
+      "file": "server/ai/cyrus-routes.ts"
+    },
+    {
+      "specifier": "../whatsapp-webhook",
+      "file": "server/ai/cyrus-routes.ts"
+    },
+    {
+      "specifier": "../whatsapp-webhook",
+      "file": "server/ai/gap-api-routes.ts"
+    },
+    {
+      "specifier": "./billing-periods",
+      "file": "server/billing/stripe-service.ts"
+    },
+    {
+      "specifier": "./billing-periods",
+      "file": "server/billing/stripe-service.ts"
+    },
+    {
+      "specifier": "./weekly-usage-billing",
+      "file": "server/billing/stripe-service.ts"
+    },
+    {
+      "specifier": "./billing-periods",
+      "file": "server/billing/stripe-service.ts"
+    },
+    {
+      "specifier": "./weekly-billing-worker",
+      "file": "server/billing/weekly-billing-routes.ts"
+    },
+    {
+      "specifier": "./whatsapp-web-browser-login",
+      "file": "server/index.ts"
+    },
+    {
+      "specifier": "./scheduled-message-worker",
+      "file": "server/index.ts"
+    },
+    {
+      "specifier": "./weekly-billing-worker",
+      "file": "server/index.ts"
+    },
+    {
+      "specifier": "./code-fix-handler",
+      "file": "server/index.ts"
+    },
+    {
+      "specifier": "./whatsapp-web-client",
+      "file": "server/index.ts"
+    },
+    {
+      "specifier": "./whatsapp-web-client",
+      "file": "server/integrations-test.ts"
+    },
+    {
+      "specifier": "../whatsapp-web-client",
+      "file": "server/leads/leadInboxStore.ts"
+    },
+    {
+      "specifier": "../whatsapp-webhook",
+      "file": "server/leads/leadInboxStore.ts"
+    },
+    {
+      "specifier": "./scheduled-messages-store",
+      "file": "server/messages-routes.ts"
+    },
+    {
+      "specifier": "./scheduled-messages-store",
+      "file": "server/messages-routes.ts"
+    },
+    {
+      "specifier": "./scheduled-messages-store",
+      "file": "server/messages-routes.ts"
+    },
+    {
+      "specifier": "./whatsapp-web-client",
+      "file": "server/org-integrations-status.ts"
+    },
+    {
+      "specifier": "../whatsapp-webhook",
+      "file": "server/phone/tools/execute.ts"
+    },
+    {
+      "specifier": "./phone-billing",
+      "file": "server/phone/vapi-routes.ts"
+    },
+    {
+      "specifier": "../whatsapp-webhook",
+      "file": "server/sally/execute.ts"
+    },
+    {
+      "specifier": "./whatsapp-webhook",
+      "file": "server/scheduled-message-worker.ts"
+    },
+    {
+      "specifier": "./billing-periods",
+      "file": "server/weekly-usage-billing.test.ts"
+    },
+    {
+      "specifier": "./weekly-billing-worker",
+      "file": "server/weekly-usage-billing.test.ts"
+    },
+    {
+      "specifier": "./whatsapp-web-client",
+      "file": "server/whatsapp-web-routes.ts"
+    },
+    {
+      "specifier": "./phone-billing",
+      "file": "server/_quarantine/vapi-routes.local-full.ts"
+    }
+  ]
+}

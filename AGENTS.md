@@ -1,54 +1,51 @@
-# AGENTS.md ó Sync2Dine backend
+# AGENTS.md ù Sync2Dine backend
 
 Start here before API / phone / billing work.
 
-## Always open first
+## Always open first (cold path)
 
-1. **Boot + mount order:** [`server/index.ts`](server/index.ts) ó single HTTP process; handlers return boolean when they claim the request.
-2. **Route index:** [`server/README.md`](server/README.md) ó domain folders + handler map.
-3. **Phone personalities:** [`docs/PHONE_ARCHITECTURE.md`](docs/PHONE_ARCHITECTURE.md).
-4. **Sally (shared BI + adapters):** [`docs/SALLY_ARCHITECTURE.md`](docs/SALLY_ARCHITECTURE.md).
-5. **Feature atlas:** sibling frontend [`../sync2dine-frontend/docs/APPLICATION_MASTER.md`](../sync2dine-frontend/docs/APPLICATION_MASTER.md) (Sync2Dine orientation at top).
-6. Live API: **https://app.sync2dine.io** (Node on VPS port **3011** ó not tradepro `:3001`) unless the user asks for local.
-7. Post-restructure audit: [`../sync2dine-frontend/docs/POST_RESTRUCTURE_AUDIT.md`](../sync2dine-frontend/docs/POST_RESTRUCTURE_AUDIT.md).
-8. Quarantined forks: [`server/_quarantine/`](server/_quarantine/) ó do not edit for product work.
+1. [`server/index.ts`](server/index.ts) ù mount + boot workers
+2. [`server/README.md`](server/README.md)
+3. [`docs/AI_REGISTRY.md`](docs/AI_REGISTRY.md)
+4. [`docs/TOOL_REGISTRY.md`](docs/TOOL_REGISTRY.md)
+5. [`docs/WORKERS.md`](docs/WORKERS.md)
+6. [`docs/ROUTE_MAP.md`](docs/ROUTE_MAP.md)
+7. [`docs/PHONE_ARCHITECTURE.md`](docs/PHONE_ARCHITECTURE.md) / [`SALLY_ARCHITECTURE.md`](docs/SALLY_ARCHITECTURE.md)
+8. [`docs/LEGACY_ALIASES.md`](docs/LEGACY_ALIASES.md)
+9. FE [`CAPABILITY_INVENTORY.md`](../sync2dine-frontend/docs/CAPABILITY_INVENTORY.md), [`DEPLOYMENT_MAP.md`](../sync2dine-frontend/docs/DEPLOYMENT_MAP.md), [`CHANGE_IMPACT.md`](../sync2dine-frontend/docs/CHANGE_IMPACT.md)
+10. Generated evidence: [`docs/_generated/`](docs/_generated/)
+11. ADRs: [`docs/adr/`](docs/adr/)
+12. Report: [`../sync2dine-frontend/docs/ENGINEERING_KNOWLEDGE_REPORT.md`](../sync2dine-frontend/docs/ENGINEERING_KNOWLEDGE_REPORT.md)
 
-## Domain folders (prefer these)
+## Domain folders
 
-| Folder | Owns |
-|--------|------|
-| `server/brains/{sally,judie}/` | Brain packages (only two BrainIds) |
-| `server/phone/` | Telephony, VAPI, phone brain/tools/session/lines |
-| `server/sally/` | Shared Sally BI + web chat adapter (`web-chat.ts`); phone adapter remains `phone/sally-sales-phone.ts` |
-| `server/orders/` | Order service, orders/menu/reservations routes, food guards |
-| `server/ai/` | Web orchestrator, staff AI, ai-proxy, Cynthia/Cyrus, AI Studio |
-| `server/billing/` | Stripe, weekly billing, org phone billing |
-| `server/connectors/` | POS / partner connectors |
-| `server/sales-brain/` | Sales Brain API + worker |
-| `server/sally-product-kb/` | Sally product knowledge |
-| `server/mailbox/`, `server/telephony/`, `server/leads/`, Ö | Other focused packages |
+Prefer `server/brains/`, `phone/`, `sally/`, `orders/`, `ai/`, `billing/`, `connectors/`, `sales-brain/`, `sally-product-kb/`. Root `*.ts` with `// RE-EXPORT STUB` ? edit domain target.
 
-Many root `server/*.ts` files are **thin re-exports** of the domain folders so old import paths keep working. Prefer editing the file under the domain folder, not only the stub.
+## Edit here, not there
 
-## Phone brains
+| Task | Edit | Avoid |
+|------|------|-------|
+| Vapi | `phone/vapi-routes.ts`, `vapi-assistant.ts` | stub alone; `_quarantine` |
+| Sally offer | `sally/offer.ts` | prompt price copies |
+| Sally phone | `phone/sally-sales-phone.ts` | Cynthia web orch |
+| Sally Web | `sally/web-chat.ts` | staff orch |
+| Cynthia web | `ai/orchestrator-handler.ts` | Sally web |
+| Cynthia phone | `brains/cynthia/` (purpose `cynthia`) | remapping `aria` |
+| Orders | `orders/*` | JSON as SoT |
 
-- Two BrainIds: `sally` | `judie` via `server/brains/index.ts`.
-- Three modes: **Judie** (diner), **Sally sales**, **Sally staff** (PIN).
-- Live path: `phone/vapi-routes.ts` + `vapi-assistant.ts` ó **not** quarantined `phone-orchestrator`.
-- Sally Web: `POST /api/sally/web` ? `sally/web-chat.ts` (not Cynthia staff orchestrator).
-- Web staff chat: `server/ai/orchestrator-handler.ts` (Cynthia).
+## Ports / deploy / verify
 
-## Persistence
+Live **https://app.sync2dine.io** (:3011). Local default :3001.
 
-- **Primary:** Supabase cloud (migrations in `supabase/migrations/`).
-- **`server/data/*.json`:** local cache / offline fallback ó **do not treat as production SoT**.
-- Gateway: `server/supabase-admin.ts`, `data-store.ts`, feature `supabase-*.ts` modules.
+```bash
+npm run extract:registries
+npm run check:agent-maps
+npm run smoke:orders
+npm run smoke:sally-web
+```
 
-## Quarantine
+Ship from FE: `bash scripts/push-live-local.sh`.
 
-- `server/_quarantine/` ó unused `phone-orchestrator` implementation and stale `*.vps.ts` / `*.local-full.ts` forks.
-- Root stubs may still re-export quarantined phone-orchestrator (throws if called).
+## When adding a feature
 
-## Naming drift
-
-Older docs/docker may still say `tradepro-*` / Builder Diddies / `app.b-diddies.com`. **Live Sync2Dine SoT is `app.sync2dine.io` + these repos.** Do not verify or deploy to b-diddies unless the user explicitly asks.
+Update ROUTE_MAP / WORKERS / TOOL_REGISTRY / AI_REGISTRY as needed; run extract; if fingerprints change, update `docs/_generated/reviewed-baseline.json` deliberately (`npm run extract:registries:baseline` after review).

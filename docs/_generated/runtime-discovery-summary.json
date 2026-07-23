@@ -1,0 +1,26 @@
+{
+  "generatedAt": "2026-07-23T12:43:04.404Z",
+  "beRoot": "sync2dine-backend",
+  "counts": {
+    "uniqueTools": 180,
+    "toolOccurrences": 211,
+    "routePrefixes": 212,
+    "bootWorkers": 10,
+    "quarantineFiles": 8,
+    "dynamicImports": 252,
+    "envGates": 55,
+    "phoneBrains": 3
+  },
+  "quarantineFiles": [
+    "server/_quarantine/phone-orchestrator.ts",
+    "server/_quarantine/phone-webhook.vps.ts",
+    "server/_quarantine/vapi-routes.local-full.ts",
+    "server/_quarantine/vapi-routes.vps.ts"
+  ],
+  "fingerprints": {
+    "tools": "4c474a0f923cabf6",
+    "routes": "012e8a3cecb595eb",
+    "bootWorkers": "25829c6bc285a94b",
+    "brains": "ed32ef02a42ca423"
+  }
+}

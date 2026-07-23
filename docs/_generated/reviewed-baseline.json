@@ -1,0 +1,29 @@
+{
+  "updatedAt": "2026-07-23T12:39:33.395Z",
+  "note": "Reviewed fingerprint of discovery. Update deliberately when runtime architecture changes.",
+  "fingerprints": {
+    "tools": "4c474a0f923cabf6",
+    "routes": "012e8a3cecb595eb",
+    "bootWorkers": "25829c6bc285a94b",
+    "brains": "ed32ef02a42ca423"
+  },
+  "bootWorkers": [
+    "initWWebClient",
+    "startCodeFixWorker",
+    "startConnectorQueueWorker",
+    "startMailboxPoller",
+    "startOutboundWorker",
+    "startSalesBrainWorker",
+    "startSallyKnowledgeWorker",
+    "startScheduledMessageWorker",
+    "startWeeklyBillingWorker",
+    "warmSallyKnowledgeCache"
+  ],
+  "phoneBrains": [
+    "cynthia",
+    "judie",
+    "sally"
+  ],
+  "routePrefixCount": 212,
+  "uniqueToolCount": 180
+}

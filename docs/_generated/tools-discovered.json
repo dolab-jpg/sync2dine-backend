@@ -1,0 +1,2459 @@
+{
+  "generatedAt": "2026-07-23T12:43:04.403Z",
+  "toolCount": 180,
+  "occurrenceCount": 211,
+  "uniqueNames": [
+    "addComment",
+    "addLeadNote",
+    "addQuoteLines",
+    "approveQuote",
+    "archiveQuote",
+    "assessExtraFromPhotos",
+    "assessProgress",
+    "assignContractor",
+    "bookCallback",
+    "bookDemo",
+    "bookIntegrationMeeting",
+    "bookInterview",
+    "bookOnboarding",
+    "bookTable",
+    "briefInbox",
+    "bulkUpdateLeadStatus",
+    "cancelReservation",
+    "captureLead",
+    "captureMessage",
+    "categorizeTransaction",
+    "chaseUnpaidInvoice",
+    "checkDeliveryArea",
+    "checkPaymentGate",
+    "checkPaymentStatus",
+    "checkTableAvailability",
+    "citeSource",
+    "classifyCallIntent",
+    "closeProject",
+    "completeHandover",
+    "composeSalesEmail",
+    "confirmRestaurantField",
+    "confirmSaleTerms",
+    "convertQuoteToProject",
+    "convertToProject",
+    "correctTimesheet",
+    "createCalendarEvent",
+    "createReminder",
+    "createSaasContract",
+    "createSaasQuote",
+    "deleteMenuItem",
+    "deliverCallFollowUp",
+    "detectTrades",
+    "draftBcEmailReply",
+    "draftBuilderMessage",
+    "draftClientReceipt",
+    "draftContract",
+    "draftCustomerMessage",
+    "draftEmailReply",
+    "draftInvoice",
+    "draftQuote",
+    "draftSupplierOrder",
+    "duplicateQuote",
+    "endCall",
+    "enqueueOutboundCall",
+    "escalateToStaff",
+    "exportReport",
+    "fixCostEntry",
+    "flagTransaction",
+    "generateContractPdf",
+    "generateInvoicePdf",
+    "generateOpsReport",
+    "generatePaymentSchedule",
+    "generatePostApprovalTasks",
+    "generateQuotePdf",
+    "getAccountBriefing",
+    "getBusinessSnapshot",
+    "getCostBreakdown",
+    "getDeliveryAreas",
+    "getEmailThread",
+    "getLeadBrief",
+    "getMenu",
+    "getOfferTerms",
+    "getPortalLink",
+    "getProjectProfit",
+    "getRestaurantSetupDraft",
+    "getTeamPerformance",
+    "initiatePayment",
+    "leaveVoicemail",
+    "linkCustomer",
+    "listOrders",
+    "listPendingCallbacks",
+    "listRecentEmails",
+    "listReservations",
+    "logBuilderPrice",
+    "logBuilderReply",
+    "logCallActivity",
+    "logCandidate",
+    "logDrawing",
+    "logFollowUp",
+    "logHours",
+    "lookupCustomerByPhone",
+    "lookupProjectStatus",
+    "lookupQuote",
+    "manageFiles",
+    "manageSubscription",
+    "markDecision",
+    "markOrderPaid",
+    "markPaymentReceived",
+    "matchTransactionToProject",
+    "mergeCustomers",
+    "navigate",
+    "navigateTo",
+    "notifyCustomerChangeOrder",
+    "placeFoodOrder",
+    "placeOutboundCall",
+    "portalStatusCheck",
+    "priceSmallJob",
+    "processRefund",
+    "proposeChangeOrder",
+    "proposeComplianceActions",
+    "proposePaymentPlan",
+    "proposePlan",
+    "proposePlanUpsell",
+    "proposeQuoteFields",
+    "proposeSchedule",
+    "provisionRestaurantClient",
+    "raiseChangeRequest",
+    "readData",
+    "readDraftAloud",
+    "recordCostEntry",
+    "recordCouncil",
+    "rejectQuote",
+    "relayCustomerUpdate",
+    "requestCodeFix",
+    "requestGoogleReview",
+    "requestReview",
+    "requestSitePhotos",
+    "researchRestaurantProfile",
+    "resolveChangeRequest",
+    "saveContract",
+    "saveCustomer",
+    "saveQuote",
+    "scheduleAppointment",
+    "schedulePaymentReminder",
+    "scheduleRecurringJob",
+    "scheduleSalesFollowUp",
+    "screenCandidate",
+    "searchBuildingRegs",
+    "searchCustomers",
+    "searchEmails",
+    "searchLeads",
+    "searchProjects",
+    "searchQuotes",
+    "sendBuilderBrief",
+    "sendContract",
+    "sendContractorBrief",
+    "sendCouncilReply",
+    "sendCourtesyEmail",
+    "sendCustomerMessage",
+    "sendEmailReply",
+    "sendEmailWithAttachment",
+    "sendInvoice",
+    "sendPricingEmail",
+    "sendQuote",
+    "sendReviewEmail",
+    "sendSalesAssets",
+    "sendSalesFollowUp",
+    "sendSms",
+    "sendStripeCheckoutLink",
+    "sendToStaffCynthia",
+    "sendWhatsAppMedia",
+    "sendWhatsAppTemplate",
+    "setCallLanguage",
+    "setDeadline",
+    "setPricing",
+    "setStage",
+    "startQuote",
+    "submitForApproval",
+    "tagPhoto",
+    "transferToHuman",
+    "updateApplication",
+    "updateLeadStatus",
+    "updateOrderStatus",
+    "updateQuote",
+    "updateQuoteLines",
+    "updateReservation",
+    "updateTaskStatus",
+    "upsertMenuItem",
+    "verifyStaffPhonePin",
+    "writeData"
+  ],
+  "occurrences": [
+    {
+      "name": "addComment",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "addLeadNote",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "addLeadNote",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "addLeadNote",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "addQuoteLines",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "approveQuote",
+      "file": "server/ai/orchestrator/tool-catalog-contract.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "archiveQuote",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "assessExtraFromPhotos",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "assessProgress",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "assignContractor",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "bookCallback",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "bookDemo",
+      "file": "server/phone/sally-sales-phone.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "bookDemo",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "bookIntegrationMeeting",
+      "file": "server/phone/sally-sales-phone.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "bookInterview",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "bookOnboarding",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "bookTable",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "briefInbox",
+      "file": "server/sally-receptionist.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "bulkUpdateLeadStatus",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "cancelReservation",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "captureLead",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "captureMessage",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "categorizeTransaction",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "chaseUnpaidInvoice",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "checkDeliveryArea",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "checkPaymentGate",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "checkPaymentStatus",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "checkTableAvailability",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "citeSource",
+      "file": "server/ai/building-control-handler.ts",
+      "priority": false,
+      "source": "schema_scan"
+    },
+    {
+      "name": "classifyCallIntent",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "closeProject",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "completeHandover",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "composeSalesEmail",
+      "file": "server/sally-receptionist.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "confirmRestaurantField",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "confirmSaleTerms",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "convertQuoteToProject",
+      "file": "server/ai/orchestrator/tool-catalog-staff.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "convertToProject",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "correctTimesheet",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "createCalendarEvent",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "createCalendarEvent",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "createReminder",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "createSaasContract",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "createSaasQuote",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "deleteMenuItem",
+      "file": "server/ai/restaurant-ai-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "deliverCallFollowUp",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "detectTrades",
+      "file": "server/ai/orchestrator/tool-catalog-staff.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "draftBcEmailReply",
+      "file": "server/ai/building-control-handler.ts",
+      "priority": false,
+      "source": "schema_scan"
+    },
+    {
+      "name": "draftBuilderMessage",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "draftClientReceipt",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "draftContract",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "draftCustomerMessage",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "draftEmailReply",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "draftEmailReply",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "draftInvoice",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "draftQuote",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "draftSupplierOrder",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "duplicateQuote",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "endCall",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "enqueueOutboundCall",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "escalateToStaff",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "escalateToStaff",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "exportReport",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "fixCostEntry",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "flagTransaction",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "generateContractPdf",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "generateInvoicePdf",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "generateOpsReport",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "generatePaymentSchedule",
+      "file": "server/ai/orchestrator/tool-catalog-contract.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "generatePostApprovalTasks",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "generateQuotePdf",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getAccountBriefing",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getBusinessSnapshot",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getBusinessSnapshot",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getCostBreakdown",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getDeliveryAreas",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getEmailThread",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getEmailThread",
+      "file": "server/sally-receptionist.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getLeadBrief",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getLeadBrief",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getLeadBrief",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getMenu",
+      "file": "server/ai/restaurant-ai-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getMenu",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getOfferTerms",
+      "file": "server/phone/sally-sales-phone.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getOfferTerms",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getPortalLink",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getPortalLink",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getProjectProfit",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getRestaurantSetupDraft",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getTeamPerformance",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "getTeamPerformance",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "initiatePayment",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "leaveVoicemail",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "linkCustomer",
+      "file": "server/ai/orchestrator/tool-catalog-staff.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "listOrders",
+      "file": "server/ai/restaurant-ai-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "listPendingCallbacks",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "listRecentEmails",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "listRecentEmails",
+      "file": "server/sally-receptionist.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "listReservations",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "logBuilderPrice",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "logBuilderReply",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "logCallActivity",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "logCandidate",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "logDrawing",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "logFollowUp",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "logFollowUp",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "logHours",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "lookupCustomerByPhone",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "lookupProjectStatus",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "lookupProjectStatus",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "lookupQuote",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "lookupQuote",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "manageFiles",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "manageSubscription",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "markDecision",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "markOrderPaid",
+      "file": "server/ai/restaurant-ai-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "markPaymentReceived",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "matchTransactionToProject",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "mergeCustomers",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "navigate",
+      "file": "server/ai/orchestrator/tool-catalog-generic.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "navigateTo",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "notifyCustomerChangeOrder",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "placeFoodOrder",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "placeOutboundCall",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "placeOutboundCall",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "portalStatusCheck",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "priceSmallJob",
+      "file": "server/ai/orchestrator/tool-catalog-contract.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "processRefund",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "proposeChangeOrder",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "proposeComplianceActions",
+      "file": "server/ai/building-control-handler.ts",
+      "priority": false,
+      "source": "schema_scan"
+    },
+    {
+      "name": "proposePaymentPlan",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "proposePlan",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "proposePlanUpsell",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "proposeQuoteFields",
+      "file": "server/ai/orchestrator/tool-catalog-staff.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "proposeSchedule",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "provisionRestaurantClient",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "raiseChangeRequest",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "readData",
+      "file": "server/ai/orchestrator/tool-catalog-generic.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "readDraftAloud",
+      "file": "server/sally-receptionist.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "recordCostEntry",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "recordCouncil",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "rejectQuote",
+      "file": "server/ai/orchestrator/tool-catalog-contract.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "relayCustomerUpdate",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "requestCodeFix",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "requestGoogleReview",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "requestReview",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "requestSitePhotos",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "researchRestaurantProfile",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "resolveChangeRequest",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "saveContract",
+      "file": "server/ai/orchestrator/tool-catalog-contract.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "saveCustomer",
+      "file": "server/ai/orchestrator/tool-catalog-staff.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "saveQuote",
+      "file": "server/ai/orchestrator/tool-catalog-staff.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "saveQuote",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "scheduleAppointment",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "schedulePaymentReminder",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "schedulePaymentReminder",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "scheduleRecurringJob",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "scheduleSalesFollowUp",
+      "file": "server/sally-receptionist.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "screenCandidate",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "searchBuildingRegs",
+      "file": "server/ai/building-control-handler.ts",
+      "priority": false,
+      "source": "schema_scan"
+    },
+    {
+      "name": "searchCustomers",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "searchCustomers",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "searchEmails",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "searchLeads",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "searchLeads",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "searchProjects",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "searchProjects",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "searchQuotes",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "searchQuotes",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendBuilderBrief",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendContract",
+      "file": "server/ai/orchestrator/tool-catalog-contract.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendContract",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendContractorBrief",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendCouncilReply",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendCourtesyEmail",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendCustomerMessage",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendEmailReply",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendEmailReply",
+      "file": "server/sally-receptionist.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendEmailReply",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendEmailWithAttachment",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendInvoice",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendPricingEmail",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendQuote",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendReviewEmail",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendSalesAssets",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendSalesFollowUp",
+      "file": "server/phone/sally-sales-phone.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendSms",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendStripeCheckoutLink",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendToStaffCynthia",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendToStaffCynthia",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendWhatsAppMedia",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendWhatsAppTemplate",
+      "file": "server/ai/gap-closing-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "sendWhatsAppTemplate",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "setCallLanguage",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "setDeadline",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "setPricing",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "setStage",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "startQuote",
+      "file": "server/ai/orchestrator/tool-catalog-staff.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "submitForApproval",
+      "file": "server/ai/orchestrator/tool-catalog-contract.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "tagPhoto",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "transferToHuman",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "updateApplication",
+      "file": "server/ai/planning-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "updateLeadStatus",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "updateLeadStatus",
+      "file": "server/sally/tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "updateOrderStatus",
+      "file": "server/ai/restaurant-ai-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "updateQuote",
+      "file": "server/ai/orchestrator/tool-catalog-staff.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "updateQuoteLines",
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "updateReservation",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "updateTaskStatus",
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "upsertMenuItem",
+      "file": "server/ai/restaurant-ai-tools.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "verifyStaffPhonePin",
+      "file": "server/phone/phone-brain.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "writeData",
+      "file": "server/ai/orchestrator/tool-catalog-generic.ts",
+      "priority": true,
+      "source": "schema_scan"
+    }
+  ],
+  "allowlistFiles": [
+    {
+      "file": "server/action-layer.test.ts",
+      "sampleNames": [
+        "sendToStaffCynthia",
+        "saveQuote",
+        "sendCustomerMessage",
+        "deliverCallFollowUp",
+        "requestCodeFix"
+      ]
+    },
+    {
+      "file": "server/action-registry.ts",
+      "sampleNames": [
+        "verifyStaffPhonePin",
+        "setCallLanguage",
+        "transferToHuman",
+        "captureMessage",
+        "endCall",
+        "lookupCustomerByPhone",
+        "getAccountBriefing",
+        "getLeadBrief",
+        "addLeadNote",
+        "listPendingCallbacks",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "logCallActivity",
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "getBusinessSnapshot",
+        "getTeamPerformance",
+        "sendToStaffCynthia",
+        "deliverCallFollowUp",
+        "placeOutboundCall",
+        "enqueueOutboundCall",
+        "bookCallback",
+        "scheduleAppointment",
+        "captureLead",
+        "saveQuote",
+        "sendCustomerMessage",
+        "classifyCallIntent",
+        "escalateToStaff",
+        "requestCodeFix"
+      ]
+    },
+    {
+      "file": "server/ai/channel-action-executor.ts",
+      "sampleNames": [
+        "sendContract",
+        "approveQuote",
+        "rejectQuote",
+        "draftInvoice",
+        "sendEmailReply",
+        "sendEmailWithAttachment",
+        "notifyCustomerChangeOrder",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "approveChangeOrder",
+        "rejectChangeOrder",
+        "sendPaymentLink",
+        "confirmHandover",
+        "confirmContract",
+        "escalateToStaff",
+        "getPortalLink",
+        "bookSurvey",
+        "priceSmallJob",
+        "submitForApproval",
+        "saveCustomer",
+        "linkCustomer",
+        "updateLeadStatus",
+        "logFollowUp",
+        "saveQuote",
+        "updateQuote",
+        "generatePaymentSchedule",
+        "saveContract",
+        "navigateTo",
+        "updateTaskStatus",
+        "updateProject",
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "searchLeads",
+        "getBusinessSnapshot",
+        "getTeamPerformance",
+        "getProjectProfit",
+        "getCostBreakdown",
+        "readData",
+        "writeData"
+      ]
+    },
+    {
+      "file": "server/ai/cyrus-routes.ts",
+      "sampleNames": [
+        "orgId",
+        "sessionId"
+      ]
+    },
+    {
+      "file": "server/ai/gap-closing-tools.ts",
+      "sampleNames": [
+        "generateInvoicePdf",
+        "generateContractPdf",
+        "sendQuote",
+        "sendInvoice",
+        "closeProject",
+        "archiveQuote",
+        "duplicateQuote",
+        "createReminder",
+        "schedulePaymentReminder",
+        "mergeCustomers",
+        "requestReview",
+        "searchEmails",
+        "sendSms",
+        "processRefund",
+        "flagTransaction",
+        "exportReport",
+        "manageSubscription",
+        "initiatePayment",
+        "bulkUpdateLeadStatus",
+        "scheduleRecurringJob",
+        "sendWhatsAppTemplate",
+        "sendWhatsAppMedia",
+        "createCalendarEvent",
+        "manageFiles",
+        "draftSupplierOrder",
+        "customerName",
+        "projectId",
+        "quoteId",
+        "dueDate",
+        "stageName",
+        "reminderDate",
+        "keepCustomerId",
+        "mergeCustomerId",
+        "transactionId",
+        "reportType",
+        "beneficiaryName",
+        "sortCode",
+        "accountNumber",
+        "customerIds",
+        "templateName"
+      ]
+    },
+    {
+      "file": "server/ai/orchestrator/auto-actions.ts",
+      "sampleNames": [
+        "navigateTo",
+        "writeData",
+        "getTeamPerformance",
+        "searchLeads",
+        "updateLeadStatus",
+        "logFollowUp",
+        "getLeadBrief",
+        "addLeadNote",
+        "listPendingCallbacks",
+        "addQuoteLines",
+        "updateQuoteLines",
+        "completeHandover",
+        "assignContractor",
+        "markPaymentReceived",
+        "sendBuilderBrief",
+        "sendContractorBrief",
+        "requestSitePhotos",
+        "relayCustomerUpdate",
+        "logBuilderReply",
+        "notifyCustomerChangeOrder",
+        "escalateToStaff",
+        "recordCostEntry",
+        "logHours",
+        "categorizeTransaction",
+        "matchTransactionToProject",
+        "draftClientReceipt",
+        "listRecentEmails",
+        "getEmailThread",
+        "draftEmailReply",
+        "sendEmailReply",
+        "sendEmailWithAttachment",
+        "draftQuote",
+        "generateQuotePdf",
+        "generateOpsReport",
+        "sendToStaffCynthia",
+        "requestCodeFix",
+        "placeOutboundCall",
+        "getMenu",
+        "upsertMenuItem",
+        "deleteMenuItem"
+      ]
+    },
+    {
+      "file": "server/ai/orchestrator/handle.ts",
+      "sampleNames": [
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "escalateToStaff",
+        "detectedTrades",
+        "sendToStaffCynthia",
+        "updateLeadStatus",
+        "detectTrades"
+      ]
+    },
+    {
+      "file": "server/ai/orchestrator/helpers.ts",
+      "sampleNames": [
+        "detectTrades",
+        "startQuote",
+        "linkCustomer",
+        "saveCustomer",
+        "saveQuote",
+        "updateQuote",
+        "proposeQuoteFields",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "escalateToStaff",
+        "proposeChangeOrder",
+        "notifyCustomerChangeOrder",
+        "assessExtraFromPhotos",
+        "assessProgress",
+        "getProjectProfit",
+        "getCostBreakdown",
+        "recordCostEntry",
+        "logHours"
+      ]
+    },
+    {
+      "file": "server/ai/orchestrator/mock.ts",
+      "sampleNames": [
+        "detectedTrades",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "escalateToStaff",
+        "convertQuoteToProject",
+        "detectTrades",
+        "proposeQuoteFields",
+        "saveCustomer",
+        "saveQuote",
+        "startQuote",
+        "proposePaymentPlan",
+        "proposeSchedule",
+        "draftInvoice",
+        "draftContract",
+        "draftBuilderMessage",
+        "logBuilderPrice",
+        "proposeChangeOrder",
+        "notifyCustomerChangeOrder",
+        "updateTaskStatus",
+        "tagPhoto",
+        "sendBuilderBrief",
+        "sendContractorBrief",
+        "proposePlan",
+        "checkPaymentGate",
+        "requestSitePhotos",
+        "relayCustomerUpdate",
+        "logBuilderReply",
+        "assessExtraFromPhotos",
+        "assessProgress",
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "navigateTo"
+      ]
+    },
+    {
+      "file": "server/ai/orchestrator/tool-catalog-contract.ts",
+      "sampleNames": [
+        "priceSmallJob",
+        "submitForApproval",
+        "approveQuote",
+        "quoteId",
+        "rejectQuote",
+        "generatePaymentSchedule",
+        "saveContract",
+        "sendContract",
+        "contractId"
+      ]
+    },
+    {
+      "file": "server/ai/orchestrator/tool-catalog-customer.ts",
+      "sampleNames": [
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "projectId",
+        "escalateToStaff",
+        "navigateTo",
+        "getTeamPerformance",
+        "searchLeads",
+        "updateLeadStatus",
+        "customerId",
+        "logFollowUp",
+        "getLeadBrief",
+        "addLeadNote",
+        "listPendingCallbacks",
+        "addQuoteLines",
+        "updateQuoteLines",
+        "quoteId",
+        "completeHandover",
+        "assignContractor",
+        "markPaymentReceived",
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "getBusinessSnapshot"
+      ]
+    },
+    {
+      "file": "server/ai/orchestrator/tool-catalog-generic.ts",
+      "sampleNames": [
+        "readData",
+        "pricingRules",
+        "recruitmentAccess",
+        "writeData"
+      ]
+    },
+    {
+      "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "sampleNames": [
+        "proposePaymentPlan",
+        "proposeSchedule",
+        "draftInvoice",
+        "lineItems",
+        "draftContract",
+        "draftBuilderMessage",
+        "draftCustomerMessage",
+        "proposeChangeOrder",
+        "notifyCustomerChangeOrder",
+        "changeOrderId",
+        "logBuilderPrice",
+        "priceQuoted",
+        "updateTaskStatus",
+        "taskTitle",
+        "tagPhoto",
+        "sendBuilderBrief",
+        "builderName",
+        "sendContractorBrief",
+        "proposePlan",
+        "checkPaymentGate",
+        "stageName",
+        "evidenceNeeded",
+        "requestSitePhotos",
+        "relayCustomerUpdate",
+        "logBuilderReply",
+        "fromPhone",
+        "assessExtraFromPhotos",
+        "builderNote",
+        "assessProgress",
+        "recordCostEntry",
+        "getProjectProfit",
+        "getCostBreakdown",
+        "logHours",
+        "correctTimesheet",
+        "timesheetId",
+        "fixCostEntry",
+        "entryId",
+        "categorizeTransaction",
+        "transactionId",
+        "matchTransactionToProject"
+      ]
+    },
+    {
+      "file": "server/ai/orchestrator/tool-catalog-staff.ts",
+      "sampleNames": [
+        "detectTrades",
+        "tradeId",
+        "proposeQuoteFields",
+        "linkCustomer",
+        "interestedTrades",
+        "startQuote",
+        "saveCustomer",
+        "saveQuote",
+        "customerId",
+        "updateQuote",
+        "convertQuoteToProject"
+      ]
+    },
+    {
+      "file": "server/ai/orchestrator/tools-for-mode.ts",
+      "sampleNames": [
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "managePlanning",
+        "getMenu"
+      ]
+    },
+    {
+      "file": "server/ai/orchestrator-prompt.ts",
+      "sampleNames": [
+        "priceSmallJob",
+        "submitApproval",
+        "convertFromQuote",
+        "readCollection",
+        "writeData",
+        "staffCard",
+        "updateLead",
+        "logFollowUp"
+      ]
+    },
+    {
+      "file": "server/ai/restaurant-ai-tools.ts",
+      "sampleNames": [
+        "getMenu",
+        "upsertMenuItem",
+        "deleteMenuItem",
+        "listOrders",
+        "markOrderPaid",
+        "orderId",
+        "updateOrderStatus"
+      ]
+    },
+    {
+      "file": "server/ai/tool-facade.ts",
+      "sampleNames": [
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "searchLeads",
+        "searchEmails",
+        "getBusinessSnapshot",
+        "getTeamPerformance",
+        "readData",
+        "getProjectProfit",
+        "getCostBreakdown",
+        "linkCustomer",
+        "updateLeadStatus",
+        "logFollowUp",
+        "mergeCustomers",
+        "detectTrades",
+        "proposeQuoteFields",
+        "startQuote",
+        "saveQuote",
+        "updateQuote",
+        "addQuoteLines",
+        "updateQuoteLines",
+        "duplicateQuote",
+        "archiveQuote",
+        "priceSmallJob",
+        "submitForApproval",
+        "approveQuote",
+        "rejectQuote",
+        "generatePaymentSchedule",
+        "draftQuote",
+        "generateQuotePdf",
+        "draftContract",
+        "saveContract",
+        "sendContract",
+        "generateContractPdf",
+        "convertQuoteToProject",
+        "proposePaymentPlan",
+        "proposeSchedule",
+        "proposeChangeOrder",
+        "completeHandover",
+        "assignContractor"
+      ]
+    },
+    {
+      "file": "server/dataPolicy.ts",
+      "sampleNames": [
+        "pricingRules",
+        "contractTemplates",
+        "recruitmentAccess",
+        "builderCost",
+        "marginPercent",
+        "internalNotes",
+        "contractorComms",
+        "costPrice",
+        "supplierPrice",
+        "staffNotes",
+        "totalProfit",
+        "companyTotals",
+        "grossProfit",
+        "materialCosts",
+        "labourCosts",
+        "otherCosts",
+        "totalCosts",
+        "marginPct",
+        "categoryBreakdown",
+        "costEntries",
+        "builderPayments"
+      ]
+    },
+    {
+      "file": "server/phone/phone-auth.ts",
+      "sampleNames": [
+        "verifyStaffPhonePin",
+        "transferToHuman",
+        "captureMessage",
+        "endCall",
+        "setCallLanguage",
+        "lookupCustomerByPhone",
+        "getAccountBriefing",
+        "getLeadBrief",
+        "addLeadNote",
+        "listPendingCallbacks",
+        "searchLeads",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "logCallActivity",
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "getBusinessSnapshot",
+        "getTeamPerformance",
+        "bookCallback",
+        "scheduleAppointment",
+        "captureLead",
+        "saveQuote",
+        "sendCustomerMessage",
+        "classifyCallIntent",
+        "escalateToStaff",
+        "sendToStaffCynthia",
+        "deliverCallFollowUp",
+        "placeOutboundCall",
+        "enqueueOutboundCall",
+        "briefInbox",
+        "listRecentEmails",
+        "getEmailThread",
+        "composeSalesEmail",
+        "readDraftAloud",
+        "sendEmailReply",
+        "scheduleSalesFollowUp"
+      ]
+    },
+    {
+      "file": "server/phone/phone-brain.ts",
+      "sampleNames": [
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "lookupCustomerByPhone",
+        "getAccountBriefing",
+        "getLeadBrief",
+        "addLeadNote",
+        "customerId",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "escalateToStaff",
+        "logCallActivity",
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "getBusinessSnapshot",
+        "getTeamPerformance",
+        "verifyStaffPhonePin",
+        "endCall",
+        "setCallLanguage",
+        "transferToHuman",
+        "captureMessage",
+        "bookCallback",
+        "scheduleAppointment",
+        "captureLead",
+        "saveQuote",
+        "sendCustomerMessage",
+        "classifyCallIntent",
+        "sendToStaffCynthia",
+        "deliverCallFollowUp",
+        "placeOutboundCall",
+        "enqueueOutboundCall",
+        "getMenu",
+        "placeFoodOrder",
+        "checkDeliveryArea",
+        "getDeliveryAreas",
+        "checkTableAvailability",
+        "bookTable",
+        "updateReservation"
+      ]
+    },
+    {
+      "file": "server/phone/sally-sales-phone.ts",
+      "sampleNames": [
+        "getOfferTerms",
+        "bookIntegrationMeeting",
+        "bookDemo",
+        "sendSalesFollowUp",
+        "bookCallback",
+        "captureLead",
+        "captureMessage",
+        "classifyCallIntent",
+        "scheduleAppointment",
+        "verifyStaffPhonePin"
+      ]
+    },
+    {
+      "file": "server/phone/tools/catalog.ts",
+      "sampleNames": [
+        "classifyCallIntent",
+        "captureLead",
+        "bookCallback",
+        "saveQuote",
+        "sendCustomerMessage",
+        "scheduleAppointment",
+        "screenCandidate",
+        "bookInterview",
+        "scheduledDate",
+        "scheduledTime",
+        "logCandidate",
+        "transferToHuman",
+        "enqueueOutboundCall",
+        "captureMessage",
+        "sendToStaffCynthia",
+        "placeOutboundCall",
+        "deliverCallFollowUp",
+        "getMenu",
+        "checkDeliveryArea",
+        "getDeliveryAreas",
+        "placeFoodOrder",
+        "checkTableAvailability",
+        "startsAt",
+        "partySize",
+        "bookTable",
+        "updateReservation",
+        "cancelReservation",
+        "listReservations",
+        "escalateToStaff",
+        "saveCustomer",
+        "briefInbox",
+        "listRecentEmails",
+        "getEmailThread",
+        "composeSalesEmail",
+        "readDraftAloud",
+        "sendEmailReply",
+        "scheduleSalesFollowUp",
+        "upsertMenuItem",
+        "deleteMenuItem",
+        "listOrders"
+      ]
+    },
+    {
+      "file": "server/phone/tools/execute.ts",
+      "sampleNames": [
+        "getMenu",
+        "classifyCallIntent",
+        "captureLead",
+        "bookCallback",
+        "saveQuote",
+        "sendCustomerMessage",
+        "scheduleAppointment",
+        "screenCandidate",
+        "logCandidate",
+        "bookInterview",
+        "transferToHuman",
+        "enqueueOutboundCall",
+        "placeOutboundCall",
+        "captureMessage",
+        "sendToStaffCynthia",
+        "deliverCallFollowUp",
+        "getDeliveryAreas",
+        "checkDeliveryArea",
+        "placeFoodOrder",
+        "checkTableAvailability",
+        "bookTable",
+        "updateReservation",
+        "cancelReservation",
+        "listReservations"
+      ]
+    },
+    {
+      "file": "server/phone/vapi-assistant.ts",
+      "sampleNames": [
+        "onUserSpeech",
+        "endCall",
+        "transferCall",
+        "bookIntegrationMeeting"
+      ]
+    },
+    {
+      "file": "server/phone/vapi-routes.ts",
+      "sampleNames": [
+        "lookupCustomerByPhone",
+        "getAccountBriefing",
+        "getLeadBrief",
+        "addLeadNote",
+        "listPendingCallbacks",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "escalateToStaff",
+        "logCallActivity",
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "searchLeads",
+        "getBusinessSnapshot",
+        "getTeamPerformance",
+        "endCall",
+        "verifyStaffPhonePin",
+        "setCallLanguage",
+        "transferToHuman",
+        "getOfferTerms",
+        "bookDemo",
+        "bookIntegrationMeeting",
+        "sendSalesFollowUp",
+        "providerCallId",
+        "localId"
+      ]
+    },
+    {
+      "file": "server/realtime-routes.ts",
+      "sampleNames": [
+        "lookupCustomerByPhone",
+        "getAccountBriefing",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "escalateToStaff",
+        "logCallActivity",
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "getBusinessSnapshot",
+        "getTeamPerformance",
+        "verifyStaffPhonePin",
+        "endCall",
+        "saveQuote",
+        "sendCustomerMessage"
+      ]
+    },
+    {
+      "file": "server/role-permissions.ts",
+      "sampleNames": [
+        "readData",
+        "writeData",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "escalateToStaff",
+        "navigateTo",
+        "approveChangeOrder",
+        "rejectChangeOrder",
+        "sendPaymentLink",
+        "bookSurvey",
+        "confirmHandover",
+        "confirmContract",
+        "detectTrades",
+        "proposeQuoteFields",
+        "linkCustomer",
+        "saveCustomer",
+        "startQuote",
+        "saveQuote",
+        "updateQuote",
+        "convertQuoteToProject",
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "searchLeads",
+        "updateLeadStatus",
+        "logFollowUp",
+        "getLeadBrief",
+        "addLeadNote",
+        "listPendingCallbacks",
+        "addQuoteLines",
+        "updateQuoteLines",
+        "getBusinessSnapshot",
+        "getTeamPerformance",
+        "proposePaymentPlan",
+        "savePaymentPlan",
+        "proposeSchedule",
+        "saveProjectSchedule",
+        "proposePlan",
+        "updateProject"
+      ]
+    },
+    {
+      "file": "server/sally/execute.ts",
+      "sampleNames": [
+        "getOfferTerms",
+        "confirmSaleTerms",
+        "sendSalesAssets",
+        "checkPaymentStatus",
+        "researchRestaurantProfile",
+        "openingHours",
+        "getRestaurantSetupDraft",
+        "confirmRestaurantField",
+        "deliveryAvailable",
+        "collectionAvailable",
+        "paymentMethods",
+        "contactEmail",
+        "provisionRestaurantClient",
+        "bookDemo",
+        "leaveVoicemail",
+        "createSaasQuote",
+        "createSaasContract",
+        "sendContract",
+        "sendStripeCheckoutLink",
+        "bookOnboarding",
+        "requestGoogleReview",
+        "proposePlanUpsell",
+        "chaseUnpaidInvoice"
+      ]
+    },
+    {
+      "file": "server/sally/offer.ts",
+      "sampleNames": [
+        "researchRestaurantProfile",
+        "getRestaurantSetupDraft",
+        "confirmRestaurantField",
+        "provisionRestaurantClient",
+        "bookDemo",
+        "leaveVoicemail",
+        "createSaasQuote",
+        "sendStripeCheckoutLink",
+        "bookOnboarding",
+        "requestGoogleReview",
+        "proposePlanUpsell",
+        "chaseUnpaidInvoice",
+        "getOfferTerms",
+        "confirmSaleTerms",
+        "sendSalesAssets",
+        "checkPaymentStatus",
+        "createSaasContract",
+        "sendContract",
+        "bookCallback",
+        "captureLead",
+        "addLeadNote",
+        "getLeadBrief",
+        "searchLeads",
+        "updateLeadStatus",
+        "logFollowUp",
+        "listPendingCallbacks",
+        "transferToHuman",
+        "captureMessage",
+        "classifyCallIntent",
+        "setCallLanguage",
+        "endCall",
+        "sendCustomerMessage",
+        "placeOutboundCall",
+        "enqueueOutboundCall",
+        "sendEmailReply",
+        "draftEmailReply",
+        "sendWhatsAppTemplate",
+        "createCalendarEvent",
+        "scheduleAppointment",
+        "schedulePaymentReminder"
+      ]
+    },
+    {
+      "file": "server/sally/tools.ts",
+      "sampleNames": [
+        "researchRestaurantProfile",
+        "getRestaurantSetupDraft",
+        "confirmRestaurantField",
+        "businessName",
+        "openingHours",
+        "deliveryAvailable",
+        "collectionAvailable",
+        "deliveryAreas",
+        "menuUrl",
+        "paymentMethods",
+        "socialMedia",
+        "contactEmail",
+        "provisionRestaurantClient",
+        "bookDemo",
+        "scheduledAt",
+        "leaveVoicemail",
+        "getOfferTerms",
+        "confirmSaleTerms",
+        "createSaasContract",
+        "packageId",
+        "restaurantName",
+        "contactName",
+        "sendSalesAssets",
+        "createSaasQuote",
+        "sendStripeCheckoutLink",
+        "checkPaymentStatus",
+        "bookOnboarding",
+        "requestGoogleReview",
+        "proposePlanUpsell",
+        "organizationId",
+        "targetPlan",
+        "chaseUnpaidInvoice",
+        "addLeadNote",
+        "bookCallback",
+        "captureLead",
+        "transferToHuman",
+        "captureMessage",
+        "classifyCallIntent",
+        "sendCustomerMessage",
+        "placeOutboundCall"
+      ]
+    },
+    {
+      "file": "server/sally-receptionist.ts",
+      "sampleNames": [
+        "briefInbox",
+        "listRecentEmails",
+        "getEmailThread",
+        "composeSalesEmail",
+        "readDraftAloud",
+        "sendEmailReply",
+        "scheduleSalesFollowUp",
+        "sendAt",
+        "noiseCount",
+        "spokenBrief",
+        "searchEmails"
+      ]
+    },
+    {
+      "file": "server/task-planner.ts",
+      "sampleNames": [
+        "saveCustomer",
+        "linkCustomer",
+        "saveQuote",
+        "updateQuote",
+        "startQuote",
+        "writeData",
+        "proposePaymentPlan",
+        "proposeSchedule",
+        "draftInvoice",
+        "convertQuoteToProject"
+      ]
+    },
+    {
+      "file": "server/tool-facade.test.ts",
+      "sampleNames": [
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "expandFacadeCall",
+        "manageQuote",
+        "saveQuote",
+        "managePricing",
+        "searchRecords",
+        "searchCustomers",
+        "appControl",
+        "writeData",
+        "readData",
+        "managePlanning",
+        "approveQuote",
+        "sendContract",
+        "manageContract"
+      ]
+    },
+    {
+      "file": "server/_quarantine/phone-orchestrator.ts",
+      "sampleNames": [
+        "customerContext",
+        "projectContext",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "escalateToStaff",
+        "proposedActions",
+        "callContext",
+        "classifyCallIntent",
+        "sendToStaffCynthia",
+        "transferToHuman"
+      ]
+    },
+    {
+      "file": "server/_quarantine/vapi-routes.local-full.ts",
+      "sampleNames": [
+        "lookupCustomerByPhone",
+        "getAccountBriefing",
+        "getLeadBrief",
+        "addLeadNote",
+        "listPendingCallbacks",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "escalateToStaff",
+        "logCallActivity",
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "searchLeads",
+        "getBusinessSnapshot",
+        "getTeamPerformance",
+        "verifyStaffPhonePin",
+        "endCall",
+        "setCallLanguage",
+        "transferToHuman"
+      ]
+    },
+    {
+      "file": "server/_quarantine/vapi-routes.vps.ts",
+      "sampleNames": [
+        "lookupCustomerByPhone",
+        "getAccountBriefing",
+        "getLeadBrief",
+        "addLeadNote",
+        "listPendingCallbacks",
+        "lookupQuote",
+        "lookupProjectStatus",
+        "getPortalLink",
+        "escalateToStaff",
+        "logCallActivity",
+        "searchCustomers",
+        "searchProjects",
+        "searchQuotes",
+        "searchLeads",
+        "getBusinessSnapshot",
+        "getTeamPerformance",
+        "verifyStaffPhonePin",
+        "endCall",
+        "setCallLanguage",
+        "transferToHuman"
+      ]
+    }
+  ]
+}

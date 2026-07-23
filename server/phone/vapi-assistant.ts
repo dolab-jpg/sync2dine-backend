@@ -1,6 +1,6 @@
 /**
  * Shared builders for Vapi assistant payloads (outbound + assistant-request).
- * Session brains load from server/brains/{sally|judie}.
+ * Session brains load from server/brains/{sally|judie|cynthia}.
  */
 import { DEFAULT_ORG_ID, getCallById, hydrateCallerFromCloud } from '../data-store';
 import {
@@ -15,6 +15,7 @@ export { resolveTransferNumber, transferDestinationsFromEnv } from './transfer-n
 import { transferDestinationsFromEnv } from './transfer-numbers';
 import { SALLY_PERSONA } from './sally-sales-phone';
 import { buildBrainSession, type SilencePersona } from '../brains/index';
+import { CYNTHIA_PERSONA } from '../brains/cynthia/branding';
 import { getHomeOrgId } from '../home-org';
 import { buildVapiModelBlock } from './vapi-llm-model';
 import { debugLog } from '../debug-session-log';
@@ -35,11 +36,14 @@ export function buildSilenceHooks(persona: SilencePersona): Array<Record<string,
             "Look, I just need a quick yes or no on a twenty-minute install chat — otherwise I'll leave it there.",
           bye: "Alright, I'll let you go — ring Sync2Dine when you're free. Cheers!",
         }
-      : persona === 'staff'
+      : persona === 'staff' || persona === 'cynthia'
         ? {
             check: ['You still there?', 'Can you still hear me?'],
             reask: "Still need something, or shall I hang up?",
-            bye: "I'll leave it there — shout if you need me. Bye!",
+            bye:
+              persona === 'cynthia'
+                ? "I'll leave it there — call Builder Diddies if you need me. Bye!"
+                : "I'll leave it there — shout if you need me. Bye!",
           }
         : {
             check: ['You still there?', 'Can you still hear me?'],
@@ -233,5 +237,14 @@ export async function buildVapiAssistantForParty(opts: {
   });
   // #endregion
 
-  return { assistant, identity, verified, agentPersona: sally ? SALLY_PERSONA : undefined };
+  return {
+    assistant,
+    identity,
+    verified,
+    agentPersona: sally
+      ? SALLY_PERSONA
+      : session.id === 'cynthia'
+        ? CYNTHIA_PERSONA
+        : undefined,
+  };
 }

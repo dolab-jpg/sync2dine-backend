@@ -123,7 +123,7 @@ export interface PendingConfirmationRecord {
 
 export type PhoneLineStatus = 'disconnected' | 'registering' | 'registered' | 'error';
 
-export type PhoneLinePurpose = 'staff' | 'aria' | 'sally';
+export type PhoneLinePurpose = 'staff' | 'aria' | 'sally' | 'cynthia';
 export type PhoneLineConnectionType = 'soho66' | 'sip' | 'twilio' | 'other';
 
 export interface PhoneLine {
@@ -1566,7 +1566,7 @@ export function savePhoneLine(
       ? undefined
       : (typeof input.assignedUserId === 'string' ? input.assignedUserId.trim() : undefined) || prev?.assignedUserId;
   const purpose: PhoneLinePurpose =
-    input.purpose === 'aria' || input.purpose === 'staff' || input.purpose === 'sally'
+    input.purpose === 'aria' || input.purpose === 'staff' || input.purpose === 'sally' || input.purpose === 'cynthia'
       ? input.purpose
       : (prev?.purpose ?? 'staff');
   const connectionType: PhoneLineConnectionType | undefined =

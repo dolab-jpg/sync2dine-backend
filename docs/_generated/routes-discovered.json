@@ -1,0 +1,2521 @@
+{
+  "generatedAt": "2026-07-23T12:43:04.404Z",
+  "prefixes": [
+    "/api/agent/capacity",
+    "/api/agent/credentials",
+    "/api/agent/credentials/create-project",
+    "/api/agent/credentials/organizations",
+    "/api/agent/credentials/projects",
+    "/api/agent/credentials/status",
+    "/api/agent/credentials/sync",
+    "/api/agent/credentials/test",
+    "/api/agent/credentials/vapi",
+    "/api/agent/lines",
+    "/api/agent/lines/mine",
+    "/api/agent/lines/register-all",
+    "/api/agent/realtime/session",
+    "/api/agent/realtime/tool",
+    "/api/agent/realtime/transcript",
+    "/api/agent/settings",
+    "/api/agent/status",
+    "/api/agent/stt",
+    "/api/agent/transfer-numbers",
+    "/api/agent/tts",
+    "/api/agent/voices",
+    "/api/ai/",
+    "/api/ai/building-control",
+    "/api/ai/categorize-transaction",
+    "/api/ai/chat",
+    "/api/ai/code-fix",
+    "/api/ai/code-fix/health",
+    "/api/ai/code-fix/merge-batch",
+    "/api/ai/compose-email",
+    "/api/ai/conversation-log",
+    "/api/ai/cyrus",
+    "/api/ai/estimate",
+    "/api/ai/health",
+    "/api/ai/orchestrate",
+    "/api/ai/orchestrate/stream",
+    "/api/ai/planning",
+    "/api/ai/project",
+    "/api/ai/receipt",
+    "/api/ai/render",
+    "/api/ai/staff",
+    "/api/ai/studio",
+    "/api/ai/summarize",
+    "/api/ai/transcribe",
+    "/api/ai/tts",
+    "/api/analytics/events",
+    "/api/analytics/overview",
+    "/api/auth/accept-invite",
+    "/api/auth/customers",
+    "/api/auth/invites",
+    "/api/auth/invites/",
+    "/api/auth/login",
+    "/api/auth/me",
+    "/api/auth/members",
+    "/api/auth/members/",
+    "/api/auth/register-org",
+    "/api/auth/resolve-username",
+    "/api/auth/username-available",
+    "/api/banking/",
+    "/api/banking/accounts",
+    "/api/banking/callback",
+    "/api/banking/connect",
+    "/api/banking/flag-transaction",
+    "/api/banking/initiate-payment",
+    "/api/banking/status",
+    "/api/banking/transactions",
+    "/api/building-control/approve",
+    "/api/building-control/check-updates",
+    "/api/building-control/registry",
+    "/api/calendar",
+    "/api/calendar/callback",
+    "/api/calendar/connect",
+    "/api/calendar/connection",
+    "/api/calendar/events",
+    "/api/calendar/secrets",
+    "/api/calls",
+    "/api/calls/mock",
+    "/api/calls/outbound",
+    "/api/calls/outbound/bulk",
+    "/api/campaigns/lapsed-customers",
+    "/api/campaigns/queue-lapsed",
+    "/api/campaigns/templates",
+    "/api/campaigns/upload",
+    "/api/concierge/outbound",
+    "/api/connectors",
+    "/api/connectors/commerce/forward",
+    "/api/connectors/config",
+    "/api/connectors/events",
+    "/api/connectors/menu",
+    "/api/connectors/menu/mapping",
+    "/api/connectors/menu/sync",
+    "/api/connectors/menu/version",
+    "/api/connectors/orders/",
+    "/api/connectors/queue/process",
+    "/api/connectors/square/",
+    "/api/connectors/square/disconnect",
+    "/api/connectors/square/locations",
+    "/api/connectors/square/oauth/callback",
+    "/api/connectors/square/oauth/start",
+    "/api/connectors/square/test-push",
+    "/api/connectors/status",
+    "/api/contacts/lookup",
+    "/api/contract-stage-checkout",
+    "/api/contracts",
+    "/api/contracts/sync",
+    "/api/customer/pin/verify",
+    "/api/customers/upsert",
+    "/api/cynthia",
+    "/api/cynthia/cards",
+    "/api/cynthia/send-card",
+    "/api/cynthia/thread",
+    "/api/cyrus",
+    "/api/cyrus/company-settings",
+    "/api/cyrus/embed-snippet",
+    "/api/cyrus/portal",
+    "/api/cyrus/portal/thread",
+    "/api/cyrus/threads",
+    "/api/cyrus/web",
+    "/api/cyrus/web/poll",
+    "/api/data/sync",
+    "/api/dining-tables",
+    "/api/files/upload",
+    "/api/integrations/test",
+    "/api/language-packs",
+    "/api/leads",
+    "/api/leads/from-call",
+    "/api/leads/inbox",
+    "/api/mailbox",
+    "/api/mailbox/callback",
+    "/api/mailbox/connect",
+    "/api/mailbox/connections",
+    "/api/mailbox/messages",
+    "/api/mailbox/search",
+    "/api/mailbox/send",
+    "/api/mailbox/sync",
+    "/api/menu",
+    "/api/messages/schedule",
+    "/api/messages/send",
+    "/api/messages/templates",
+    "/api/messages/test",
+    "/api/messages/whatsapp-media",
+    "/api/messages/whatsapp-template",
+    "/api/ops/alerts",
+    "/api/orders",
+    "/api/org/ai-brain",
+    "/api/org/billing-periods",
+    "/api/org/elevenlabs-key",
+    "/api/org/integrations",
+    "/api/org/integrations/status",
+    "/api/org/phone-billing",
+    "/api/org/phone-usage",
+    "/api/org/staff/list",
+    "/api/org/staff/phone-pin",
+    "/api/org/staff/register-phone",
+    "/api/org/usage-bundle",
+    "/api/org/weekly-usage",
+    "/api/platform/",
+    "/api/platform/organizations",
+    "/api/platform/phone-lines",
+    "/api/platform/phone-lines/register-all",
+    "/api/platform/plans",
+    "/api/platform/sally-phone-line",
+    "/api/platform/stats",
+    "/api/platform/stripe-status",
+    "/api/platform/weekly-billing/run",
+    "/api/project-deposit-checkout",
+    "/api/push/notify",
+    "/api/push/register",
+    "/api/push/tokens",
+    "/api/reservations",
+    "/api/reservations/availability",
+    "/api/sales-brain",
+    "/api/sales-brain/insights",
+    "/api/sales-brain/recommendations",
+    "/api/sales-brain/recommendations/decide",
+    "/api/sales-brain/snippets",
+    "/api/sales-brain/status",
+    "/api/sally-knowledge",
+    "/api/sally-knowledge/chunks",
+    "/api/sally-knowledge/chunks/decide",
+    "/api/sally-knowledge/ingest",
+    "/api/sally-knowledge/jobs",
+    "/api/sally-knowledge/sources",
+    "/api/sally-knowledge/status",
+    "/api/sally/web",
+    "/api/sally/web/poll",
+    "/api/sms/send",
+    "/api/stripe/manage-subscription",
+    "/api/stripe/refund",
+    "/api/stripe/webhook",
+    "/api/translate/detect",
+    "/api/translate/from-english",
+    "/api/translate/to-english",
+    "/api/vapi/health",
+    "/api/vapi/web-session",
+    "/api/whatsapp-web/browser-login/frame",
+    "/api/whatsapp-web/browser-login/start",
+    "/api/whatsapp-web/browser-login/stop",
+    "/api/whatsapp-web/logout",
+    "/api/whatsapp-web/qr",
+    "/api/whatsapp-web/read-receipts",
+    "/api/whatsapp-web/reconnect",
+    "/api/whatsapp-web/send",
+    "/api/whatsapp-web/status",
+    "/health",
+    "/webhooks/analytics/events",
+    "/webhooks/gmail",
+    "/webhooks/outlook",
+    "/webhooks/voice/inbound",
+    "/webhooks/voice/outbound",
+    "/webhooks/voice/status",
+    "/webhooks/voice/turn",
+    "/webhooks/whatsapp"
+  ],
+  "details": [
+    {
+      "prefix": "/api/auth/invites/",
+      "file": "server/account-auth.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/auth/members/",
+      "file": "server/account-auth.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/auth/members/",
+      "file": "server/account-auth.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/auth/resolve-username",
+      "file": "server/account-auth.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/auth/register-org",
+      "file": "server/account-auth.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/auth/invites",
+      "file": "server/account-auth.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/auth/accept-invite",
+      "file": "server/account-auth.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/auth/members",
+      "file": "server/account-auth.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/auth/invites",
+      "file": "server/account-auth.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/auth/customers",
+      "file": "server/account-auth.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/auth/username-available",
+      "file": "server/account-auth.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleAccountAuthRoutes",
+      "file": "server/account-auth.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleAgentActivityRoutes",
+      "file": "server/agent-activity-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/agent/credentials",
+      "file": "server/agent-credentials-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/agent/credentials/status",
+      "file": "server/agent-credentials-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/credentials/vapi",
+      "file": "server/agent-credentials-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/credentials/sync",
+      "file": "server/agent-credentials-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/credentials/projects",
+      "file": "server/agent-credentials-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/credentials/organizations",
+      "file": "server/agent-credentials-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/credentials/create-project",
+      "file": "server/agent-credentials-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/credentials/test",
+      "file": "server/agent-credentials-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleAgentCredentialsRoutes",
+      "file": "server/agent-credentials-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/agent/settings",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/settings",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ops/alerts",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/transfer-numbers",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/transfer-numbers",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/status",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/voices",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/voices",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/contacts/lookup",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/tts",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/stt",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/lines",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/lines",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/lines/mine",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/lines/register-all",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/customers/upsert",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/campaigns/templates",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/campaigns/lapsed-customers",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/campaigns/queue-lapsed",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/capacity",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/campaigns/upload",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleAgentRoutes",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/ai/code-fix",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/ai/health",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/transcribe",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/cyrus",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/project",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/orchestrate",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/orchestrate/stream",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/staff",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/building-control",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/planning",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/summarize",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/compose-email",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/categorize-transaction",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/receipt",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/chat",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/estimate",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/receipt",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/tts",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/render",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleAiRequest",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/ai/studio",
+      "file": "server/ai/ai-studio-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/ai/studio",
+      "file": "server/ai/ai-studio-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/studio",
+      "file": "server/ai/ai-studio-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleAIStudioRoutes",
+      "file": "server/ai/ai-studio-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleBuildingControl",
+      "file": "server/ai/building-control-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCategorizeTransaction",
+      "file": "server/ai/categorize-transaction-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleConfirmationReply",
+      "file": "server/ai/channel-action-executor.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleChannelInbound",
+      "file": "server/ai/channel-inbound-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleComposeEmail",
+      "file": "server/ai/compose-email-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/ai/conversation-log",
+      "file": "server/ai/conversation-audit.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/ai/conversation-log",
+      "file": "server/ai/conversation-audit.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/conversation-log",
+      "file": "server/ai/conversation-audit.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleConversationAudit",
+      "file": "server/ai/conversation-audit.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/cynthia",
+      "file": "server/ai/cynthia-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/cynthia/thread",
+      "file": "server/ai/cynthia-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/cynthia/thread",
+      "file": "server/ai/cynthia-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/cynthia/cards",
+      "file": "server/ai/cynthia-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/cynthia/send-card",
+      "file": "server/ai/cynthia-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleCynthiaRoutes",
+      "file": "server/ai/cynthia-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCyrusChat",
+      "file": "server/ai/cyrus-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/cyrus",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/cyrus/company-settings",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/cyrus/company-settings",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/cyrus/embed-snippet",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/cyrus/threads",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/cyrus/web",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/cyrus/web",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/cyrus/web/poll",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/cyrus/portal",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/cyrus/portal/thread",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleCyrusRoutes",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/sms/send",
+      "file": "server/ai/gap-api-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/stripe/refund",
+      "file": "server/ai/gap-api-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/stripe/manage-subscription",
+      "file": "server/ai/gap-api-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/banking/flag-transaction",
+      "file": "server/ai/gap-api-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/banking/initiate-payment",
+      "file": "server/ai/gap-api-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/messages/whatsapp-template",
+      "file": "server/ai/gap-api-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/messages/whatsapp-media",
+      "file": "server/ai/gap-api-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleGapApiRoutes",
+      "file": "server/ai/gap-api-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOrchestrateStream",
+      "file": "server/ai/orchestrate-stream.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleTranscribeUpload",
+      "file": "server/ai/orchestrate-stream.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOrchestrator",
+      "file": "server/ai/orchestrator/handle.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePlanningAI",
+      "file": "server/ai/planning-ai-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleReceiptRequest",
+      "file": "server/ai/receipt-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleStaffAI",
+      "file": "server/ai/staff-ai-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleSummarizeChat",
+      "file": "server/ai/summarize-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/analytics/overview",
+      "file": "server/analytics-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/webhooks/analytics/events",
+      "file": "server/analytics-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/analytics/events",
+      "file": "server/analytics-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleAnalyticsRoutes",
+      "file": "server/analytics-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/auth/login",
+      "file": "server/auth.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/auth/me",
+      "file": "server/auth.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleAuthRoutes",
+      "file": "server/auth.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/banking/",
+      "file": "server/banking-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/banking/accounts",
+      "file": "server/banking-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/banking/transactions",
+      "file": "server/banking-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/banking/connect",
+      "file": "server/banking-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/banking/callback",
+      "file": "server/banking-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/banking/status",
+      "file": "server/banking-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleBankingRoutes",
+      "file": "server/banking-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/org/phone-billing",
+      "file": "server/billing/org-phone-billing-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/org/phone-usage",
+      "file": "server/billing/org-phone-billing-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/org/elevenlabs-key",
+      "file": "server/billing/org-phone-billing-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/org/usage-bundle",
+      "file": "server/billing/org-phone-billing-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleOrgPhoneBillingRoutes",
+      "file": "server/billing/org-phone-billing-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/stripe/webhook",
+      "file": "server/billing/stripe-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleStripeRoutes",
+      "file": "server/billing/stripe-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleStripeWebhookEvent",
+      "file": "server/billing/stripe-service.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/org/weekly-usage",
+      "file": "server/billing/weekly-billing-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/org/billing-periods",
+      "file": "server/billing/weekly-billing-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/stripe-status",
+      "file": "server/billing/weekly-billing-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/weekly-billing/run",
+      "file": "server/billing/weekly-billing-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleWeeklyBillingRoutes",
+      "file": "server/billing/weekly-billing-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/building-control/registry",
+      "file": "server/building-control-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/building-control/check-updates",
+      "file": "server/building-control-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/building-control/approve",
+      "file": "server/building-control-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleBuildingControlRoutes",
+      "file": "server/building-control-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/calendar",
+      "file": "server/calendar-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/calendar/connect",
+      "file": "server/calendar-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calendar/callback",
+      "file": "server/calendar-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calendar/connection",
+      "file": "server/calendar-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calendar/connection",
+      "file": "server/calendar-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calendar/events",
+      "file": "server/calendar-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calendar/secrets",
+      "file": "server/calendar-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleCalendarRoutes",
+      "file": "server/calendar-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/language-packs",
+      "file": "server/channel-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/language-packs",
+      "file": "server/channel-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/translate/detect",
+      "file": "server/channel-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/translate/to-english",
+      "file": "server/channel-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/translate/from-english",
+      "file": "server/channel-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/org/staff/register-phone",
+      "file": "server/channel-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/org/staff/phone-pin",
+      "file": "server/channel-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/org/staff/list",
+      "file": "server/channel-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/customer/pin/verify",
+      "file": "server/channel-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/concierge/outbound",
+      "file": "server/channel-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleChannelRoutes",
+      "file": "server/channel-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/ai/code-fix",
+      "file": "server/code-fix-handler.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/ai/code-fix/health",
+      "file": "server/code-fix-handler.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/code-fix/merge-batch",
+      "file": "server/code-fix-handler.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/code-fix",
+      "file": "server/code-fix-handler.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/code-fix",
+      "file": "server/code-fix-handler.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleCodeFixRoutes",
+      "file": "server/code-fix-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/connectors",
+      "file": "server/connectors/routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/connectors/orders/",
+      "file": "server/connectors/routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/connectors/square/",
+      "file": "server/connectors/routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/connectors/config",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/queue/process",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/menu/sync",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/menu/mapping",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/commerce/forward",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/config",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/config",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/status",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/events",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/menu",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/menu/version",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/menu/sync",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/menu/mapping",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/menu/mapping",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/queue/process",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/square/oauth/start",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/square/oauth/callback",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/square/locations",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/square/disconnect",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/square/test-push",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/connectors/commerce/forward",
+      "file": "server/connectors/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleConnectorRoutes",
+      "file": "server/connectors/routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/contracts",
+      "file": "server/contract-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/contracts/sync",
+      "file": "server/contract-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleContractRoutes",
+      "file": "server/contract-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCyrusViaOrchestrator",
+      "file": "server/cyrus-orchestrator.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/cyrus/web",
+      "file": "server/index.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/sally/web",
+      "file": "server/index.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/ai/",
+      "file": "server/index.ts",
+      "kind": "startsWith"
+    },
+    {
+      "handler": "handleIntegrationTest",
+      "file": "server/integrations-test.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/leads",
+      "file": "server/leads-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/leads/from-call",
+      "file": "server/leads-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/leads/inbox",
+      "file": "server/leads-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleLeadsRoutes",
+      "file": "server/leads-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePackageUpdatesRoute",
+      "file": "server/mailbox/package-updates.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/mailbox",
+      "file": "server/mailbox-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/webhooks/gmail",
+      "file": "server/mailbox-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/webhooks/outlook",
+      "file": "server/mailbox-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/mailbox/connect",
+      "file": "server/mailbox-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/mailbox/callback",
+      "file": "server/mailbox-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/mailbox/connections",
+      "file": "server/mailbox-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/mailbox/sync",
+      "file": "server/mailbox-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/mailbox/messages",
+      "file": "server/mailbox-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/mailbox/send",
+      "file": "server/mailbox-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/mailbox/search",
+      "file": "server/mailbox-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/webhooks/gmail",
+      "file": "server/mailbox-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/webhooks/outlook",
+      "file": "server/mailbox-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleMailboxRoutes",
+      "file": "server/mailbox-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/messages/schedule",
+      "file": "server/messages-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/messages/templates",
+      "file": "server/messages-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/messages/test",
+      "file": "server/messages-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleMessageRoutes",
+      "file": "server/messages-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOpenAIHealth",
+      "file": "server/openai-health.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/menu",
+      "file": "server/orders/menu-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/menu",
+      "file": "server/orders/menu-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/menu",
+      "file": "server/orders/menu-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleMenuRoutes",
+      "file": "server/orders/menu-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/orders",
+      "file": "server/orders/orders-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/orders",
+      "file": "server/orders/orders-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/orders",
+      "file": "server/orders/orders-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleOrdersRoutes",
+      "file": "server/orders/orders-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/reservations",
+      "file": "server/orders/reservations-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/dining-tables",
+      "file": "server/orders/reservations-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/dining-tables",
+      "file": "server/orders/reservations-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/dining-tables",
+      "file": "server/orders/reservations-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/reservations/availability",
+      "file": "server/orders/reservations-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/reservations",
+      "file": "server/orders/reservations-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/reservations",
+      "file": "server/orders/reservations-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleReservationsRoutes",
+      "file": "server/orders/reservations-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/org/integrations",
+      "file": "server/org-integrations-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/org/integrations",
+      "file": "server/org-integrations-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/org/integrations/status",
+      "file": "server/org-integrations-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleOrgIntegrationsRoutes",
+      "file": "server/org-integrations-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/org/ai-brain",
+      "file": "server/org-openai-key-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleOrgOpenAIKeyRoutes",
+      "file": "server/org-openai-key-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleIvrTurn",
+      "file": "server/phone/ivr-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneTurn",
+      "file": "server/phone/phone-orchestrator.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/webhooks/voice/inbound",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/webhooks/voice/turn",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/webhooks/voice/status",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/webhooks/voice/outbound",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calls/outbound",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calls/outbound/bulk",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calls",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calls/mock",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handlePhoneInbound",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneStatus",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneOutboundWebhook",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOutboundCallApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOutboundBulkApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallsListApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallDetailApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallRecordingApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallRefreshFromProviderApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleMockCallApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneRoutes",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/vapi/web-session",
+      "file": "server/phone/vapi-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/vapi/health",
+      "file": "server/phone/vapi-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleVapiWebSession",
+      "file": "server/phone/vapi-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleVapiRoutes",
+      "file": "server/phone/vapi-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/platform/",
+      "file": "server/platform-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/platform/plans",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/phone-lines/register-all",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/sally-phone-line",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/phone-lines",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/phone-lines",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/stats",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/organizations",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/organizations",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handlePlatformRoutes",
+      "file": "server/platform-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePriceResearchRoutes",
+      "file": "server/price-research-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleProjectAI",
+      "file": "server/project-ai-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/project-deposit-checkout",
+      "file": "server/project-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/contract-stage-checkout",
+      "file": "server/project-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/data/sync",
+      "file": "server/project-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/files/upload",
+      "file": "server/project-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleProjectRoutes",
+      "file": "server/project-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/push/register",
+      "file": "server/push-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/push/notify",
+      "file": "server/push-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/push/tokens",
+      "file": "server/push-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handlePushRoutes",
+      "file": "server/push-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/agent/realtime/session",
+      "file": "server/realtime-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/realtime/tool",
+      "file": "server/realtime-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/agent/realtime/transcript",
+      "file": "server/realtime-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleRealtimeSession",
+      "file": "server/realtime-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleRealtimeTool",
+      "file": "server/realtime-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleRealtimeTranscript",
+      "file": "server/realtime-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleRealtimeRoutes",
+      "file": "server/realtime-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleAiRender",
+      "file": "server/render-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/sales-brain",
+      "file": "server/sales-brain/routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/sales-brain/insights",
+      "file": "server/sales-brain/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/sales-brain/recommendations",
+      "file": "server/sales-brain/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/sales-brain/snippets",
+      "file": "server/sales-brain/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/sales-brain/recommendations/decide",
+      "file": "server/sales-brain/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/sales-brain/status",
+      "file": "server/sales-brain/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleSalesBrainRoutes",
+      "file": "server/sales-brain/routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/sally-knowledge",
+      "file": "server/sally-product-kb/routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/sally-knowledge/status",
+      "file": "server/sally-product-kb/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/sally-knowledge/sources",
+      "file": "server/sally-product-kb/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/sally-knowledge/sources",
+      "file": "server/sally-product-kb/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/sally-knowledge/chunks",
+      "file": "server/sally-product-kb/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/sally-knowledge/chunks/decide",
+      "file": "server/sally-product-kb/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/sally-knowledge/ingest",
+      "file": "server/sally-product-kb/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/sally-knowledge/jobs",
+      "file": "server/sally-product-kb/routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleSallyKnowledgeRoutes",
+      "file": "server/sally-product-kb/routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/sally/web",
+      "file": "server/sally-web-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/sally/web",
+      "file": "server/sally-web-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/sally/web/poll",
+      "file": "server/sally-web-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleSallyWebRoutes",
+      "file": "server/sally-web-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleBrowserLoginUpgrade",
+      "file": "server/whatsapp-web-browser-login.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/whatsapp-web/read-receipts",
+      "file": "server/whatsapp-web-routes.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/whatsapp-web/status",
+      "file": "server/whatsapp-web-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/whatsapp-web/qr",
+      "file": "server/whatsapp-web-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/whatsapp-web/logout",
+      "file": "server/whatsapp-web-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/whatsapp-web/reconnect",
+      "file": "server/whatsapp-web-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/whatsapp-web/browser-login/start",
+      "file": "server/whatsapp-web-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/whatsapp-web/browser-login/stop",
+      "file": "server/whatsapp-web-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/whatsapp-web/browser-login/frame",
+      "file": "server/whatsapp-web-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/whatsapp-web/send",
+      "file": "server/whatsapp-web-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleWWebRoutes",
+      "file": "server/whatsapp-web-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/webhooks/whatsapp",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/webhooks/whatsapp",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/messages/send",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/integrations/test",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/health",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleWhatsAppWebhookGet",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleWhatsAppWebhookPost",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleMessageSend",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleWhatsAppRoutes",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneTurn",
+      "file": "server/_quarantine/phone-orchestrator.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/webhooks/voice/inbound",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/webhooks/voice/turn",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/webhooks/voice/status",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/webhooks/voice/outbound",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calls/outbound",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calls/outbound/bulk",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calls",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/calls/mock",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handlePhoneInbound",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneStatus",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneOutboundWebhook",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOutboundCallApi",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOutboundBulkApi",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallsListApi",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallDetailApi",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleMockCallApi",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneRoutes",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/vapi/web-session",
+      "file": "server/_quarantine/vapi-routes.local-full.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/vapi/health",
+      "file": "server/_quarantine/vapi-routes.local-full.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleVapiWebSession",
+      "file": "server/_quarantine/vapi-routes.local-full.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleVapiRoutes",
+      "file": "server/_quarantine/vapi-routes.local-full.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/vapi/web-session",
+      "file": "server/_quarantine/vapi-routes.vps.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/vapi/health",
+      "file": "server/_quarantine/vapi-routes.vps.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handleVapiWebSession",
+      "file": "server/_quarantine/vapi-routes.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleVapiRoutes",
+      "file": "server/_quarantine/vapi-routes.vps.ts",
+      "kind": "handler_export"
+    }
+  ],
+  "handlers": [
+    {
+      "handler": "handleAccountAuthRoutes",
+      "file": "server/account-auth.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleAgentActivityRoutes",
+      "file": "server/agent-activity-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleAgentCredentialsRoutes",
+      "file": "server/agent-credentials-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleAgentRoutes",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleAiRequest",
+      "file": "server/ai/ai-proxy.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleAIStudioRoutes",
+      "file": "server/ai/ai-studio-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleBuildingControl",
+      "file": "server/ai/building-control-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCategorizeTransaction",
+      "file": "server/ai/categorize-transaction-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleConfirmationReply",
+      "file": "server/ai/channel-action-executor.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleChannelInbound",
+      "file": "server/ai/channel-inbound-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleComposeEmail",
+      "file": "server/ai/compose-email-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleConversationAudit",
+      "file": "server/ai/conversation-audit.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCynthiaRoutes",
+      "file": "server/ai/cynthia-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCyrusChat",
+      "file": "server/ai/cyrus-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCyrusRoutes",
+      "file": "server/ai/cyrus-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleGapApiRoutes",
+      "file": "server/ai/gap-api-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOrchestrateStream",
+      "file": "server/ai/orchestrate-stream.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleTranscribeUpload",
+      "file": "server/ai/orchestrate-stream.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOrchestrator",
+      "file": "server/ai/orchestrator/handle.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePlanningAI",
+      "file": "server/ai/planning-ai-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleReceiptRequest",
+      "file": "server/ai/receipt-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleStaffAI",
+      "file": "server/ai/staff-ai-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleSummarizeChat",
+      "file": "server/ai/summarize-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleAnalyticsRoutes",
+      "file": "server/analytics-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleAuthRoutes",
+      "file": "server/auth.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleBankingRoutes",
+      "file": "server/banking-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOrgPhoneBillingRoutes",
+      "file": "server/billing/org-phone-billing-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleStripeRoutes",
+      "file": "server/billing/stripe-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleStripeWebhookEvent",
+      "file": "server/billing/stripe-service.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleWeeklyBillingRoutes",
+      "file": "server/billing/weekly-billing-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleBuildingControlRoutes",
+      "file": "server/building-control-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCalendarRoutes",
+      "file": "server/calendar-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleChannelRoutes",
+      "file": "server/channel-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCodeFixRoutes",
+      "file": "server/code-fix-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleConnectorRoutes",
+      "file": "server/connectors/routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleContractRoutes",
+      "file": "server/contract-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCyrusViaOrchestrator",
+      "file": "server/cyrus-orchestrator.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleIntegrationTest",
+      "file": "server/integrations-test.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleLeadsRoutes",
+      "file": "server/leads-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePackageUpdatesRoute",
+      "file": "server/mailbox/package-updates.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleMailboxRoutes",
+      "file": "server/mailbox-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleMessageRoutes",
+      "file": "server/messages-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOpenAIHealth",
+      "file": "server/openai-health.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleMenuRoutes",
+      "file": "server/orders/menu-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOrdersRoutes",
+      "file": "server/orders/orders-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleReservationsRoutes",
+      "file": "server/orders/reservations-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOrgIntegrationsRoutes",
+      "file": "server/org-integrations-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOrgOpenAIKeyRoutes",
+      "file": "server/org-openai-key-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleIvrTurn",
+      "file": "server/phone/ivr-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneTurn",
+      "file": "server/phone/phone-orchestrator.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneInbound",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneStatus",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneOutboundWebhook",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOutboundCallApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOutboundBulkApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallsListApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallDetailApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallRecordingApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallRefreshFromProviderApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleMockCallApi",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneRoutes",
+      "file": "server/phone/phone-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleVapiWebSession",
+      "file": "server/phone/vapi-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleVapiRoutes",
+      "file": "server/phone/vapi-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePlatformRoutes",
+      "file": "server/platform-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePriceResearchRoutes",
+      "file": "server/price-research-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleProjectAI",
+      "file": "server/project-ai-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleProjectRoutes",
+      "file": "server/project-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePushRoutes",
+      "file": "server/push-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleRealtimeSession",
+      "file": "server/realtime-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleRealtimeTool",
+      "file": "server/realtime-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleRealtimeTranscript",
+      "file": "server/realtime-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleRealtimeRoutes",
+      "file": "server/realtime-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleAiRender",
+      "file": "server/render-handler.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleSalesBrainRoutes",
+      "file": "server/sales-brain/routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleSallyKnowledgeRoutes",
+      "file": "server/sally-product-kb/routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleSallyWebRoutes",
+      "file": "server/sally-web-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleBrowserLoginUpgrade",
+      "file": "server/whatsapp-web-browser-login.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleWWebRoutes",
+      "file": "server/whatsapp-web-routes.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleWhatsAppWebhookGet",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleWhatsAppWebhookPost",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleMessageSend",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleWhatsAppRoutes",
+      "file": "server/whatsapp-webhook.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneTurn",
+      "file": "server/_quarantine/phone-orchestrator.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneInbound",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneStatus",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneOutboundWebhook",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOutboundCallApi",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleOutboundBulkApi",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallsListApi",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleCallDetailApi",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleMockCallApi",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneRoutes",
+      "file": "server/_quarantine/phone-webhook.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleVapiWebSession",
+      "file": "server/_quarantine/vapi-routes.local-full.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleVapiRoutes",
+      "file": "server/_quarantine/vapi-routes.local-full.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleVapiWebSession",
+      "file": "server/_quarantine/vapi-routes.vps.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handleVapiRoutes",
+      "file": "server/_quarantine/vapi-routes.vps.ts",
+      "kind": "handler_export"
+    }
+  ]
+}

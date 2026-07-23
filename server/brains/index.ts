@@ -2,11 +2,14 @@ import { isSallySalesCall } from '../phone/sally-sales-phone';
 import type { BrainBuildInput, BrainId, BrainPackage, BrainSession } from './types';
 import { sallyBrain } from './sally/index';
 import { judieBrain } from './judie/index';
+import { cynthiaBrain } from './cynthia/index';
+import { CYNTHIA_PERSONA } from './cynthia/branding';
 import { debugLog } from '../debug-session-log';
 
 const PACKAGES: Record<BrainId, BrainPackage> = {
   sally: sallyBrain,
   judie: judieBrain,
+  cynthia: cynthiaBrain,
 };
 
 export function resolveBrainId(input: {
@@ -24,7 +27,9 @@ export function resolveBrainId(input: {
     return 'sally';
   }
   const persona = String(input.agentPersona || meta.agentPersona || '').toLowerCase();
-  if (persona === 'lizzie') return 'judie'; // legacy
+  const purpose = String(meta.linePurpose || '').toLowerCase();
+  if (persona === CYNTHIA_PERSONA || purpose === 'cynthia') return 'cynthia';
+  if (persona === 'lizzie') return 'judie'; // legacy Judie alias
   return 'judie';
 }
 
