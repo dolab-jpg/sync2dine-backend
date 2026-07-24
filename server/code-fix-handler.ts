@@ -387,9 +387,9 @@ async function getCursorHealth(force = false): Promise<CodeFixHealth> {
     checkedAt,
     reason: live
       ? githubTokenConfigured
-        ? 'Trae handoff LIVE — jobs queue in AI Audit → Code fixes. Copy the Trae prompt, open a PR, then attach it.'
-        : 'Trae handoff LIVE (manual merge) — jobs queue in AI Audit → Code fixes. Add GITHUB_TOKEN for one-click merges.'
-      : 'Self-heal queue not LIVE — Supabase service role is not configured. Jobs cannot persist for Trae.',
+        ? 'Trae handoff LIVE - jobs queue in AI Audit -> Code fixes. Copy the Trae prompt, open a PR, then attach it.'
+        : 'Trae handoff LIVE (manual merge) - jobs queue in AI Audit -> Code fixes. Add GITHUB_TOKEN for one-click merges.'
+      : 'Self-heal queue not LIVE - Supabase service role is not configured. Jobs cannot persist for Trae.',
   };
   healthCache = { at: now, value };
   return value;
