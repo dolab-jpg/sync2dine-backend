@@ -1,8 +1,9 @@
-import { getCallById } from '../data-store';
+import { getCallById, resolveContactByPhone, getDataStore, syncData } from '../data-store';
 import { getHomeOrgId } from '../home-org';
 import { normalizeObjection, type ObjectionCode, type SalesOutcome } from './taxonomy';
 import type { SalesCallInsight } from './store';
 import { newSalesBrainId } from './store';
+import { heuristicTrustScores } from '../sally/trust-engine';
 
 function turnsText(callId: string): { text: string; durationSec?: number; meta: Record<string, unknown> } {
   const call = getCallById(callId);
@@ -53,6 +54,26 @@ function heuristicScore(
   const hasDiscovery = /missed call|atmosphere|busy|hours|owner|manager/.test(lower);
   const hasClose = /meeting|book|install|integration/.test(lower);
   const hasValue = /revenue|save|staff|orders|return/.test(lower);
+  const rapportScore = /cheers|lovely|laugh|sorted/.test(lower) ? 4 : 3;
+
+  const competitors: string[] = [];
+  for (const name of ['spotify', 'deliveroo', 'just eat', 'uber eats', 'receptionist', 'ansafone', 'ai phone']) {
+    if (lower.includes(name)) competitors.push(name);
+  }
+
+  const trust = heuristicTrustScores({
+    transcriptLower: lower,
+    rapportScore,
+    outcome,
+    objections: uniq,
+  });
+
+  let callObjective = 'educate';
+  if (outcome === 'meeting_booked') callObjective = 'meet';
+  else if (outcome === 'callback') callObjective = 'callback';
+  else if (outcome === 'dnc') callObjective = 'stop';
+  else if (trust.trustDelta === 'down') callObjective = 'leave_goodwill';
+  else if (hasClose) callObjective = 'meet';
 
   return {
     id: newSalesBrainId(),
@@ -62,18 +83,20 @@ function heuristicScore(
     aim: aim ?? (meta.aim != null ? String(meta.aim) : null),
     durationSec,
     reachedDm: /owner|manager|director|decision/.test(lower) ? 'likely' : 'unknown',
-    rapportScore: /cheers|lovely|laugh|sorted/.test(lower) ? 4 : 3,
+    rapportScore,
     discoveryScore: hasDiscovery ? 4 : 2,
     valueScore: hasValue ? 4 : 2,
     closeScore: hasClose ? 4 : 2,
     outcome,
     objections: uniq,
-    competitors: [],
+    competitors: [...new Set(competitors)].slice(0, 6),
     whatWorked: hasClose ? 'Pushed toward meeting/next step' : 'Conversation captured',
     whatFailed: uniq.length ? `Objections: ${uniq.join(', ')}` : undefined,
     nextStep: hasClose ? 'Confirm meeting / follow up' : 'Qualify or park',
     upsellPotential: /complete|atmosphere|judie|pro/.test(lower) ? 'medium' : 'low',
     crossSellPotential: /atmosphere/.test(lower) && /judie|phone|missed/.test(lower) ? 'high' : 'medium',
+    trust,
+    callObjective,
     createdAt: new Date().toISOString(),
   };
 }
@@ -93,7 +116,10 @@ export async function scoreSalesCall(opts: {
     const { client, provider } = await createLLMClientForOrg(orgId, 'sales_brain_score');
     const model = defaultChatModelForProvider(provider);
     const { text } = turnsText(opts.callId);
-    if (text.length < 40) return base;
+    if (text.length < 40) {
+      persistTrustToCustomer(opts.callId, base);
+      return base;
+    }
 
     const completion = await client.chat.completions.create({
       model,
@@ -103,7 +129,7 @@ export async function scoreSalesCall(opts: {
         {
           role: 'system',
           content:
-            'Score a restaurant SaaS sales phone call. Reply JSON only with keys: reachedDm, rapportScore, discoveryScore, valueScore, closeScore (0-5), outcome, objections (array of short codes), whatWorked, whatFailed, nextStep, upsellPotential, crossSellPotential. Never invent prices. Objections codes: too_expensive,think_about_it,send_info,has_supplier,no_budget,call_later,not_interested,busy,need_approval,want_demo,other.',
+            'Score a restaurant SaaS sales phone call. Reply JSON only with keys: reachedDm, rapportScore, discoveryScore, valueScore, closeScore (0-5), outcome, objections (array of short codes), competitors (array of short names), whatWorked, whatFailed, nextStep, upsellPotential, crossSellPotential, trustDelta (up|down|flat), referralLikelihood (low|medium|high), callObjective (meet|callback|other_person|leave_goodwill|stop|educate). Never invent prices. Objections codes: too_expensive,think_about_it,send_info,has_supplier,no_budget,call_later,not_interested,busy,need_approval,want_demo,other.',
         },
         { role: 'user', content: text.slice(0, 8000) },
       ],
@@ -111,12 +137,33 @@ export async function scoreSalesCall(opts: {
     const raw = String(completion.choices[0]?.message?.content || '').trim();
     const jsonStart = raw.indexOf('{');
     const jsonEnd = raw.lastIndexOf('}');
-    if (jsonStart < 0 || jsonEnd <= jsonStart) return base;
+    if (jsonStart < 0 || jsonEnd <= jsonStart) {
+      persistTrustToCustomer(opts.callId, base);
+      return base;
+    }
     const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1)) as Record<string, unknown>;
     const objs = Array.isArray(parsed.objections)
       ? parsed.objections.map((o) => normalizeObjection(String(o)))
       : base.objections;
-    return {
+    const comps = Array.isArray(parsed.competitors)
+      ? parsed.competitors.map((c) => String(c).slice(0, 40)).filter(Boolean)
+      : base.competitors;
+    const trustDelta =
+      parsed.trustDelta === 'up' || parsed.trustDelta === 'down' || parsed.trustDelta === 'flat'
+        ? parsed.trustDelta
+        : base.trust?.trustDelta || 'flat';
+    const referral =
+      parsed.referralLikelihood === 'low'
+      || parsed.referralLikelihood === 'medium'
+      || parsed.referralLikelihood === 'high'
+        ? parsed.referralLikelihood
+        : base.trust?.referralLikelihood || 'low';
+    const trust = {
+      ...(base.trust || heuristicTrustScores({ transcriptLower: text.toLowerCase(), rapportScore: Number(parsed.rapportScore) || base.rapportScore, outcome: String(parsed.outcome || base.outcome), objections: objs })),
+      trustDelta,
+      referralLikelihood: referral,
+    };
+    const insight: SalesCallInsight = {
       ...base,
       reachedDm: parsed.reachedDm != null ? String(parsed.reachedDm) : base.reachedDm,
       rapportScore: Number(parsed.rapportScore) || base.rapportScore,
@@ -125,13 +172,55 @@ export async function scoreSalesCall(opts: {
       closeScore: Number(parsed.closeScore) || base.closeScore,
       outcome: parsed.outcome != null ? String(parsed.outcome) : base.outcome,
       objections: [...new Set(objs)].slice(0, 8),
+      competitors: [...new Set([...(base.competitors || []), ...comps])].slice(0, 8),
       whatWorked: parsed.whatWorked != null ? String(parsed.whatWorked).slice(0, 240) : base.whatWorked,
       whatFailed: parsed.whatFailed != null ? String(parsed.whatFailed).slice(0, 240) : base.whatFailed,
       nextStep: parsed.nextStep != null ? String(parsed.nextStep).slice(0, 240) : base.nextStep,
       upsellPotential: parsed.upsellPotential != null ? String(parsed.upsellPotential) : base.upsellPotential,
       crossSellPotential: parsed.crossSellPotential != null ? String(parsed.crossSellPotential) : base.crossSellPotential,
+      trust,
+      callObjective: parsed.callObjective != null ? String(parsed.callObjective) : base.callObjective,
     };
+    persistTrustToCustomer(opts.callId, insight);
+    return insight;
   } catch {
+    persistTrustToCustomer(opts.callId, base);
     return base;
+  }
+}
+
+function persistTrustToCustomer(callId: string, insight: SalesCallInsight): void {
+  try {
+    const call = getCallById(callId);
+    const meta = (call?.metadata && typeof call.metadata === 'object')
+      ? (call.metadata as Record<string, unknown>)
+      : {};
+    const phone = String(meta.partyPhone || call?.from || call?.to || '').trim();
+    if (!phone || !insight.trust) return;
+    const resolved = resolveContactByPhone(phone);
+    if (!resolved.customerId) return;
+    const store = getDataStore();
+    const idx = store.customers.findIndex((c) => String(c.id) === resolved.customerId);
+    if (idx < 0) return;
+    const prev = store.customers[idx] as Record<string, unknown>;
+    const prevOrg =
+      prev.sallyOrgMemory && typeof prev.sallyOrgMemory === 'object'
+        ? { ...(prev.sallyOrgMemory as Record<string, unknown>) }
+        : {};
+    if (insight.objections.length) {
+      const past = Array.isArray(prevOrg.pastObjections)
+        ? (prevOrg.pastObjections as string[])
+        : [];
+      prevOrg.pastObjections = [...new Set([...insight.objections, ...past])].slice(0, 12);
+    }
+    store.customers[idx] = {
+      ...prev,
+      sallyTrust: insight.trust,
+      sallyLastObjective: insight.callObjective || prev.sallyLastObjective,
+      sallyOrgMemory: prevOrg,
+    };
+    syncData(store);
+  } catch {
+    /* best-effort */
   }
 }

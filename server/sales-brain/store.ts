@@ -45,6 +45,22 @@ export type SalesCallInsight = {
   nextStep?: string;
   upsellPotential?: string;
   crossSellPotential?: string;
+  /** Trust Engine after-call scores (Tier 1). */
+  trust?: {
+    trustDelta: 'up' | 'down' | 'flat';
+    credibility: number;
+    confidence: number;
+    perceivedExpertise: number;
+    relationshipStrength: number;
+    brandPerception: number;
+    answerFutureLikelihood: 'low' | 'medium' | 'high';
+    referralLikelihood: 'low' | 'medium' | 'high';
+    longTermGoodwill: 'low' | 'medium' | 'high';
+  };
+  /** Call objective inferred / chosen. */
+  callObjective?: string;
+  /** Experiment / opening variant id when used. */
+  variantId?: string;
   createdAt: string;
 };
 

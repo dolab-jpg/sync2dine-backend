@@ -22,6 +22,9 @@ Cynthia / Builder Diddies are separate historical concepts. Do not treat them as
 - Objection playbook — `formatObjectionPlaybook` in `offer.ts`
 - Sales tool schemas + `executeSallyTool` — `server/sally/tools.ts` + `execute.ts`
 - Product knowledge inject — `server/sally-product-kb/`
+- **Trust Engine** — `server/sally/trust-engine.ts` (live principle + after-call scores via Sales Brain ? CRM `sallyTrust`)
+- **Venue dial windows** — `server/sally/dial-windows.ts` + `scheduleVenueCallback` / `updateVenueProfile`
+- **Relationship memory** — `server/sally/relationship-memory.ts` (injected on phone + `recallAccountMemory`)
 
 ## Channel-specific (must stay separate)
 

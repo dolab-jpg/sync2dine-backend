@@ -1079,6 +1079,11 @@ async function executeTool(
     || name === 'bookDemo'
     || name === 'bookIntegrationMeeting'
     || name === 'sendSalesFollowUp'
+    || name === 'recallAccountMemory'
+    || name === 'setCallObjective'
+    || name === 'researchRestaurantProfile'
+    || name === 'scheduleVenueCallback'
+    || name === 'updateVenueProfile'
   )) {
     const route = resolveOrgRouteForVapiCall(call);
     return await executeSallySalesPhoneTool(name, args as unknown as Record<string, unknown>, {

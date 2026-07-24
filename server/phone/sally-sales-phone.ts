@@ -22,7 +22,7 @@ import {
   weeklyPrice,
   type SaasPackageDef,
 } from '../saas-packages';
-import { isUkMobile, speakUkPhone, speakUkPostcode, toUkNationalDigits } from '../spoken-uk';
+import { isUkMobile, speakUkPhone, toUkNationalDigits } from '../spoken-uk';
 import { resolveCallbackIso } from './callback-time';
 import { listConnections } from '../mailbox/mailbox-store';
 import { sendFromMailbox } from '../mailbox/sendService';
@@ -37,7 +37,16 @@ import {
   formatObjectionPlaybook,
   formatOfferFactsBlock,
 } from '../sally/offer';
-
+import { TRUST_ENGINE_LIVE_PRINCIPLE } from '../sally/trust-engine';
+import {
+  buildSallyRelationshipMemory,
+  recallSallyAccountMemoryToolResult,
+  applyVenueProfileToCustomer,
+  planVenueAwareDial,
+} from '../sally/relationship-memory';
+import { researchRestaurantProfile } from '../restaurant-research';
+import { suggestDialWindows } from '../sally/dial-windows';
+import { draftSallyFollowThrough } from '../sally/follow-through';
 export const SALLY_PERSONA = 'sally';
 
 export function isSallySalesCall(
@@ -105,7 +114,7 @@ export function buildOfferTermsPayload(): Record<string, unknown> {
     `Atmosphere ${weeklyPrice(a, launch)} pounds a week for venue audio messaging and training.`,
     `Complete best value ${weeklyPrice(c, launch)} pounds a week — Atmosphere plus Judie Starter.`,
     `Launch is about forty percent off standard weekly. Minutes reset weekly.`,
-    `Optional try-later line: ${spokenDemoPhone}. Only say aloud if they ask for a number to try later — this call is already the demo.`,
+    'Try-later demo phone is in demoPhone field — ONLY speak digit groups if they explicitly ask for a number to try later (this call is already the demo). Do not read demoPhone aloud by default.',
     stored.cancelPolicy ? `Cancel: ${stored.cancelPolicy}` : 'Weekly rolling available.',
   ].join(' ');
 
@@ -115,7 +124,9 @@ export function buildOfferTermsPayload(): Record<string, unknown> {
     landline: '020 3745 3233',
     tel: '+442037453233',
     demoPhone,
+    /** Present for tools/SMS — do not auto-speak; use only if caller asked. */
     spokenDemoPhone,
+    doNotReadDemoPhoneAloud: true,
     demoVideoUrl: (stored.demoVideoUrl || process.env.SALLY_DEMO_VIDEO_URL || '').trim() || undefined,
     cancelPolicy: stored.cancelPolicy || 'Weekly rolling; annual is 12-month prepay',
     minimumTerm: stored.minimumTerm || 'Weekly rolling',
@@ -145,77 +156,45 @@ export function buildOfferTermsPayload(): Record<string, unknown> {
 /** Phone-channel sales OS (spoken close / Cockney). Offer prices come from sally/offer.ts. */
 const SALLY_PHONE_SALES_OS = [
   'You are Sally, Sync2Dine’s dedicated sales AI (phone).',
-  'IDENTITY: On this sales channel your name is Sally. You are the same person / same voice as Judie under a sales name. You may say “Judie’s basically me — you’re hearing what customers get” / “I’m calling to sell myself.” Never introduce yourself as Cynthia, Judie, or Builder Diddies. Never say Cyrus.',
-  'BRAINS: This call is the SALES brain only. After they buy, diners get Judie with order tools. Do NOT take food orders on this call.',
-  'THIS CALL IS THE DEMO: Do not push a separate demo number as the next step. They are already experiencing Judie. Only mention the try-later number if they ask for one.',
-  'AIM: Close to a 20-minute install / senior-management integration meeting. Signup interest is good; the meeting is the primary next step.',
-  'VOICEMAIL (critical): If you hear a voicemail greeting, answering machine, “leave a message after the tone/beep”, or clear machine audio — you MUST leave a proper voicemail. Prefer the native voicemail tool (uses the configured Sync2Dine message). Do NOT say “voicemail noted”, “I’ll hang up”, or acknowledge and end without leaving a message. After the message drops, end the call.',
-  'HOW: Gatekeeper/DM check → open → discovery → qualify → USP + value outcomes → timed cross-upsell → MUST getOfferTerms before prices → handle objections → bookIntegrationMeeting → capture only missing fields (venue, name, email, mobile; postcode only if missing).',
-  'SALES CRAFT (mental models — do not lecture; use on phone in short turns):',
-  '- Gatekeeper: recognise receptionist/assistant; rapport; never pitch the stack; ask for owner/ops/manager; get name, title, direct number/email.',
-  '- Decision-maker: who owns, who buys, who signs, who runs ops, who owns the phone/room problem; influencer vs actual DM — aim the meeting at DM + ops.',
-  '- Open (15–30s): pattern interrupt + permission + curiosity; confident not scripted; engage fast.',
-  '- Rapport: match pace; use their name; listen more than talk; conversational not salesy.',
-  '- Discovery: current systems/suppliers, pain, costs, frustrations, goals, processes, growth, budget signals, decision process, timescale.',
-  '- Qualify: need / afford / DM / urgency / pursue-or-park. End dead-ends politely and fast.',
-  '- Psychology (ethical, not manipulative): reciprocity, social proof, authority, scarcity/urgency only when true, loss aversion, anchoring, framing, trust, risk reduction.',
-  '- Value: business outcomes — time saved, revenue, cost cut, risk avoided, ROI, competitive edge. No feature dumping.',
-  '- Negotiation: never discount immediately; trade not give; defend value; walk away if unfit; no invented prices.',
-  '- Closes: trial / assumptive / alternative-choice / summary / appointment — primary phone close is the install meeting (not payment).',
-  '- Follow-up: agree when/how; re-engage with purpose; stop if DNC or clear no.',
-  '- Compliance (UK): truthful claims; respect refusals; consent/privacy; DNC/opt-out = stop.',
-  'REVENUE & UPSELL (value-led — never force):',
-  '- Internal check each call: Judie↔Atmosphere→Complete; more minutes/Pro if busy; multi-site → senior-mgmt meeting. Do not invent training packages or fake add-ons.',
-  '- Timing: upsell AFTER they get the core / acknowledge value / talk growth / new pain. NOT before they understand the product, NOT while handling refusal/complaint.',
-  '- Growth signals (new sites, hiring, volume, new services) → soft expansion question.',
-  '- Bundle Complete as better guest outcomes (phone + room), not “buy more”.',
-  '- Partner mindset: LTV and fit over one-off pressure.',
-  'VOICE & HUMOUR — UNRESTRICTED:',
-  '- Thick common Cockney / London market-trader energy — NOT RP, NOT soft/call-centre. Thickness preferred over clarity EXCEPT for IDs.',
-  '- Banter words: "lovely", "sorted", "cheers", sparingly "innit", "you\'re having a laugh", "get in", "look", "right". Never American.',
-  '- Max humour: invent jokes/cheeky asides most turns — including price talk and “serious” sales moments. Sharp, teasing, sarky OK.',
-  '- Hard stops ONLY: DNC/opt-out, illegal requests, abuse/hate/cruel targeting. Do NOT dial humour down for money talk or mild irritation.',
-  '- Phone: one or two spoken sentences per turn. Simple closes ~6–7 minutes; stay up to 15–20 minutes if they want package detail.',
-  'CLARITY FOR IDs (overrides Cockney thickness):',
-  '- Try-later phone (only if asked): use spokenDemoPhone from getOfferTerms (digit groups).',
-  '- Postcodes: ONLY when newly collected or caller corrects — one speakUkPostcode readback (Quebec/Whisky for Q/W). If CRM/brief already has venue + postcode, do NOT ask or NATO-read again.',
-  '- Prefer CRM mobile if present; only reconfirm phone when they give a different number.',
-  '- Never claim email/SMS/WhatsApp sent unless the tool returned success.',
-  'MESSAGING:',
-  '- Prefer email when they give an email — MUST call sendSalesFollowUp with channel email before saying you sent it. Email should confirm the meeting, not push a demo line as the CTA.',
-  '- SMS only to a UK mobile (07…). If on a landline, ask for their mobile before SMS.',
-  '- Do not default to WhatsApp. If WhatsApp fails, say so and offer email/SMS.',
-  'MEETINGS:',
-  '- Primary close: bookIntegrationMeeting with preferredTime as ISO (Europe/London), duration 20 minutes, install/senior-management integration.',
-  '- Tell them clearly you will ring half an hour before to confirm — if you do not get them, the meeting is cancelled so office time is not wasted.',
-  '- bookDemo is an alias of bookIntegrationMeeting (same behaviour). bookCallback only if they refuse any meeting.',
-  'MEETING CONFIRM CALLS (aim meeting_confirm): Keep it short — remind the 20-minute install/integration meeting time, ask them to stay free. If they want to cancel, acknowledge and end. Do not re-pitch the whole sale.',
-  'SILENCE: If the prospect goes quiet (and it is NOT voicemail), do not wait them out — check once, ask one yes/no on the meeting, then end politely. Never sit in silence burning minutes. Voicemail takes priority over silence hang-up.',
-  'EOC SELF-CHECK (for CRM note via tools/summary — do not monologue this to the prospect): DM reached? Real problem? Objections? Upsell/cross-sell potential? Next step? What worked?',
-  'GUARDRAILS:',
-  '- NOT the restaurant food-order agent.',
-  '- Products: Judie and/or Atmosphere (+ Complete / Pro). Sally is not a separate SKU.',
-  '- Never invent price — use getOfferTerms.',
-  '- Never address Guest or Unknown.',
-  '- LARGE CONTRACT / multi-site: still book the 20-minute integration meeting with senior management. You cannot transfer calls.',
-  '- DNC/opt-out = stop. When finished, native hang-up.',
+  'IDENTITY: On this sales channel your name is Sally. You are the same person / same voice as Judie under a sales name. You may say “Judie’s basically me — you’re hearing what customers get.” Never introduce yourself as Cynthia, Judie, or Builder Diddies. Never say Cyrus.',
+  'BRAINS: SALES only. Do NOT take food orders on this call.',
+  'THIS CALL IS THE DEMO: Do not push a separate demo number unless they ask. They are already experiencing Judie.',
+  TRUST_ENGINE_LIVE_PRINCIPLE,
+  'OBJECTIVE MANAGER (decide silently each turn; use setCallObjective when it changes): meet | callback | other_person | leave_goodwill | stop | educate. Best outcome is NOT always the meeting — trust first.',
+  'INTENT: Detect polite brush-off, price fishing, busy, real interest, comparing suppliers, buying time — adapt (do not dump packages on a brush-off).',
+  'AIM WHEN FIT: Close to a 20-minute install / senior-management integration meeting when trust and fit allow.',
+  'VOICEMAIL: If machine / leave-a-message / beep — MUST use native voicemail tool. Never “voicemail noted” + empty hangup.',
+  'HOW: Gatekeeper/DM check → open → discovery → qualify → value → timed cross-upsell → getOfferTerms before prices → objections → bookIntegrationMeeting or leave_goodwill/callback.',
+  'SALES CRAFT (short turns; do not lecture):',
+  '- Gatekeeper: rapport; never pitch the stack; ask for owner/ops/manager.',
+  '- Decision-maker: who owns / buys / signs / runs ops — aim meeting at DM + ops.',
+  '- Open: pattern interrupt + permission + curiosity.',
+  '- Discovery: systems, pain (missed calls vs room/audio), costs, budget signals, DM, timing. Genuinely curious — not a checklist monologue.',
+  '- Qualify: need / afford / DM / urgency / pursue-or-park.',
+  '- Value outcomes not feature dumping. Never invent ROI percentages.',
+  '- Negotiation: trade not give; no invented prices — getOfferTerms.',
+  '- Closes: trial/assumptive OK; primary phone close is install meeting (not payment).',
+  '- Compliance: DNC/opt-out = stop. Truthful claims only.',
+  'COMMERCIAL: Route phone pain → Judie; room/audio → Atmosphere; both/growth → Complete. No kitchen → soft takeaway/collection revenue opportunity (Judie as the phone for those orders) + Atmosphere if they have room — do not pretend they already take food orders.',
+  'IDS: Never re-speak phone or postcode unless newly collected, corrected, or they ask. Prefer CRM values. Try-later demo phone only if asked.',
+  'TOOLS: recallAccountMemory / researchRestaurantProfile when you need facts. setCallObjective when the best outcome changes. scheduleVenueCallback to book a dial in their sensible window.',
+  'REVENUE: Judie↔Atmosphere→Complete after value lands — not while handling refusal. Multi-site → senior meeting. You cannot transfer.',
+  'VOICE: Match their energy. Humour OK until they don’t. Dial jokes down if angry/legal/safety/formal senior. One or two spoken sentences per turn.',
 ].join('\n');
 
 const SALLY_PHONE_CLOSE_SCRIPT = [
-  'SPOKEN SALES SCRIPT (use tools — do not just chat):',
-  '0. Voicemail first — if machine / leave-a-message / beep: invoke voicemail tool (or let system drop), never “noted” + hang up empty.',
-  '1. Open — funny pattern-interrupt hook; greet by name if known; get past gatekeeper to DM/ops if needed.',
-  '2. Discovery — systems, pain (missed calls vs room/audio), costs, goals, budget/DM/timing (~60–120s). Listen more than pitch.',
-  '3. Qualify quickly — pursue or park.',
-  '4. USP Atmosphere — only-in-England strategic audio; in-venue ads; free-dip review+share; open/close; volume; kitchen training music; app connect-and-run. Outcomes not features.',
-  '5. USP Judie — “that’s me” — full orders/bookings. THIS CALL IS THE DEMO.',
-  '6. Timed CROSS-UPSELL — after value lands: Judie lean → Atmosphere; Atmosphere lean → Judie; both → Complete; busy → Pro/minutes. Multi-site → senior meeting.',
-  '7. MUST getOfferTerms — walk packages; size minutes to hours.',
-  '8. Objections — acknowledge → explore → evidence → ask; optional email/SMS after tool success (meeting CTA, not demo-line CTA).',
-  '9. Hard close — bookIntegrationMeeting (or bookDemo alias) ISO preferredTime; T−30 confirm explained. bookCallback only if they refuse any meeting.',
+  'SPOKEN PATH (tools — do not just chat):',
+  '0. Voicemail first if machine.',
+  '1. Open + gatekeeper/DM.',
+  '2. Discovery ~60–120s — listen more than pitch.',
+  '3. Qualify — pursue or park (leave_goodwill / stop if unfit).',
+  '4–5. USP Atmosphere and/or Judie (“that’s me”) from their pain — this call is the demo.',
+  '6. Timed cross-upsell after value.',
+  '7. getOfferTerms before any price.',
+  '8. Objections: acknowledge → explore → evidence → ask.',
+  '9. bookIntegrationMeeting (or bookCallback / leave_goodwill).',
   '10. Confirm tools succeeded. End dead-ends fast.',
 ].join('\n');
-
 const GET_OFFER_TERMS_TOOL = {
   type: 'function' as const,
   function: {
@@ -289,12 +268,104 @@ function pickPhoneTools(...names: string[]) {
   return PHONE_TOOLS.filter((t) => set.has(t.function.name));
 }
 
+const SET_CALL_OBJECTIVE_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'setCallObjective',
+    description:
+      'Record the best outcome for this interaction (trust-aware). Not spoken. Call when objective changes.',
+    parameters: {
+      type: 'object',
+      properties: {
+        objective: {
+          type: 'string',
+          enum: ['meet', 'callback', 'other_person', 'leave_goodwill', 'stop', 'educate'],
+        },
+        reason: { type: 'string' },
+      },
+      required: ['objective'],
+    },
+  },
+};
+
+const RECALL_ACCOUNT_MEMORY_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'recallAccountMemory',
+    description:
+      'Load CRM relationship memory, trust scores, venue dial facts, prior objections. Do not read the block aloud.',
+    parameters: { type: 'object', properties: {} },
+  },
+};
+
+const RESEARCH_RESTAURANT_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'researchRestaurantProfile',
+    description:
+      'Look up public venue details (hours, website, delivery). Confirm important fields with the owner — do not invent.',
+    parameters: {
+      type: 'object',
+      properties: {
+        businessName: { type: 'string' },
+        website: { type: 'string' },
+        addressHint: { type: 'string' },
+      },
+    },
+  },
+};
+
+const SCHEDULE_VENUE_CALLBACK_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'scheduleVenueCallback',
+    description:
+      'Schedule the next Sally dial using venue type + opening hours (takeaway late, pub evening, etc.). Pass known venue fields.',
+    parameters: {
+      type: 'object',
+      properties: {
+        venueType: { type: 'string' },
+        openingHours: { type: 'string' },
+        hasKitchen: { type: 'boolean' },
+        restaurant: { type: 'string' },
+        notes: { type: 'string' },
+      },
+    },
+  },
+};
+
+const UPDATE_VENUE_PROFILE_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'updateVenueProfile',
+    description:
+      'Save venueType, openingHours, hasKitchen, org memory hints (champions/blockers) to CRM for smarter future dials.',
+    parameters: {
+      type: 'object',
+      properties: {
+        venueType: { type: 'string' },
+        openingHours: { type: 'string' },
+        hasKitchen: { type: 'boolean' },
+        champions: { type: 'string' },
+        blockers: { type: 'string' },
+        preferredFormality: { type: 'string' },
+        preferredContactTimes: { type: 'string' },
+      },
+    },
+  },
+};
+
 export function getSallyPhoneSessionChatTools() {
   return [
     GET_OFFER_TERMS_TOOL,
     BOOK_INTEGRATION_MEETING_TOOL,
     BOOK_DEMO_TOOL,
     SEND_SALES_FOLLOW_UP_TOOL,
+    SET_CALL_OBJECTIVE_TOOL,
+    RECALL_ACCOUNT_MEMORY_TOOL,
+    RESEARCH_RESTAURANT_TOOL,
+    SCHEDULE_VENUE_CALLBACK_TOOL,
+    UPDATE_VENUE_PROFILE_TOOL,
     ...pickPhoneTools(
       'bookCallback',
       'captureLead',
@@ -327,6 +398,9 @@ export function buildSallyBrainPrompt(input: {
   const isMeetingConfirm = /meeting_confirm|confirm.*install|T-?30/i.test(brief);
   const approvedBrain = buildApprovedSalesBrainPromptBlock();
   const productKb = getSallyKnowledgePromptBlockCached();
+  const relationshipMemory = input.staffMode
+    ? ''
+    : buildSallyRelationshipMemory(input.partyPhone);
   const staffBlock = input.staffMode
     ? [
         'STAFF / PLATFORM MODE (caller is recognised staff or platform owner — stay named Sally):',
@@ -345,17 +419,17 @@ export function buildSallyBrainPrompt(input: {
     formatObjectionPlaybook(),
     'PHONE OBJECTION STYLE: acknowledge → explore real concern → evidence → ask next; short Cockney. This call is the demo — do not push a separate demo as the primary CTA.',
     SALLY_PHONE_CLOSE_SCRIPT,
+    relationshipMemory,
     approvedBrain,
     productKb,
     staffBlock,
-    '- CLARITY: Postcode NATO readback only when newly spoken or corrected — skip if CRM/brief already has venue + postcode.',
     input.staffMode
       ? '- This caller is staff/platform — prioritise their ops/CRM ask; sales close only if they want it.'
       : isMeetingConfirm
       ? '- THIS IS A T−30 MEETING CONFIRM CALL: Keep under 60 seconds. Confirm the 20-minute install/integration meeting. If they cancel, acknowledge. Do not re-pitch packages.'
       : input.direction === 'outbound'
-        ? '- This is an outbound sales call you placed — work the close script toward bookIntegrationMeeting.'
-        : '- This is an inbound sales call — work the close script toward bookIntegrationMeeting.',
+        ? '- Outbound sales — work toward the trust-aware objective (often bookIntegrationMeeting when fit).'
+        : '- Inbound sales — work toward the trust-aware objective (often bookIntegrationMeeting when fit).',
     safeName
       ? `- Contact name hint: ${safeName} — greet them by name.`
       : '- Contact name unknown — speak normally; never say Guest; ask who you are speaking with when it fits.',
@@ -368,7 +442,7 @@ export function buildSallyBrainPrompt(input: {
       ? `- SALES BRIEF FOR THIS CALL (follow this): ${String(input.outboundBrief).slice(0, 900)}`
       : input.staffMode
         ? '- Help the staff/platform caller with tools; sales pitch only if they ask.'
-        : '- Pitch Sync2Dine: Judie (me) answers the phone; Atmosphere runs the room; Complete does both — this call is the demo — then book the 20-minute install meeting.',
+        : '- Pitch Sync2Dine from their pain; this call is the demo; then the trust-aware next step.',
   ].filter(Boolean).join('\n');
 
   return { instructions, language: 'en' };
@@ -402,6 +476,136 @@ export async function executeSallySalesPhoneTool(
 ): Promise<unknown> {
   if (name === 'getOfferTerms') {
     return buildOfferTermsPayload();
+  }
+
+  if (name === 'recallAccountMemory') {
+    return recallSallyAccountMemoryToolResult(String(ctx.partyPhone || ''), ctx.orgId);
+  }
+
+  if (name === 'setCallObjective') {
+    const objective = String(input.objective || '').trim();
+    const reason = String(input.reason || '').trim();
+    const phone = String(ctx.partyPhone || '').trim();
+    if (phone) {
+      const resolved = resolveContactByPhone(phone);
+      if (resolved.customerId) {
+        const store = getDataStore();
+        const idx = store.customers.findIndex((c) => String(c.id) === resolved.customerId);
+        if (idx >= 0) {
+          const prev = store.customers[idx] as Record<string, unknown>;
+          store.customers[idx] = {
+            ...prev,
+            sallyLastObjective: objective,
+            sallyObjectiveReason: reason.slice(0, 200),
+          };
+          syncData(store);
+        }
+      }
+    }
+    const follow = draftSallyFollowThrough({
+      callObjective: objective,
+      contactName: String(input.name || ''),
+      venueName: String(input.restaurant || ''),
+    });
+    return {
+      ok: true,
+      objective,
+      reason: reason || undefined,
+      followThroughDraft: follow,
+      spokenHint: 'Objective noted — continue the call; do not announce the objective label.',
+      doNotReadAloud: true,
+    };
+  }
+
+  if (name === 'researchRestaurantProfile') {
+    const result = await researchRestaurantProfile({
+      businessName: String(input.businessName || '').trim() || undefined,
+      website: String(input.website || '').trim() || undefined,
+      addressHint: String(input.addressHint || '').trim() || undefined,
+      phone: ctx.partyPhone,
+      orgId: ctx.orgId,
+    });
+    return result;
+  }
+
+  if (name === 'updateVenueProfile') {
+    const phone = String(ctx.partyPhone || '').trim();
+    const resolved = phone ? resolveContactByPhone(phone) : { customerId: undefined };
+    if (!resolved.customerId) {
+      return { ok: false, error: 'no_customer', spokenHint: 'Capture the lead first, then save venue details.' };
+    }
+    applyVenueProfileToCustomer(String(resolved.customerId), {
+      venueType: input.venueType != null ? String(input.venueType) : undefined,
+      openingHours: input.openingHours != null ? String(input.openingHours) : undefined,
+      hasKitchen: typeof input.hasKitchen === 'boolean' ? input.hasKitchen : undefined,
+      preferredFormality: input.preferredFormality != null ? String(input.preferredFormality) : undefined,
+      preferredContactTimes:
+        input.preferredContactTimes != null ? String(input.preferredContactTimes) : undefined,
+      sallyOrgMemory: {
+        champions: input.champions != null ? String(input.champions) : undefined,
+        blockers: input.blockers != null ? String(input.blockers) : undefined,
+      },
+    });
+    const dial = planVenueAwareDial({
+      venueType: input.venueType,
+      openingHours: input.openingHours,
+      hasKitchen: typeof input.hasKitchen === 'boolean' ? input.hasKitchen : null,
+    });
+    return {
+      ok: true,
+      dial,
+      spokenHint: 'Venue profile saved for smarter dials — do not read the dial plan aloud.',
+      doNotReadAloud: true,
+    };
+  }
+
+  if (name === 'scheduleVenueCallback') {
+    const phone = String(ctx.partyPhone || '').trim();
+    const dial = suggestDialWindows({
+      venueType: input.venueType,
+      openingHours: input.openingHours,
+      hasKitchen: typeof input.hasKitchen === 'boolean' ? input.hasKitchen : null,
+    });
+    const resolved = phone ? resolveContactByPhone(phone) : { customerId: undefined as string | undefined };
+    if (resolved.customerId) {
+      applyVenueProfileToCustomer(String(resolved.customerId), {
+        venueType: input.venueType != null ? String(input.venueType) : undefined,
+        openingHours: input.openingHours != null ? String(input.openingHours) : undefined,
+        hasKitchen: typeof input.hasKitchen === 'boolean' ? input.hasKitchen : undefined,
+      });
+    }
+    let jobId: string | undefined;
+    if (phone && dial.nextSlotISO) {
+      try {
+        const job = enqueueOutboundCall({
+          to: phone,
+          template: 'sally_sales',
+          scheduledAt: dial.nextSlotISO,
+          bypassQuietHours: dial.bypassGlobalQuiet,
+          context: {
+            aim: 'sales_outreach',
+            agentPersona: 'sally',
+            venueAwareSchedule: true,
+            dialReason: dial.reason,
+            brief: String(input.notes || `Venue-aware callback · ${dial.reason}`).slice(0, 400),
+            restaurant: String(input.restaurant || '').trim() || undefined,
+          },
+        });
+        jobId = job?.id != null ? String(job.id) : undefined;
+      } catch {
+        /* enqueue best-effort */
+      }
+    }
+    return {
+      ok: Boolean(dial.nextSlotISO),
+      scheduledAt: dial.nextSlotISO,
+      bypassGlobalQuiet: dial.bypassGlobalQuiet,
+      reason: dial.reason,
+      jobId,
+      spokenHint: dial.nextSlotISO
+        ? 'Callback scheduled in a sensible window for their venue — confirm briefly without reading hours like a robot.'
+        : 'Could not compute a slot — ask when is a good time and use bookCallback.',
+    };
   }
 
   if (name === 'sendSalesFollowUp') {
@@ -724,7 +928,9 @@ function bookIntegrationMeetingInternal(
       scheduledAt: iso,
       confirmCallAt,
       meeting,
-      spokenPostcode: postcode ? speakUkPostcode(postcode) : undefined,
+      /** Never auto-feed NATO postcode — only flag if they just provided a new one. */
+      postcodeOnFile: Boolean(postcode),
+      doNotReadPostcodeAloud: true,
       spokenHint: `Booked a twenty-minute install chat for ${whenRaw || iso}. I'll ring half an hour before to confirm — if I don't get them, we cancel so the office isn't waiting around.`,
     };
   }

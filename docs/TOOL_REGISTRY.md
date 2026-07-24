@@ -57,7 +57,7 @@ Full unique name list: `_generated/tools-discovered.json` ? `uniqueNames`.
 
 **Judie (live Vapi):** `PHONE_CUSTOMER_TOOLS` + full `PHONE_TOOLS` + `setCallLanguage` (+ Vapi `endCall` / optional `transferCall`).
 
-**Sally sales (live Vapi):** `getOfferTerms`, `bookIntegrationMeeting`, `bookDemo` (alias), `sendSalesFollowUp`, plus picked: `bookCallback`, `captureLead`, `captureMessage`, `classifyCallIntent`, `scheduleAppointment`, plus `endCall`, `setCallLanguage`. Staff mode merges staff CRM + receptionist.
+**Sally sales (live Vapi):** `getOfferTerms`, `bookIntegrationMeeting`, `bookDemo` (alias), `sendSalesFollowUp`, `recallAccountMemory`, `setCallObjective`, `researchRestaurantProfile`, `scheduleVenueCallback`, `updateVenueProfile`, plus picked: `bookCallback`, `captureLead`, `captureMessage`, `classifyCallIntent`, `scheduleAppointment`, plus `endCall`, `setCallLanguage`. Staff mode merges staff CRM + receptionist.
 
 **Sally web:** `sally/tools` filtered by `SALLY_WEB_BLOCKED_TOOLS` (no outbound CRM blast).
 

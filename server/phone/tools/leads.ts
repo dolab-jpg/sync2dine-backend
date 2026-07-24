@@ -22,6 +22,7 @@ import { resolvePhoneCallerIdentity } from '../phone-auth';
 import { ensureEnglishForCustomerSend } from '../../outbound-english-guard';
 import { resolveTransferDestination, resolveTransferNumber } from '../transfer-numbers';
 import { listMenuItemsForOrg } from '../../menu-catalog';
+import { applyVenueProfileToCustomer } from '../../sally/relationship-memory';
 import {
   cancelReservation,
   checkTableAvailability,
@@ -60,6 +61,9 @@ export interface CaptureLeadFields {
   scope?: unknown;
   budget?: unknown;
   notes?: unknown;
+  venueType?: unknown;
+  openingHours?: unknown;
+  hasKitchen?: unknown;
 }
 
 /**
@@ -127,8 +131,25 @@ export function captureOrUpdateLead(
     source: existing?.source ?? 'phone',
     budget: fields.budget ?? existing?.budget,
     sourceCallId: (existing?.sourceCallId as string | undefined) ?? opts.callId,
+    venueType: firstString(fields.venueType) ?? existing?.venueType,
+    openingHours: firstString(fields.openingHours) ?? existing?.openingHours,
+    hasKitchen:
+      typeof fields.hasKitchen === 'boolean'
+        ? fields.hasKitchen
+        : existing?.hasKitchen,
   });
 
+  if (customer.id && (fields.venueType != null || fields.openingHours != null || typeof fields.hasKitchen === 'boolean')) {
+    try {
+      applyVenueProfileToCustomer(String(customer.id), {
+        venueType: firstString(fields.venueType),
+        openingHours: firstString(fields.openingHours),
+        hasKitchen: typeof fields.hasKitchen === 'boolean' ? fields.hasKitchen : undefined,
+      });
+    } catch {
+      /* optional venue scheduling */
+    }
+  }
   if (opts.callId) {
     saveCall({ id: opts.callId, customerId: customer.id, intent: 'new_sales_lead', outcome: 'lead_captured' });
     appendCustomerCallActivity({

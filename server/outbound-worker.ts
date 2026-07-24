@@ -39,7 +39,9 @@ async function processOutboundQueue(): Promise<void> {
       : {};
     const bypassQuiet =
       j.bypassQuietHours === true
-      || String(ctx.aim || '').toLowerCase() === 'meeting_confirm';
+      || String(ctx.aim || '').toLowerCase() === 'meeting_confirm'
+      || ctx.venueAwareSchedule === true
+      || String(ctx.dialReason || '').includes('may_bypass_global_quiet');
     // #region agent log
     if (String(ctx.aim || '').toLowerCase() === 'meeting_confirm' || j.bypassQuietHours === true) {
       void import('./debug-session-log').then(({ debugLog }) => {
