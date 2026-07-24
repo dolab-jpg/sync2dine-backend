@@ -16,15 +16,52 @@ import type {
   TelephonyResponse,
 } from './types';
 
+const META_STRING_KEYS = [
+  'agentPersona',
+  'aim',
+  'brief',
+  'source',
+  'company',
+  'batchId',
+  'customerId',
+  'customerName',
+  'projectId',
+] as const;
+
+/** Flatten outbound context + nested metadata for call row + Vapi metadata. */
+export function outboundMetaFromContext(context: AgentCallContext): Record<string, unknown> {
+  const nested = (context.metadata && typeof context.metadata === 'object')
+    ? (context.metadata as Record<string, unknown>)
+    : {};
+  const out: Record<string, unknown> = { ...nested };
+  for (const key of META_STRING_KEYS) {
+    const fromNested = nested[key];
+    const fromTop = (context as unknown as Record<string, unknown>)[key];
+    const raw = fromNested != null && String(fromNested).trim()
+      ? fromNested
+      : fromTop;
+    if (raw != null && String(raw).trim()) out[key] = String(raw).trim();
+  }
+  if (context.customerId && !out.customerId) out.customerId = String(context.customerId);
+  if (context.customerName && !out.customerName) out.customerName = String(context.customerName);
+  if (context.projectId && !out.projectId) out.projectId = String(context.projectId);
+  if (context.campaignTemplate && !out.campaignTemplate) {
+    out.campaignTemplate = String(context.campaignTemplate);
+  }
+  return out;
+}
+
 function metadataFromContext(context: AgentCallContext): Record<string, string> {
   const meta: Record<string, string> = {
     tradeproCallId: context.callId,
     direction: context.direction,
   };
-  if (context.customerId) meta.customerId = String(context.customerId);
-  if (context.customerName) meta.customerName = String(context.customerName);
-  if (context.projectId) meta.projectId = String(context.projectId);
-  if (context.campaignTemplate) meta.campaignTemplate = String(context.campaignTemplate);
+  const enriched = outboundMetaFromContext(context);
+  for (const [key, value] of Object.entries(enriched)) {
+    if (value == null) continue;
+    const s = String(value).trim();
+    if (s) meta[key] = s;
+  }
   return meta;
 }
 
@@ -88,19 +125,12 @@ export const vapiAdapter: TelephonyProvider = {
     const fromNumber = toE164Uk(
       config.fromNumber || process.env.SOHO66_FROM_NUMBER || process.env.VAPI_FROM_NUMBER || '',
     );
+    const outboundMeta = outboundMetaFromContext(context);
+    const agentPersona = outboundMeta.agentPersona != null
+      ? String(outboundMeta.agentPersona)
+      : undefined;
 
-    // Shared builder resolves staff/builder/customer identity + PIN gating + tools + transfer/hangup.
-    const { buildVapiAssistantForParty } = await import('../vapi-assistant');
-    const { assistant, identity } = await buildVapiAssistantForParty({
-      partyPhone: customerNumber,
-      direction: 'outbound',
-      campaignTemplate: context.campaignTemplate,
-      callId,
-      contactName: context.customerName,
-    });
-
-    // Persist TradePro row BEFORE dial so early webhooks can attach via tradeproCallId
-    // (avoids empty out-* Call Centre rows with transcript stuck on a Vapi-UUID twin).
+    // Seed call row BEFORE assistant build so callMeta (aim/source/persona) reaches Sally brain.
     saveCall({
       id: callId,
       provider: 'vapi',
@@ -110,17 +140,42 @@ export const vapiAdapter: TelephonyProvider = {
       status: 'ringing',
       transcript: [],
       startedAt: new Date().toISOString(),
-      customerId: context.customerId,
-      contactName: identity.kind !== 'customer' ? identity.name : context.customerName,
+      customerId: context.customerId || (outboundMeta.customerId != null ? String(outboundMeta.customerId) : undefined),
+      contactName: context.customerName,
       campaignTemplate: context.campaignTemplate,
       metadata: {
+        ...outboundMeta,
         tradeproCallId: callId,
         partyPhone: customerNumber,
         webhookBase,
-        callerKind: identity.kind,
-        callerRole: identity.role,
-        phoneAuth: identity.needsPin ? 'pending' : 'n/a',
       },
+    });
+
+    const { buildVapiAssistantForParty } = await import('../vapi-assistant');
+    const { assistant, identity, agentPersona: resolvedPersona } = await buildVapiAssistantForParty({
+      partyPhone: customerNumber,
+      direction: 'outbound',
+      campaignTemplate: context.campaignTemplate,
+      callId,
+      contactName: context.customerName,
+      agentPersona,
+    });
+
+    const seededMeta: Record<string, unknown> = {
+      ...outboundMeta,
+      tradeproCallId: callId,
+      partyPhone: customerNumber,
+      webhookBase,
+      callerKind: identity.kind,
+      callerRole: identity.role,
+      phoneAuth: identity.needsPin ? 'pending' : 'n/a',
+      ...(resolvedPersona ? { agentPersona: resolvedPersona } : {}),
+    };
+
+    saveCall({
+      id: callId,
+      contactName: identity.kind !== 'customer' ? identity.name : context.customerName,
+      metadata: seededMeta,
     });
 
     const payload: Record<string, unknown> = {
@@ -131,7 +186,7 @@ export const vapiAdapter: TelephonyProvider = {
         name: context.customerName || undefined,
       },
       assistant,
-      metadata: metadataFromContext({ ...context, callId }),
+      metadata: metadataFromContext({ ...context, callId, metadata: seededMeta }),
     };
 
     const result = await vapiFetch('/call/phone', {
@@ -146,12 +201,7 @@ export const vapiAdapter: TelephonyProvider = {
         endedAt: new Date().toISOString(),
         outcome: 'vapi_dial_failed',
         metadata: {
-          tradeproCallId: callId,
-          partyPhone: customerNumber,
-          webhookBase,
-          callerKind: identity.kind,
-          callerRole: identity.role,
-          phoneAuth: identity.needsPin ? 'pending' : 'n/a',
+          ...seededMeta,
           dialError: result.raw.slice(0, 400),
         },
       });
@@ -165,13 +215,8 @@ export const vapiAdapter: TelephonyProvider = {
       provider: 'vapi',
       status: 'in_progress',
       metadata: {
+        ...seededMeta,
         vapiCallId: providerCallId,
-        tradeproCallId: callId,
-        partyPhone: customerNumber,
-        webhookBase,
-        callerKind: identity.kind,
-        callerRole: identity.role,
-        phoneAuth: identity.needsPin ? 'pending' : 'n/a',
       },
     });
 

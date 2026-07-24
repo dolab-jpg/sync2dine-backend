@@ -23,7 +23,12 @@ import { debugLog } from '../debug-session-log';
 export type { SilencePersona };
 
 /** Shared dead-air ladder for every Vapi phone agent (check → re-ask → hang up). */
-export function buildSilenceHooks(persona: SilencePersona): Array<Record<string, unknown>> {
+export function buildSilenceHooks(
+  persona: SilencePersona,
+  opts?: { omitHangup?: boolean; timeoutScale?: number },
+): Array<Record<string, unknown>> {
+  const scale = opts?.timeoutScale && opts.timeoutScale > 0 ? opts.timeoutScale : 1;
+  const t = (seconds: number) => Math.max(8, Math.round(seconds * scale));
   const lines =
     persona === 'sally'
       ? {
@@ -51,12 +56,12 @@ export function buildSilenceHooks(persona: SilencePersona): Array<Record<string,
             bye: 'No worries — call back anytime. Bye for now!',
           };
 
-  return [
+  const hooks: Array<Record<string, unknown>> = [
     {
       on: 'customer.speech.timeout',
       name: 'silence_check',
       options: {
-        timeoutSeconds: 8,
+        timeoutSeconds: t(8),
         triggerMaxCount: 3,
         triggerResetMode: 'onUserSpeech',
       },
@@ -66,17 +71,19 @@ export function buildSilenceHooks(persona: SilencePersona): Array<Record<string,
       on: 'customer.speech.timeout',
       name: 'silence_reask',
       options: {
-        timeoutSeconds: 18,
+        timeoutSeconds: t(18),
         triggerMaxCount: 3,
         triggerResetMode: 'onUserSpeech',
       },
       do: [{ type: 'say', exact: lines.reask }],
     },
-    {
+  ];
+  if (!opts?.omitHangup) {
+    hooks.push({
       on: 'customer.speech.timeout',
       name: 'silence_hangup',
       options: {
-        timeoutSeconds: 28,
+        timeoutSeconds: t(28),
         triggerMaxCount: 3,
         triggerResetMode: 'onUserSpeech',
       },
@@ -84,9 +91,13 @@ export function buildSilenceHooks(persona: SilencePersona): Array<Record<string,
         { type: 'say', exact: lines.bye },
         { type: 'tool', tool: { type: 'endCall' } },
       ],
-    },
-  ];
+    });
+  }
+  return hooks;
 }
+
+const SALLY_DEFAULT_VOICEMAIL =
+  "Hi, it's Sally from Sync2Dine. We help restaurants answer the phone with AI that takes orders. I'll try you again soon — reply to this number when you're free. Thanks!";
 
 export async function buildVapiAssistantForParty(opts: {
   partyPhone: string;
@@ -154,6 +165,9 @@ export async function buildVapiAssistantForParty(opts: {
   const nativeTools: Array<Record<string, unknown>> = [
     { type: 'endCall' },
   ];
+  if (sally) {
+    nativeTools.push({ type: 'voicemail' });
+  }
   if (session.allowTransfer) {
     const xfer = transferDestinationsFromEnv();
     if (xfer.length) {
@@ -183,6 +197,14 @@ export async function buildVapiAssistantForParty(opts: {
       : `Alright love, Sally from Sync2Dine — just confirming your twenty-minute install chat is still on.`;
   }
 
+  const sallyVoicemailMessage =
+    process.env.SALLY_VOICEMAIL_MESSAGE?.trim() || SALLY_DEFAULT_VOICEMAIL;
+  // Sally outbound: skip silence hangup so beep + voicemail drop can finish; stretch check/reask.
+  const sallyOutbound = sally && opts.direction === 'outbound';
+  const silenceHooks = buildSilenceHooks(silencePersona, sallyOutbound
+    ? { omitHangup: true, timeoutScale: 2.5 }
+    : undefined);
+
   const assistant: Record<string, unknown> = {
     name: assistantName,
     firstMessage,
@@ -194,19 +216,26 @@ export async function buildVapiAssistantForParty(opts: {
       model: process.env.VAPI_DEEPGRAM_MODEL?.trim() || 'nova-2',
       language: deepgramLanguageForPack(language),
     },
-    silenceTimeoutSeconds: 35,
+    silenceTimeoutSeconds: sallyOutbound ? 60 : 35,
     maxDurationSeconds: Number(
       process.env.VAPI_MAX_CALL_SECONDS
       || (sally ? 1200 : 900),
     ),
     backgroundSound: 'off',
-    hooks: buildSilenceHooks(silencePersona),
+    hooks: silenceHooks,
     ...(sally
       ? {
-          voicemailDetectionEnabled: true,
-          voicemailMessage:
-            process.env.SALLY_VOICEMAIL_MESSAGE?.trim()
-            || "Hi, it's Sally from Sync2Dine. We help restaurants answer the phone with AI that takes orders. I'll try you again soon — reply to this number when you're free. Thanks!",
+          voicemailMessage: sallyVoicemailMessage,
+          voicemailDetection: {
+            provider: 'vapi',
+            backoffPlan: {
+              maxRetries: 5,
+              startAtSeconds: 2,
+              frequencySeconds: 2.5,
+            },
+            // Wait long enough for typical UK greetings before speaking the drop.
+            beepMaxAwaitSeconds: 30,
+          },
         }
       : {}),
     // PIN via spoken digits → verifyStaffPhonePin. Do NOT send keypadInputEnabled (Vapi 400).

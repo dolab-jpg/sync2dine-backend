@@ -543,9 +543,15 @@ function finalizeVapiCall(
     || '',
   ).trim() || undefined;
   const toolOutcome = String(after?.outcome || afterMeta.toolOutcome || '');
+  const transcriptHint = (() => {
+    const turns = Array.isArray(after?.transcript) ? after!.transcript as Array<{ content?: string }> : [];
+    const fromTurns = turns.map((t) => String(t.content ?? '').trim()).filter(Boolean).join(' ');
+    return [fromTurns, summary, String(message.summary || '')].filter(Boolean).join(' ').slice(0, 4000);
+  })();
   const disposition = mapEndedReasonToDisposition(endedReason, {
     transferred: Boolean(transferredTo) || toolOutcome.toLowerCase().includes('transfer'),
     toolOutcome,
+    transcriptText: transcriptHint,
   });
 
   const fallbackSummary = (() => {
@@ -1134,6 +1140,13 @@ function persistTranscriptTurn(
     ? { customerId: null as string | null, customerName: identity.name || '', contactName: identity.name || '' }
     : resolveContactByPhone(partyPhone);
   const turnRole = role === 'user' ? 'caller' : 'agent';
+  const call = getCallById(callId);
+  const callMeta = (call?.metadata as Record<string, unknown> | undefined) || {};
+  const persona = String(callMeta.agentPersona || '').toLowerCase();
+  const agentFromRole =
+    role === 'assistant'
+      ? (persona === 'sally' || persona === 'judie' || persona === 'cynthia' ? persona : undefined)
+      : undefined;
   appendCallTurn(callId, { role: turnRole, content: trimmed });
   appendConversationMessage(
     phoneOrgId(),
@@ -1143,6 +1156,7 @@ function persistTranscriptTurn(
       content: trimmed,
       bodyEnglish: trimmed,
       channel: 'phone',
+      ...(agentFromRole ? { fromRole: agentFromRole } : {}),
     },
     {
       channel: 'phone',

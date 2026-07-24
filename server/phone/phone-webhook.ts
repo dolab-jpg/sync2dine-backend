@@ -423,9 +423,15 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
     customerId: context?.customerId,
     aim: context?.aim ?? context?.reason,
     brief: context?.brief ?? context?.aim ?? context?.reason,
+    ...(context?.agentPersona != null && String(context.agentPersona).trim()
+      ? { agentPersona: String(context.agentPersona).trim().toLowerCase() }
+      : {}),
+    ...(context?.source != null && String(context.source).trim()
+      ? { source: String(context.source).trim() }
+      : {}),
   };
 
-  // Worker already owns the queue row � dial only, do not enqueue another job.
+  // Worker already owns the queue row — dial only, do not enqueue another job.
   if (fromWorker === true || fromWorker === '1') {
     try {
       const result = await provider.placeCall(String(to), {
@@ -436,18 +442,18 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
         campaignTemplate: template as OutboundCampaignTemplate,
         metadata: meta,
       }, config);
+      const existing = getCallById(result.callId);
+      const existingMeta = (existing?.metadata as Record<string, unknown> | undefined) || {};
       saveCall({
         id: result.callId,
         providerCallId: result.providerCallId,
         direction: 'outbound',
         from: config.fromNumber ?? '',
         to: String(to),
-        status: 'ringing',
+        status: String(existing?.status || 'ringing'),
         campaignTemplate: template,
         customerId: meta.customerId ? String(meta.customerId) : undefined,
-        transcript: [],
-        startedAt: new Date().toISOString(),
-        metadata: meta,
+        metadata: { ...existingMeta, ...meta },
       });
       if (meta.customerId) {
         markCustomerDialling(String(meta.customerId), result.callId);
@@ -490,18 +496,18 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
         metadata: meta,
       }, config);
       updateOutboundJob(String(job.id), { status: 'dialling', callId: result.callId });
+      const existing = getCallById(result.callId);
+      const existingMeta = (existing?.metadata as Record<string, unknown> | undefined) || {};
       saveCall({
         id: result.callId,
         providerCallId: result.providerCallId,
         direction: 'outbound',
         from: config.fromNumber ?? '',
         to: String(to),
-        status: 'ringing',
+        status: String(existing?.status || 'ringing'),
         campaignTemplate: template,
         customerId: meta.customerId ? String(meta.customerId) : undefined,
-        transcript: [],
-        startedAt: new Date().toISOString(),
-        metadata: meta,
+        metadata: { ...existingMeta, ...meta },
       });
       if (meta.customerId) {
         markCustomerDialling(String(meta.customerId), result.callId);
@@ -536,6 +542,8 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
     template?: string;
     batchId?: string;
     brief?: string;
+    agentPersona?: string;
+    aim?: string;
   };
   const rows = Array.isArray(body.rows) ? body.rows : [];
   if (!rows.length) {
@@ -544,7 +552,9 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
   }
   const template = String(body.template ?? 'lead_callback');
   const batchId = String(body.batchId ?? `sales-csv-${new Date().toISOString().slice(0, 10)}`);
-  const defaultBrief = String(body.brief ?? 'Sales outreach � introduce Sync2Dine takeaway phone platform.');
+  const defaultBrief = String(body.brief ?? 'Sales outreach — introduce Sync2Dine takeaway phone platform.');
+  const aim = String(body.aim ?? 'sales_outreach').trim() || 'sales_outreach';
+  const agentPersona = String(body.agentPersona ?? '').trim().toLowerCase() || 'sally';
   const { enqueueOutboundCall } = await import('../data-store');
   const jobs: Array<Record<string, unknown>> = [];
   const skipped: string[] = [];
@@ -563,7 +573,8 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
       context: {
         customerId: row.customerId,
         company,
-        aim: 'sales_outreach',
+        aim,
+        agentPersona,
         brief: company ? `${defaultBrief} Company: ${company}.` : defaultBrief,
         source: 'sales_csv_dial',
         batchId,

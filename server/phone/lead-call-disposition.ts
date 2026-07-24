@@ -39,9 +39,21 @@ const TERMINAL_NO_RETRY = new Set<LeadCallDisposition>([
   'answered_not_interested',
 ]);
 
+const VOICEMAIL_TRANSCRIPT_RE =
+  /\b(voicemail|voice\s*mail|answering\s*machine|leave\s+a\s+message|after\s+the\s+(tone|beep)|mailbox|not\s+available)/i;
+
+export function transcriptSuggestsVoicemail(transcriptText?: string | null): boolean {
+  return VOICEMAIL_TRANSCRIPT_RE.test(String(transcriptText ?? ''));
+}
+
 export function mapEndedReasonToDisposition(
   endedReason: string | undefined | null,
-  hints?: { transferred?: boolean; toolOutcome?: string },
+  hints?: {
+    transferred?: boolean;
+    toolOutcome?: string;
+    /** Raw transcript / summary snippet when endedReason is assistant hangup */
+    transcriptText?: string | null;
+  },
 ): LeadCallDisposition {
   if (hints?.transferred) return 'transferred';
   const tool = String(hints?.toolOutcome ?? '').toLowerCase();
@@ -53,12 +65,14 @@ export function mapEndedReasonToDisposition(
   if (tool.includes('do_not_call') || tool.includes('dnc')) return 'do_not_call';
   if (tool.includes('wrong')) return 'wrong_number';
   if (tool.includes('not_interested')) return 'answered_not_interested';
+  if (tool.includes('voicemail') || tool.includes('machine')) return 'voicemail';
 
   const r = String(endedReason ?? '').toLowerCase();
+  if (r.includes('voicemail') || r.includes('machine')) return 'voicemail';
+  if (transcriptSuggestsVoicemail(hints?.transcriptText)) return 'voicemail';
   if (!r) return 'other';
   if (r.includes('no-answer') || r.includes('no_answer') || r.includes('customer-did-not-answer')) return 'no_answer';
   if (r.includes('busy')) return 'busy';
-  if (r.includes('voicemail') || r.includes('machine')) return 'voicemail';
   if (r.includes('wrong')) return 'wrong_number';
   if (r.includes('transfer')) return 'transferred';
   if (r.includes('fail') || r.includes('error') || r.includes('sip-error') || r.includes('dial')) return 'failed';

@@ -642,8 +642,8 @@ export async function executeSallyTool(
       left,
       followUpChannel: channel,
       spokenHint: left
-        ? 'Noted — voicemail left and CRM updated.'
-        : `Live voicemail drop isn't available; I've logged it and scheduled a ${channel} follow-up.`,
+        ? 'CRM logged a voicemail follow-up — do not tell the prospect you left a live message unless the native voicemail tool actually dropped one.'
+        : `Live voicemail drop isn't available on this channel; I've logged it and scheduled a ${channel} follow-up.`,
     };
   }
 

@@ -11,7 +11,7 @@
 | `phone_shared` | `phone/tools/catalog.ts` (`PHONE_TOOLS`) | `phone/tools/execute.ts` via `vapi-routes` | Judie (+ Sally pick) | Vapi | tool selector + DID org |
 | `phone_customer` | `phone/phone-brain.ts` `PHONE_CUSTOMER_TOOLS` | phone execute / brain | Judie customer | Vapi | identity customer |
 | `phone_staff_crm` | `phone/phone-brain.ts` staff CRM tools | phone execute | Sally staff / staff softphone | Vapi | PIN + identity (`phone-auth.ts`) |
-| `phone_call_control` | `verifyStaffPhonePin`, `endCall`, `setCallLanguage` | vapi-routes / native | all phone | Vapi | PIN tool; endCall native |
+| `phone_call_control` | `verifyStaffPhonePin`, `endCall`, `setCallLanguage`, native `voicemail` (Sally) | vapi-routes / native | all phone | Vapi | PIN tool; endCall/voicemail native |
 | `phone_judie` | customer + full `PHONE_TOOLS` + language | Judie brain session | Judie | Vapi | DID?restaurant org |
 | `phone_sally_sales` | `phone/sally-sales-phone.ts` slim pack | `executeSallySalesPhoneTool` | Sally sales | Vapi | platform org |
 | `phone_sally_staff` | sales + `getPhoneSessionChatTools` + receptionist | same + staff | Sally staff | Vapi | PIN + staff identity |
