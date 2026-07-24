@@ -33,6 +33,7 @@ Inbound DID
 - Missing DID: optional demo-kitchen fallback for controlled tests only.
 - Tool/order `orgId` always from call-resolved context, never from LLM args.
 - Until a construction DID is set to `purpose: 'cynthia'`, behaviour stays Judie/Sally as today.
+- **One Judie brain for every restaurant.** Per-customer identity is DID → `orgId` → `Organization.name` + that org’s `agentSettings` (aboutUs / sayToday / delivery) + menu/orders. Greeting is “Judie from {RestaurantName}”, not Sync2Dine. Do not create a new brain package per client.
 
 ## Live call path (Vapi)
 

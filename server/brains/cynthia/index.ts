@@ -19,7 +19,7 @@ export const cynthiaBrain: BrainPackage = {
   buildSession(input: BrainBuildInput): BrainSession {
     const firstName = (input.contactName || input.identity.name || '').split(/\s+/)[0];
     const orgId =
-      String(input.callMeta?.resolvedOrgId || '').trim()
+      String(input.orgId || input.callMeta?.resolvedOrgId || '').trim()
       || DEFAULT_ORG_ID;
 
     const built = buildPhoneBrainPrompt({

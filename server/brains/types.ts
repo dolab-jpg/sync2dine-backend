@@ -27,6 +27,8 @@ export type BrainBuildInput = {
   languageOverride?: string;
   callMeta?: Record<string, unknown>;
   agentPersona?: string;
+  /** Trusted org from DID routing — never from the LLM. Required for Judie diner sessions. */
+  orgId?: string;
 };
 
 export type BrainSession = {

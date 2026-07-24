@@ -150,6 +150,7 @@ export async function buildVapiAssistantForParty(opts: {
     languageOverride,
     callMeta,
     agentPersona: opts.agentPersona || String(callMeta.agentPersona || ''),
+    orgId,
   });
   const sally = session.id === 'sally';
   let { instructions, language, firstMessage, assistantName } = session;
