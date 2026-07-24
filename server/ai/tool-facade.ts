@@ -381,7 +381,7 @@ export const FACADE_TOOLS = [
 - calendarEvent: .ics invite — payload { title (required), start (required), end (required), location, attendees, description, sendEmailTo }.
 - reminder: staff follow-up task — payload { title (required), dueDate (required), customerId, projectId, assignee, note }.
 - files: list or delete project files — payload { action (required: list|delete), projectId (required), fileId, fileName }.
-- codeFix: offer a Cursor-powered code fix — payload { description (required), errorCode, route }.
+- codeFix: offer a Trae-ready code fix — payload { description (required), errorCode, route }.
 - escalate: escalate to office staff — payload { reason (required) }.
 - portalLink: customer portal link — payload { projectId (required) }.
 - writeData: create/update/delete a record — payload { collection (required), operation (required: create|update|delete), id (update/delete), data (create/update) }. Deletes require confirmation.`,

@@ -1,6 +1,6 @@
 /**
  * Self-heal code-fix queue: CRM chat → Trae (local) → GitHub PR.
- * Cursor Cloud self-heal has been disabled.
+ * Cursor Cloud launch is disabled — jobs stay queued for Trae via AI Audit.
  * Primary store: Supabase `code_fix_jobs` when service role is configured.
  * Local JSON is a worker cache / offline fallback only.
  */
@@ -37,11 +37,10 @@ function debugLog(hypothesisId: string, location: string, message: string, data:
 const FRONTEND_REPO = 'https://github.com/dolab-jpg/sync2dine-frontend';
 const BACKEND_REPO = 'https://github.com/dolab-jpg/sync2dine-backend';
 const REQUIRED_REPOS = ['dolab-jpg/sync2dine-frontend', 'dolab-jpg/sync2dine-backend'] as const;
-const MAX_CONCURRENCY = 2;
 const MAX_ATTEMPTS = 3;
 const STUCK_MS = 30 * 60 * 1000;
 const DEDUPE_MS = 15 * 60 * 1000;
-/** Same error with an open/merged PR must not spawn another Cursor agent for a day. */
+/** Same error with an open/merged PR must not spawn another fix job for a day. */
 const PR_DEDUPE_MS = 24 * 60 * 60 * 1000;
 const HEALTH_CACHE_MS = 10 * 60 * 1000;
 const HTTP_CLASS_ERROR_CODES = new Set(['HTTP_401', 'HTTP_400', 'HTTP_503']);
@@ -112,7 +111,6 @@ export interface CodeFixJob {
 }
 
 let workerStarted = false;
-let activeRuns = 0;
 /** In-memory cache (hydrated from Supabase when configured). */
 let jobsCache: CodeFixJob[] | null = null;
 let hydratePromise: Promise<void> | null = null;
@@ -378,16 +376,20 @@ async function getCursorHealth(force = false): Promise<CodeFixHealth> {
 
   const checkedAt = nowIso();
   const githubTokenConfigured = Boolean(resolveGithubToken());
+  const live = supabaseConfigured();
 
-  // Cursor Cloud self-heal has been disabled in favor of local Trae
   const value: CodeFixHealth = {
-    live: false,
-    keyValid: false,
-    reposAccessible: false,
-    missingRepos: [...REQUIRED_REPOS],
+    live,
+    keyValid: live,
+    reposAccessible: live,
+    missingRepos: live ? [] : [...REQUIRED_REPOS],
     githubTokenConfigured,
     checkedAt,
-    reason: 'Cursor Cloud self-heal disabled. Use local Trae for code fixes.',
+    reason: live
+      ? githubTokenConfigured
+        ? 'Trae handoff LIVE — jobs queue in AI Audit → Code fixes. Copy the Trae prompt, open a PR, then attach it.'
+        : 'Trae handoff LIVE (manual merge) — jobs queue in AI Audit → Code fixes. Add GITHUB_TOKEN for one-click merges.'
+      : 'Self-heal queue not LIVE — Supabase service role is not configured. Jobs cannot persist for Trae.',
   };
   healthCache = { at: now, value };
   return value;
@@ -495,10 +497,10 @@ function classifyScope(input: {
   return 'surgical';
 }
 
-/** Gateway / billing / rate-limit — never create Cursor jobs for these. */
+/** Gateway / billing / rate-limit — never create code-fix jobs for these. */
 function isNonFixableOpsError(errorCode: string, description: string): boolean {
   if (/^HTTP_(429|502|503|504)$/i.test(errorCode.trim())) return true;
-  return /no credit|usage limit|billing|quota|insufficient_quota|rate.?limit|openai key rejected|econnreset|econnrefused|etimedout|bad gateway|service unavailable|gateway|upstream|temporarily unavailable|CURSOR_API_KEY not configured/i.test(
+  return /no credit|usage limit|billing|quota|insufficient_quota|rate.?limit|openai key rejected|econnreset|econnrefused|etimedout|bad gateway|service unavailable|gateway|upstream|temporarily unavailable/i.test(
     `${errorCode} ${description}`,
   );
 }
@@ -581,7 +583,8 @@ function jobAlerts(jobs: CodeFixJob[]) {
     if (j.status === 'failed') return true;
     if (j.status === 'awaiting_cursor_approval') return true;
     if (j.status === 'pr_open') return true;
-    if (['queued', 'running'].includes(j.status) && now - new Date(j.updatedAt).getTime() > STUCK_MS) {
+    // Queued jobs wait for Trae — not stuck. Legacy Cursor runs can stall in `running`.
+    if (j.status === 'running' && now - new Date(j.updatedAt).getTime() > STUCK_MS) {
       return true;
     }
     return false;
@@ -590,115 +593,26 @@ function jobAlerts(jobs: CodeFixJob[]) {
 
 function buildAgentPrompt(job: CodeFixJob): string {
   return [
-    'You are fixing a production bug for Builder Diddies (bathroom sales / estimation CRM).',
-    'SURGICAL FIX ONLY:',
+    'You are fixing a production bug for Sync2Dine (restaurant ops + staff AI).',
+    'Work in Trae (local IDE). SURGICAL FIX ONLY:',
     '- Smallest diff that clears this error.',
     '- Do NOT redesign the product, rewrite every page, or recreate full features.',
     '- Light tweak on one screen is OK if required for this fix.',
-    '- If this needs a multi-page redesign, STOP and say Cursor approval is required — do not implement large redesigns.',
+    '- If this needs a multi-page redesign, STOP and say Trae approval is required — do not implement large redesigns.',
     '',
     `Error code: ${job.errorCode || '(none)'}`,
     `Route / page: ${job.route || '(unknown)'}`,
     `Reporter role: ${job.requesterRole}`,
+    `Repo: ${job.repoUrl || '(pick FE or BE from route)'}`,
     `Description: ${job.description}`,
     '',
-    'Open a PR with a minimal fix. Follow .cursor/BUGBOT.md.',
+    'Open a GitHub PR with a minimal fix. Follow .cursor/BUGBOT.md and .trae/rules/.',
+    'After the PR is open, attach the PR URL in AI Audit → Code fixes (Mark PR open).',
   ].join('\n');
 }
 
-async function launchCursorAgent(job: CodeFixJob): Promise<{
-  agentId?: string;
-  agentUrl?: string;
-  prUrl?: string;
-  awaitingApproval?: boolean;
-  error?: string;
-}> {
-  return {
-    error: 'Cursor Cloud self-heal disabled. Use local Trae for code fixes.',
-  };
-}
-
-async function processOneJob(job: CodeFixJob): Promise<void> {
-  const running: CodeFixJob = {
-    ...job,
-    status: 'running',
-    attemptCount: job.attemptCount + 1,
-    updatedAt: nowIso(),
-  };
-  upsertJob(running);
-
-  try {
-    const result = await launchCursorAgent(running);
-    if (result.error) {
-      const failed = result.error.includes('rate') || result.error.includes('429') || result.error.includes('network');
-      if (failed && running.attemptCount < running.maxAttempts) {
-        upsertJob({
-          ...running,
-          status: 'queued',
-          lastError: result.error,
-          updatedAt: nowIso(),
-          metadata: { ...running.metadata, nextRetryAt: Date.now() + running.attemptCount * 15_000 },
-        });
-        return;
-      }
-      upsertJob({
-        ...running,
-        status: 'failed',
-        lastError: result.error,
-        alertedAt: nowIso(),
-        updatedAt: nowIso(),
-      });
-      return;
-    }
-
-    if (result.awaitingApproval) {
-      upsertJob({
-        ...running,
-        status: 'awaiting_cursor_approval',
-        cursorAgentId: result.agentId,
-        cursorAgentUrl: result.agentUrl,
-        alertedAt: nowIso(),
-        updatedAt: nowIso(),
-      });
-      return;
-    }
-
-    upsertJob({
-      ...running,
-      status: result.prUrl ? 'pr_open' : 'running',
-      cursorAgentId: result.agentId,
-      cursorAgentUrl: result.agentUrl,
-      prUrl: result.prUrl,
-      updatedAt: nowIso(),
-      lastError: undefined,
-      metadata: {
-        ...running.metadata,
-        ...(result.prUrl ? {} : { launchedAt: nowIso() }),
-      },
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (running.attemptCount < running.maxAttempts) {
-      upsertJob({
-        ...running,
-        status: 'queued',
-        lastError: message,
-        updatedAt: nowIso(),
-      });
-      return;
-    }
-    upsertJob({
-      ...running,
-      status: 'failed',
-      lastError: message,
-      alertedAt: nowIso(),
-      updatedAt: nowIso(),
-    });
-  }
-}
-
 async function tickWorker(): Promise<void> {
-  // Fill real PR URLs for agents that are still running
+  // Legacy Cursor Cloud rows only — new jobs stay queued for Trae handoff.
   const needingPr = readJobs().filter(
     (j) =>
       (j.status === 'running' || (j.status === 'pr_open' && !j.prUrl)) &&
@@ -706,25 +620,6 @@ async function tickWorker(): Promise<void> {
   );
   for (const job of needingPr.slice(0, 5)) {
     void pollAgentForPr(job);
-  }
-
-  if (activeRuns >= MAX_CONCURRENCY) return;
-  const jobs = readJobs();
-  const now = Date.now();
-  const next = jobs
-    .filter((j) => j.status === 'queued')
-    .filter((j) => {
-      const nextRetry = Number(j.metadata?.nextRetryAt ?? 0);
-      return !nextRetry || nextRetry <= now;
-    })
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-  const slots = MAX_CONCURRENCY - activeRuns;
-  for (const job of next.slice(0, slots)) {
-    activeRuns += 1;
-    void processOneJob(job).finally(() => {
-      activeRuns -= 1;
-    });
   }
 }
 
@@ -857,7 +752,7 @@ export async function handleCodeFixRoutes(
       jobs,
       alerts,
       queueDepth,
-      activeRuns,
+      activeRuns: 0,
       cursorConfigured: health.keyValid,
       health,
     });
@@ -894,7 +789,7 @@ export async function handleCodeFixRoutes(
     }
     if (!job.prUrl || !parsePrUrl(job.prUrl)) {
       sendJson(res, 400, {
-        error: 'No GitHub PR URL yet — wait for the agent to open a PR, or merge via Cursor agent link.',
+        error: 'No GitHub PR URL yet — open the PR in Trae, then Attach PR URL in AI Audit → Code fixes.',
         needsManualMerge: true,
         cursorAgentUrl: job.cursorAgentUrl,
       });
@@ -953,6 +848,11 @@ export async function handleCodeFixRoutes(
         retriedAt: nowIso(),
       },
       scope: body.cursorApproved ? 'surgical' : job.scope,
+    };
+    next.metadata = {
+      ...next.metadata,
+      traePrompt: buildAgentPrompt(next),
+      handoff: 'trae',
     };
     upsertJob(next);
     void tickWorker();
@@ -1030,7 +930,7 @@ export async function handleCodeFixRoutes(
         skipped: true,
         reason: 'ops_infra',
         message:
-          'This is an ops/infra or billing failure (not an application code defect). No Cursor fix was created.',
+          'This is an ops/infra or billing failure (not an application code defect). No Trae fix was queued.',
         errorCode,
       });
       return true;
@@ -1137,14 +1037,13 @@ export async function handleCodeFixRoutes(
       alertedAt: scope === 'needs_cursor_approval' ? nowIso() : undefined,
     };
 
-    upsertJob(job);
+    job.metadata = {
+      ...job.metadata,
+      traePrompt: buildAgentPrompt(job),
+      handoff: 'trae',
+    };
 
-    if (job.status === 'queued') {
-      void tickWorker();
-    } else if (job.status === 'awaiting_cursor_approval') {
-      // Still create a plan-mode agent so user has a Cursor link
-      void processOneJob({ ...job, status: 'queued', scope: 'needs_cursor_approval' });
-    }
+    upsertJob(job);
 
     sendJson(res, 201, {
       job,
@@ -1152,8 +1051,8 @@ export async function handleCodeFixRoutes(
       needsCursorApproval: job.scope === 'needs_cursor_approval',
       message:
         job.scope === 'needs_cursor_approval'
-          ? 'This looks larger than a surgical fix — approve in Cursor before implementation.'
-          : 'Logged — in the fix queue.',
+          ? 'This looks larger than a surgical fix — approve in Trae / AI Audit before implementation.'
+          : 'Logged for Trae — open AI Audit → Code fixes, copy the Trae prompt, then attach the PR when ready.',
     });
     return true;
   }

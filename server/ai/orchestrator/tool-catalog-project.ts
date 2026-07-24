@@ -829,7 +829,7 @@ export const EMAIL_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'requestCodeFix',
-      description: 'Offer a Cursor-powered code fix for a bug reported in chat',
+      description: 'Offer a Trae-ready code fix for a bug reported in chat',
       parameters: {
         type: 'object',
         properties: {
