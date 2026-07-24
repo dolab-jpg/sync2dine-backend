@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http';
+import { deepseekWebSearch, type DeepSeekWebHit } from './price-research-deepseek-web';
 
 export interface PriceRange {
   task: string;
@@ -28,6 +29,14 @@ interface SearchHit {
   title: string;
   url: string;
   snippet: string;
+}
+
+/** Normalise legacy openai_web → llm_only; accept deepseek_web / tavily / serper. */
+export function normalizePriceResearchProvider(raw?: string): string {
+  const p = (raw || process.env.PRICE_RESEARCH_PROVIDER || 'llm_only').trim();
+  if (p === 'openai_web') return 'llm_only';
+  if (p === 'deepseek_web' || p === 'tavily' || p === 'serper' || p === 'llm_only') return p;
+  return 'llm_only';
 }
 
 async function tavilySearch(query: string, apiKey: string): Promise<SearchHit[]> {
@@ -65,6 +74,13 @@ async function serperSearch(query: string, apiKey: string): Promise<SearchHit[]>
   }));
 }
 
+function hitsToContext(hits: SearchHit[]): string {
+  return hits
+    .map((h) => `- ${h.title}: ${h.snippet} (${h.url})`)
+    .join('\n')
+    .slice(0, 6000);
+}
+
 export async function handlePriceResearchRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -85,6 +101,8 @@ export async function handlePriceResearchRoutes(
     provider?: string;
     searchApiKey?: string;
     apiKey?: string;
+    deepseekApiKey?: string;
+    brainProvider?: string;
     orgId?: string;
   };
   try {
@@ -102,25 +120,42 @@ export async function handlePriceResearchRoutes(
 
   const region = body.region || 'UK';
   const location = body.postcode ? `${body.postcode} ${region}` : region;
-  const provider = body.provider || 'openai_web';
+  const provider = normalizePriceResearchProvider(body.provider);
 
   const { resolveOrgIdForRequest } = await import('./auth');
   const { resolveOpenAIApiKeyAsync, mapOpenAIError, OpenAIConnectionError } = await import('./openai-connection');
-  const { createLLMClientForOrg, defaultChatModelForProvider } = await import('./llm-connection');
+  const {
+    createLLMClientForOrg,
+    defaultChatModelForProvider,
+    resolveDeepSeekApiKeyAsync,
+    resolveBrainProvider,
+  } = await import('./llm-connection');
   const orgId = resolveOrgIdForRequest(req, body);
+
   let openaiKey: string | undefined;
   try {
     openaiKey = await resolveOpenAIApiKeyAsync(body.apiKey, orgId);
   } catch {
     openaiKey = undefined;
   }
+  const deepseekKey = await resolveDeepSeekApiKeyAsync(body.deepseekApiKey, orgId);
+  const brainProvider = resolveBrainProvider(body.brainProvider, orgId);
 
-  // No silent mock — callers must connect Company AI Brain / OpenAI.
-  if (!openaiKey) {
+  // Company AI Brain: DeepSeek and/or OpenAI — no silent mock.
+  if (!openaiKey && !deepseekKey) {
     sendJson(res, 503, {
-      error: 'OpenAI not connected — add your API key in Settings → Integrations → Company AI Brain and Save.',
+      error: 'AI brain not connected — add a DeepSeek or OpenAI key in Settings → Integrations → Company AI Brain and Save.',
       code: 'missing',
       provider: 'none',
+    });
+    return true;
+  }
+
+  if (provider === 'deepseek_web' && !deepseekKey) {
+    sendJson(res, 503, {
+      error: 'DeepSeek live web requires a DeepSeek API key — add it in Settings → Integrations → Company AI Brain.',
+      code: 'missing',
+      provider: 'deepseek_web',
     });
     return true;
   }
@@ -128,6 +163,7 @@ export async function handlePriceResearchRoutes(
   // Gather web context via the configured search provider (best effort).
   let searchContext = '';
   const collectedSources: { title: string; url: string }[] = [];
+
   if (provider === 'tavily' || provider === 'serper') {
     const searchKey = body.searchApiKey || process.env.PRICE_RESEARCH_API_KEY || '';
     if (searchKey) {
@@ -146,18 +182,42 @@ export async function handlePriceResearchRoutes(
           // ignore individual search failures
         }
       }
-      searchContext = hits
-        .map((h) => `- ${h.title}: ${h.snippet} (${h.url})`)
-        .join('\n')
-        .slice(0, 6000);
+      searchContext = hitsToContext(hits);
     }
+  } else if (provider === 'deepseek_web' && deepseekKey) {
+    const hits: SearchHit[] = [];
+    for (const task of tasks.slice(0, 8)) {
+      const query = `${task} ${body.tradeName ?? ''} cost price ${location} 2026`.trim();
+      try {
+        const found: DeepSeekWebHit[] = await deepseekWebSearch(query, deepseekKey, {
+          model: defaultChatModelForProvider('deepseek'),
+        });
+        for (const h of found.slice(0, 3)) {
+          hits.push(h);
+          if (h.url) collectedSources.push({ title: h.title, url: h.url });
+        }
+      } catch (err) {
+        console.warn('[price-research] deepseek_web task failed:', err instanceof Error ? err.message : err);
+      }
+    }
+    searchContext = hitsToContext(hits);
   }
 
   try {
-    const { client, provider: brainProvider } = await createLLMClientForOrg(orgId, pathname, {
+    let preferredBrain =
+      provider === 'deepseek_web'
+        ? 'deepseek'
+        : body.brainProvider || brainProvider;
+    // Prefer whichever Company AI Brain key is available.
+    if (preferredBrain === 'deepseek' && !deepseekKey && openaiKey) preferredBrain = 'openai';
+    if (preferredBrain === 'openai' && !openaiKey && deepseekKey) preferredBrain = 'deepseek';
+
+    const { client, provider: activeBrain } = await createLLMClientForOrg(orgId, pathname, {
       bodyOpenAIApiKey: body.apiKey,
+      bodyDeepSeekApiKey: body.deepseekApiKey,
+      provider: preferredBrain,
     });
-    const model = defaultChatModelForProvider(brainProvider, 'gpt-4o-mini');
+    const model = defaultChatModelForProvider(activeBrain, 'gpt-4o-mini');
 
     const systemPrompt = [
       `You are a UK construction & trades pricing researcher for region "${location}".`,
@@ -195,7 +255,12 @@ export async function handlePriceResearchRoutes(
         : collectedSources.slice(0, 3),
     }));
 
-    sendJson(res, 200, { provider: provider === 'openai_web' ? 'openai' : provider, items, sources: collectedSources });
+    const responseProvider =
+      provider === 'llm_only'
+        ? (activeBrain === 'deepseek' ? 'deepseek' : 'openai')
+        : provider;
+
+    sendJson(res, 200, { provider: responseProvider, items, sources: collectedSources });
     return true;
   } catch (err) {
     if (err instanceof OpenAIConnectionError) {
