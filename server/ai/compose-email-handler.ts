@@ -5,10 +5,15 @@ import { createLLMClientForOrg, defaultChatModelForProvider } from './llm-connec
 import { resolveOrgIdFromBody } from '../org-context';
 import { getSallyOfferStored } from '../sally-offer-store';
 import { getSalesTemplate, renderSalesPlaceholders } from '../sales-templates';
+import {
+  getPackage,
+  isSaasPackageId,
+} from '../saas-packages';
 
 export type ComposeEmailBody = {
   purpose?: string;
   templateId?: string;
+  packageId?: string;
   customerName?: string;
   restaurantName?: string;
   notes?: string;
@@ -20,21 +25,40 @@ export type ComposeEmailBody = {
   model?: string;
 };
 
-function offerFactsBlock(): string {
+/** Launch weekly GBP for a package (billing is weekly). */
+function resolveWeeklyFromPackage(packageId?: string): number | null {
+  if (!isSaasPackageId(packageId)) return null;
+  return getPackage(packageId).launchWeeklyGbp;
+}
+
+function defaultWeeklyFallback(): number {
   const t = getSallyOfferStored();
-  const monthly = Number.isFinite(Number(t.monthlyPriceGbp)) && Number(t.monthlyPriceGbp)! > 0
-    ? Number(t.monthlyPriceGbp)
-    : Number(process.env.SALLY_INTRO_MONTHLY_GBP) || 350;
+  const fromStoredWeekly = Number(t.products?.phone_agent?.weeklyPriceGbp);
+  if (Number.isFinite(fromStoredWeekly) && fromStoredWeekly > 0) return fromStoredWeekly;
+  const fromEnv = Number(process.env.SALLY_INTRO_WEEKLY_GBP);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
+  return getPackage('judie_starter').launchWeeklyGbp;
+}
+
+function offerFactsBlock(packageId?: string): string {
+  const t = getSallyOfferStored();
+  const fromPackage = resolveWeeklyFromPackage(packageId);
+  const weekly = fromPackage != null ? fromPackage : defaultWeeklyFallback();
   const setup = Number.isFinite(Number(t.setupFeeGbp)) && Number(t.setupFeeGbp)! >= 0
     ? Number(t.setupFeeGbp)
     : Number(process.env.SALLY_SETUP_FEE_GBP) || 0;
   const lines = [
     'AUTHORITATIVE OFFER FACTS (never invent different prices):',
-    `- Monthly: £${monthly}`,
+    `- Weekly: £${weekly}`,
     `- Setup: £${setup}`,
+    `- Billing: weekly`,
     `- Term: ${(t.minimumTerm || process.env.SALLY_MINIMUM_TERM || '1 month rolling').trim()}`,
     `- Cancel: ${(t.cancelPolicy || process.env.SALLY_CANCEL_POLICY || 'Cancel anytime with 30 days written notice after the first month.').trim()}`,
   ];
+  if (isSaasPackageId(packageId)) {
+    const pkg = getPackage(packageId);
+    lines.push(`- Package: ${pkg.name} (launch £${pkg.launchWeeklyGbp}/week)`);
+  }
   if (t.demoPhone || process.env.SALLY_DEMO_PHONE) {
     lines.push(`- Demo phone: ${(t.demoPhone || process.env.SALLY_DEMO_PHONE || '').trim()}`);
   }
@@ -47,13 +71,13 @@ function offerFactsBlock(): string {
   return lines.join('\n');
 }
 
-function buildOfferVariables(extra: Record<string, string | undefined> = {}): Record<string, string | undefined> {
+function buildOfferVariables(
+  extra: Record<string, string | undefined> = {},
+  packageId?: string,
+): Record<string, string | undefined> {
   const t = getSallyOfferStored();
-  const monthly = String(
-    Number.isFinite(Number(t.monthlyPriceGbp)) && Number(t.monthlyPriceGbp)! > 0
-      ? t.monthlyPriceGbp
-      : Number(process.env.SALLY_INTRO_MONTHLY_GBP) || 350,
-  );
+  const fromPackage = resolveWeeklyFromPackage(packageId);
+  const weekly = String(fromPackage != null ? fromPackage : defaultWeeklyFallback());
   const setupNum = Number.isFinite(Number(t.setupFeeGbp)) && Number(t.setupFeeGbp)! >= 0
     ? Number(t.setupFeeGbp)
     : Number(process.env.SALLY_SETUP_FEE_GBP) || 0;
@@ -71,7 +95,7 @@ function buildOfferVariables(extra: Record<string, string | undefined> = {}): Re
     COMPANY_EMAIL: 'info@sync2dine.io',
     COMPANY_WEBSITE: 'https://sync2dine.io',
     USER_NAME: 'Sally',
-    MONTHLY_PRICE: monthly,
+    MONTHLY_PRICE: weekly,
     SETUP_FEE: String(setupNum),
     SETUP_FEE_LINE: setupNum > 0 ? ` plus £${setupNum} setup` : '',
     MINIMUM_TERM: (t.minimumTerm || process.env.SALLY_MINIMUM_TERM || '1 month rolling').trim(),
@@ -93,7 +117,7 @@ export async function handleComposeEmail(
   const vars = buildOfferVariables({
     CUSTOMER_NAME: body.customerName || 'there',
     RESTAURANT_NAME: body.restaurantName || 'your restaurant',
-  });
+  }, body.packageId);
 
   // Template-only fill without LLM when notes empty and template selected
   if (template && !body.notes?.trim() && !body.rewrite?.trim() && !body.purpose?.trim()) {
@@ -111,7 +135,7 @@ export async function handleComposeEmail(
 
   const system = `You are Sally, sales receptionist for Sync2Dine (sync2dine.io) — UK B2B SaaS that sells voice AI ordering and table bookings to restaurants.
 Write professional email subject + body in clear UK English. Confident, warm, not hypey. No HTML.
-${offerFactsBlock()}
+${offerFactsBlock(body.packageId)}
 Never invent prices or terms different from the offer facts.
 Output JSON only: {"subject":"...","body":"..."} with body using short paragraphs separated by blank lines.
 Sign off as Sally / Sync2Dine when writing the body.`;
