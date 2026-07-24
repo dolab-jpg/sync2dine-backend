@@ -6,6 +6,7 @@ import {
   DEFAULT_ORG_ID,
   getDataStore,
   getPhoneLineByAssignedUserId,
+  getStaffPhoneLineForUser,
   listPhoneLines,
   resolveContactByPhone,
 } from '../data-store';
@@ -115,7 +116,7 @@ export function resolveAssignedStaffForCall(opts: {
 }): string | null {
   const header = String(opts.headerUserId || '').trim();
   if (header) {
-    const line = getPhoneLineByAssignedUserId(header);
+    const line = getStaffPhoneLineForUser(header) ?? getPhoneLineByAssignedUserId(header);
     if (line) return header;
     const bound = resolveBoundStaffUserId(opts.identity);
     if (bound === header) return header;

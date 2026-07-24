@@ -1641,6 +1641,18 @@ export function getPhoneLineByAssignedUserId(userId: string): PhoneLine | undefi
   );
 }
 
+/**
+ * Staff softphones are assigned on the home/platform org. Platform owners often
+ * act as a client company (X-Org-Id = client), so /lines/mine must also search home.
+ */
+export function getStaffPhoneLineForUser(userId: string): PhoneLine | undefined {
+  const local = getPhoneLineByAssignedUserId(userId);
+  if (local) return local;
+  const homeId = getHomeOrgId();
+  if (!homeId || homeId === getRequestOrgId()) return undefined;
+  return withOrgContext(homeId, () => getPhoneLineByAssignedUserId(userId));
+}
+
 export function deletePhoneLine(id: string): boolean {
   const store = getDataStore();
   const before = store.phoneLines.length;

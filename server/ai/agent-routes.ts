@@ -4,7 +4,7 @@ import {
   getAgentCapacitySnapshot,
   getAgentSettings,
   getAgentStatusSnapshot,
-  getPhoneLineByAssignedUserId,
+  getStaffPhoneLineForUser,
   getPhoneLineById,
   listPhoneLines,
   lookupContactByPhone,
@@ -408,7 +408,8 @@ async function handleGetMyLine(req: IncomingMessage, res: ServerResponse) {
     sendJson(res, 401, { error: 'User id required (Authorization or X-User-Id)' });
     return;
   }
-  const line = getPhoneLineByAssignedUserId(userId);
+  // Prefer current org, then home — staff softphones live on platform home.
+  const line = getStaffPhoneLineForUser(userId);
   if (!line) {
     sendJson(res, 404, { error: 'No softphone line assigned to this user' });
     return;
@@ -609,6 +610,22 @@ export async function handleAgentRoutes(
       return true;
     }
     const saved = saveCustomerRecord(customer);
+    // Won Sync2Dine home-org sales → Platform Client tenant
+    if (String(saved.status ?? '').toLowerCase() === 'won') {
+      try {
+        const { getRequestOrgId } = await import('../data-store');
+        const { ensurePlatformClientFromCrmCustomerAsync } = await import('../provision-from-crm');
+        ensurePlatformClientFromCrmCustomerAsync({
+          customer: saved as Record<string, unknown>,
+          sellingOrgId: getRequestOrgId(),
+        });
+      } catch (err) {
+        console.warn(
+          '[customers/upsert] platform client provision hook failed:',
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
     sendJson(res, 200, { ok: true, customer: saved });
     return true;
   }
