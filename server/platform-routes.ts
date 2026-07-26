@@ -28,11 +28,14 @@ import {
 } from './phone-lines';
 import {
   getPhoneLineById,
+  maskPhoneLine,
   withOrgContext,
   withOrgContextAsync,
   type PhoneLinePurpose,
 } from './data-store';
-import { registerAllEnabledLines, testLineConnection } from './telephony/lineRegistry';
+import { registerAllEnabledLines, registerLine, testLineConnection } from './telephony/lineRegistry';
+import { syncAsteriskBridge } from './telephony/asteriskBridge';
+import { collectAiPhoneLinesMasked } from './phone-lines';
 
 function assertPlatformAccess(req: IncomingMessage, res: ServerResponse): boolean {
   if (!isAuthEnforced()) return true;
@@ -112,6 +115,28 @@ export async function handlePlatformRoutes(
 
   if (pathname === '/api/platform/plans' && req.method === 'GET') {
     sendJson(res, 200, { plans: PLAN_CONFIG });
+    return true;
+  }
+
+  // Preview the COMPLETE AI line set (Sally + every customer Judie) that a bridge sync would publish.
+  if (pathname === '/api/platform/phone-lines/ai-set' && req.method === 'GET') {
+    const lines = collectAiPhoneLinesMasked();
+    sendJson(res, 200, { count: lines.length, lines });
+    return true;
+  }
+
+  // Full-replace sync: rebuild the Asterisk multi-REGISTER bridge from ALL enabled
+  // aria+sally lines across every org. This is the AI "Go live" path — it never
+  // single-swaps one line, so customers and Sally never displace each other.
+  if (pathname === '/api/platform/phone-lines/sync-asterisk-bridge' && req.method === 'POST') {
+    const body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
+    const apply = body.apply !== false;
+    try {
+      const result = await syncAsteriskBridge({ apply });
+      sendJson(res, result.ok ? 200 : 502, result);
+    } catch (err) {
+      sendJson(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
     return true;
   }
 
@@ -204,6 +229,29 @@ export async function handlePlatformRoutes(
     }
     const result = await testLineConnection(withDecryptedSipPassword(line));
     sendJson(res, result.ok ? 200 : 400, result);
+    return true;
+  }
+
+  const phoneLineRegisterMatch = pathname.match(/^\/api\/platform\/phone-lines\/([^/]+)\/register$/);
+  if (phoneLineRegisterMatch && req.method === 'POST') {
+    const lineId = decodeURIComponent(phoneLineRegisterMatch[1]);
+    const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+    const orgId = orgIdFromRequest(req, body);
+    if (!orgId) {
+      sendJson(res, 400, { error: 'orgId is required' });
+      return true;
+    }
+    const line = withOrgContext(orgId, () => getPhoneLineById(lineId));
+    if (!line) {
+      sendJson(res, 404, { error: 'Line not found' });
+      return true;
+    }
+    const result = await withOrgContextAsync(orgId, () => registerLine(withDecryptedSipPassword(line)));
+    const refreshed = withOrgContext(orgId, () => getPhoneLineById(lineId));
+    sendJson(res, result.ok ? 200 : 400, {
+      ...result,
+      line: refreshed ? { ...maskPhoneLine(refreshed), orgId } : null,
+    });
     return true;
   }
 
@@ -301,6 +349,24 @@ export async function handlePlatformRoutes(
   if (pathname === '/api/platform/organizations' && req.method === 'GET') {
     const orgs = (await listOrganizationsWithSupabase()).map(o => enrichOrg(o)!);
     sendJson(res, 200, { organizations: orgs });
+    return true;
+  }
+
+  if (pathname === '/api/platform/organizations/sync-from-crm' && req.method === 'POST') {
+    try {
+      const { syncWonCrmCustomersToPlatformClients } = await import('./provision-from-crm');
+      const result = await syncWonCrmCustomersToPlatformClients();
+      const orgs = (await listOrganizationsWithSupabase()).map(o => enrichOrg(o)!);
+      sendJson(res, 200, {
+        ok: true,
+        ...result,
+        organizations: orgs,
+      });
+    } catch (err) {
+      sendJson(res, 500, {
+        error: err instanceof Error ? err.message : 'sync_from_crm_failed',
+      });
+    }
     return true;
   }
 

@@ -6,3 +6,7 @@ services:
     network_mode: host
     env_file: .env
     # host network: bind 8060/RTP on VPS public interface (better for Soho66 NAT)
+    volumes:
+      # Full AI line set (Sally + every customer Judie), written by the API sync.
+      # Must exist before `up` — deploy/sync creates it as [] if absent.
+      - ./lines.json:/opt/lines.json:ro

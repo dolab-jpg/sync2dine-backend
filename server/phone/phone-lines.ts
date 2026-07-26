@@ -78,6 +78,105 @@ export function listAllPlatformPhoneLines(): PlatformPhoneLine[] {
   return out.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 }
 
+/**
+ * One AI SIP line (Judie `aria` per customer, or platform `sally`) flattened with
+ * everything the Asterisk multi-REGISTER bridge needs. SIP password is DECRYPTED
+ * here — callers must treat the result as a secret (write 0600, never log/return raw).
+ */
+export interface AiBridgeLine {
+  id: string;
+  orgId: string;
+  orgName?: string;
+  purpose: 'aria' | 'sally';
+  label: string;
+  sipUsername: string;
+  sipPassword: string;
+  sipDomain: string;
+  /** DID as saved (may be local 0…) */
+  did: string;
+  /** E.164 form used by Vapi + resolveInboundDidRoute, e.g. +442071128727 */
+  didE164: string;
+  /** Vapi inbound user (BYO number) this DID dials — defaults to didE164 */
+  vapiUser: string;
+  /** Vapi SIP credential host, e.g. <credId>.sip.vapi.ai */
+  aiSipHost: string;
+}
+
+const DEFAULT_SOHO66_DOMAIN = 'sbc.soho66.co.uk';
+
+/** Build <credId>.sip.vapi.ai from a Vapi SIP credential id, or accept a full host. */
+function resolveSharedVapiSipHost(): string {
+  const explicit = String(process.env.AI_SIP_HOST ?? '').trim();
+  if (explicit) return explicit.replace(/^sip:/, '');
+  const credId = String(
+    process.env.VAPI_SIP_CREDENTIAL_ID ?? process.env.VAPI_SIP_CREDENTIAL ?? '',
+  ).trim();
+  if (credId) return `${credId}.sip.vapi.ai`;
+  return '';
+}
+
+/** Normalise a stored DID to strict E.164 (+44…). Empty when un-parseable. */
+export function didToE164(did: string | undefined | null): string {
+  const digits = normalizePhoneExport(String(did ?? ''));
+  return digits ? `+${digits}` : '';
+}
+
+/**
+ * Every enabled AI SIP line across ALL orgs, decrypted and normalised for the
+ * multi-REGISTER Asterisk bridge. Includes Judie (`aria`) lines for each customer
+ * org plus the platform `sally` line. This is the COMPLETE set — the bridge is
+ * always rebuilt from this, never patched one line at a time.
+ */
+export function collectAiPhoneLines(): AiBridgeLine[] {
+  const sharedHost = resolveSharedVapiSipHost();
+  const out: AiBridgeLine[] = [];
+  const seenUsernames = new Set<string>();
+
+  for (const org of listOrganizations()) {
+    const lines = withOrgContext(org.id, () => listPhoneLines());
+    for (const line of lines) {
+      const purpose = (line.purpose ?? 'staff') as PhoneLinePurpose;
+      if (purpose !== 'aria' && purpose !== 'sally') continue; // staff softphones use JsSIP, not the bridge
+      if (!line.enabled) continue;
+
+      const sipUsername = String(line.sipUsername ?? '').trim();
+      const sipPassword = decryptPhoneLineSipPassword(line.sipPassword);
+      const sipDomain = String(line.sipDomain ?? '').trim() || DEFAULT_SOHO66_DOMAIN;
+      const didE164 = didToE164(line.did);
+
+      if (!sipUsername || !sipPassword || !didE164) continue; // incomplete → stays out of REGISTER set
+      if (seenUsernames.has(sipUsername)) continue; // never register the same SIP login twice
+
+      seenUsernames.add(sipUsername);
+      out.push({
+        id: line.id,
+        orgId: org.id,
+        orgName: org.name,
+        purpose,
+        label: line.label || (purpose === 'sally' ? 'Sally sales' : 'Judie'),
+        sipUsername,
+        sipPassword,
+        sipDomain,
+        did: String(line.did ?? '').trim(),
+        didE164,
+        vapiUser: didE164,
+        aiSipHost: sharedHost,
+      });
+    }
+  }
+
+  // Stable order: Sally first, then customer Judie lines by org name.
+  return out.sort((a, b) => {
+    if (a.purpose !== b.purpose) return a.purpose === 'sally' ? -1 : 1;
+    return (a.orgName || '').localeCompare(b.orgName || '');
+  });
+}
+
+/** Same as collectAiPhoneLines but SIP passwords redacted — safe to return over the API. */
+export function collectAiPhoneLinesMasked(): Array<Omit<AiBridgeLine, 'sipPassword'> & { sipPassword: string }> {
+  return collectAiPhoneLines().map((l) => ({ ...l, sipPassword: l.sipPassword ? '••••••' : '' }));
+}
+
 export function findDidConflict(
   did: string,
   exclude?: { orgId: string; lineId?: string },
