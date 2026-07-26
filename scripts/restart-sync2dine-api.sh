@@ -2,6 +2,7 @@
 set -euo pipefail
 BE=/var/www/vhosts/sync2dine.io/sync2dine-backend
 cd "$BE"
+export PATH="/usr/bin:/bin:/opt/plesk/node/24/bin:${PATH:-}"
 
 # Kill only the Sync2Dine API entrypoint (not this script / ssh). The command
 # line may use either absolute or relative tsx paths, so also clear the API's
@@ -9,8 +10,18 @@ cd "$BE"
 # health probe accidentally passes against stale code.
 pkill -f "$BE/node_modules/.bin/tsx" 2>/dev/null || true
 pkill -f "$BE/node_modules/tsx/dist/loader.mjs" 2>/dev/null || true
+
+# Prefer fuser; fall back to lsof (many Plesk hosts lack psmisc/fuser).
 if command -v fuser >/dev/null 2>&1; then
   fuser -k 3011/tcp 2>/dev/null || true
+elif command -v lsof >/dev/null 2>&1; then
+  for pid in $(lsof -tiTCP:3011 -sTCP:LISTEN 2>/dev/null || true); do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  sleep 1
+  for pid in $(lsof -tiTCP:3011 -sTCP:LISTEN 2>/dev/null || true); do
+    kill -KILL "$pid" 2>/dev/null || true
+  done
 fi
 sleep 2
 
@@ -20,7 +31,6 @@ if curl -fsS --max-time 2 http://127.0.0.1:3011/health >/dev/null 2>&1; then
 fi
 
 NODE=/opt/plesk/node/24/bin/node
-export PATH="/opt/plesk/node/24/bin:$PATH"
 nohup "$NODE" \
   --require ./node_modules/tsx/dist/preflight.cjs \
   --import "file://$BE/node_modules/tsx/dist/loader.mjs" \

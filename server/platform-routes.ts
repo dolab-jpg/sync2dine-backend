@@ -269,7 +269,23 @@ export async function handlePlatformRoutes(
       sendJson(res, 404, { error: 'Line not found' });
       return true;
     }
-    const result = await withOrgContextAsync(orgId, () => registerLine(withDecryptedSipPassword(line)));
+    const purpose = (line.purpose ?? 'staff') as string;
+    // AI lines (Judie/Sally) live on the N-REGISTER Asterisk bridge. Registering
+    // one line = republish the WHOLE set from lines.json so it never displaces
+    // Sally or another customer. The single-line Node bridge is for staff softphones.
+    if (purpose === 'aria' || purpose === 'sally') {
+      const sync = await syncAsteriskBridge({ apply: true });
+      const refreshed = withOrgContext(orgId, () => getPhoneLineById(lineId));
+      sendJson(res, sync.ok ? 200 : 400, {
+        ok: sync.ok,
+        message: sync.message,
+        count: sync.count,
+        byo: sync.byo,
+        line: refreshed ? { ...maskPhoneLine(refreshed), orgId } : null,
+      });
+      return true;
+    }
+    const result = await withOrgContextAsync(orgId, () => registerLine(withDecryptedSipPassword(line), undefined, orgId));
     const refreshed = withOrgContext(orgId, () => getPhoneLineById(lineId));
     sendJson(res, result.ok ? 200 : 400, {
       ...result,

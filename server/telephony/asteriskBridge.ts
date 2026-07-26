@@ -14,6 +14,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { collectAiPhoneLines, type AiBridgeLine } from '../phone-lines';
 import { updatePhoneLineStatus, withOrgContext } from '../data-store';
+import { ensureVapiByoForDids, type ByoEnsureSummary } from './vapiByo';
 
 export function getBridgeDir(): string {
   return (
@@ -45,6 +46,8 @@ export interface BridgeSyncResult {
   lines: BridgeSyncLine[];
   apply: { ran: boolean; ok: boolean; command: string; output: string };
   registrations?: string;
+  /** Vapi BYO ensure summary for every DID in the set (inbound path completeness). */
+  byo?: ByoEnsureSummary;
   message: string;
 }
 
@@ -146,7 +149,7 @@ export async function syncAsteriskBridge(opts?: { apply?: boolean }): Promise<Br
 
   let registrations: string | undefined;
   if (apply && applyRes.ok) {
-    // Give Asterisk time to (re)register every line before dumping — the second/Nth
+    // Give Asterisk time to (re)register every line before dumping  the second/Nth
     // REGISTER can complete a few seconds after container start.
     await new Promise((r) => setTimeout(r, 12000));
     const dump = await run(
@@ -172,9 +175,19 @@ export async function syncAsteriskBridge(opts?: { apply?: boolean }): Promise<Br
     }
   }
 
+  // Inbound path completeness: every DID needs a Vapi BYO number pointing at the
+  // Sync2Dine webhook, otherwise a REGISTERed line still drops to voicemail.
+  const byo = await ensureVapiByoForDids(lines.map((l) => l.didE164));
+
   const statuses = registrations ? parseRegistrationStatuses(registrations) : new Map();
   const allRegistered = !apply || lines.every((l) => statuses.get(l.sipUsername) === 'Registered');
-  const ok = wrote && (!apply || (applyRes.ok && allRegistered));
+  // Only gate on BYO when Vapi is actually configured — otherwise surface a
+  // warning rather than blocking a bridge sync in environments without Vapi keys.
+  const byoOk = !byo.configured || byo.ok;
+  const ok = wrote && (!apply || (applyRes.ok && allRegistered)) && byoOk;
+  const byoNote = byo.configured && !byo.ok
+    ? ` Vapi BYO incomplete: ${byo.results.filter((r) => !r.ok).map((r) => `${r.did} (${r.message})`).join('; ')}.`
+    : '';
   return {
     ok,
     count: lines.length,
@@ -183,10 +196,13 @@ export async function syncAsteriskBridge(opts?: { apply?: boolean }): Promise<Br
     lines: masked,
     apply: { ran: apply, ok: applyRes.ok, command: applyCmd, output: applyRes.output },
     registrations,
-    message: ok
+    byo,
+    message: (ok
       ? `Synced ${lines.length} AI line(s) to Asterisk bridge${apply ? ' and recreated container' : ' (write-only)'}.`
-      : applyRes.ok
-        ? `Bridge reloaded, but not every AI line reached Registered status.`
-        : `Wrote lines.json but bridge apply failed. Run "${applyCmd}" on the VPS.`,
+      : applyRes.ok && allRegistered
+        ? `Bridge reloaded and REGISTERed, but the Vapi inbound path is incomplete.`
+        : applyRes.ok
+          ? `Bridge reloaded, but not every AI line reached Registered status.`
+          : `Wrote lines.json but bridge apply failed. Run "${applyCmd}" on the VPS.`) + byoNote,
   };
 }

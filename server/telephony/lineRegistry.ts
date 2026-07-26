@@ -1,9 +1,11 @@
 import {
   listPhoneLines,
   updatePhoneLineStatus,
+  withOrgContext,
   type PhoneLine,
 } from '../data-store';
-import { withDecryptedSipPassword } from '../phone-lines';
+import { withDecryptedSipPassword, didToE164 } from '../phone-lines';
+import { checkVapiByoForDid } from './vapiByo';
 
 export function getSipBridgeUrl(): string | null {
   const url = (process.env.SOHO66_SIP_BRIDGE_URL ?? '').replace(/\/$/, '');
@@ -30,13 +32,32 @@ async function bridgeFetch(
   });
 }
 
-export async function registerLine(line: PhoneLine, bridgeUrl?: string): Promise<{ ok: boolean; message: string }> {
+/** Status writes must hit the correct org's store when called from platform multi-org paths. */
+function setLineStatus(
+  lineId: string,
+  patch: Parameters<typeof updatePhoneLineStatus>[1],
+  orgId?: string,
+): void {
+  if (orgId) {
+    withOrgContext(orgId, () => {
+      updatePhoneLineStatus(lineId, patch);
+    });
+    return;
+  }
+  updatePhoneLineStatus(lineId, patch);
+}
+
+export async function registerLine(
+  line: PhoneLine,
+  bridgeUrl?: string,
+  orgId?: string,
+): Promise<{ ok: boolean; message: string }> {
   const bridge = (bridgeUrl ?? getSipBridgeUrl())?.replace(/\/$/, '');
   if (!bridge) {
     return { ok: false, message: 'SOHO66_SIP_BRIDGE_URL is not configured' };
   }
 
-  updatePhoneLineStatus(line.id, { status: 'registering', lastError: undefined });
+  setLineStatus(line.id, { status: 'registering', lastError: undefined }, orgId);
 
   const decrypted = withDecryptedSipPassword(line);
 
@@ -56,27 +77,27 @@ export async function registerLine(line: PhoneLine, bridgeUrl?: string): Promise
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
       const message = errText || `Bridge registration failed (${response.status})`;
-      updatePhoneLineStatus(line.id, { status: 'error', lastError: message });
+      setLineStatus(line.id, { status: 'error', lastError: message }, orgId);
       return { ok: false, message };
     }
 
-    updatePhoneLineStatus(line.id, {
+    setLineStatus(line.id, {
       status: 'registered',
       registeredAt: new Date().toISOString(),
       lastError: undefined,
-    });
+    }, orgId);
     return { ok: true, message: `Line "${line.label}" registered` };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Bridge unreachable';
-    updatePhoneLineStatus(line.id, { status: 'error', lastError: message });
+    setLineStatus(line.id, { status: 'error', lastError: message }, orgId);
     return { ok: false, message };
   }
 }
 
-export async function unregisterLine(lineId: string, bridgeUrl?: string): Promise<void> {
+export async function unregisterLine(lineId: string, bridgeUrl?: string, orgId?: string): Promise<void> {
   const bridge = (bridgeUrl ?? getSipBridgeUrl())?.replace(/\/$/, '');
   if (!bridge) {
-    updatePhoneLineStatus(lineId, { status: 'disconnected', lastError: undefined });
+    setLineStatus(lineId, { status: 'disconnected', lastError: undefined }, orgId);
     return;
   }
 
@@ -85,7 +106,7 @@ export async function unregisterLine(lineId: string, bridgeUrl?: string): Promis
   } catch {
     // best-effort unregister
   }
-  updatePhoneLineStatus(lineId, { status: 'disconnected', lastError: undefined, registeredAt: undefined });
+  setLineStatus(lineId, { status: 'disconnected', lastError: undefined, registeredAt: undefined }, orgId);
 }
 
 export async function registerAllEnabledLines(bridgeUrl?: string): Promise<{
@@ -120,13 +141,18 @@ export async function testLineConnection(line: PhoneLine, bridgeUrl?: string): P
     return { ok: false, message: 'DID (phone number) is required' };
   }
 
+  // The inbound identity: a missing Vapi BYO for this DID is exactly why a call
+  // "tests fine" and still drops to voicemail. Verify it as part of Test.
+  const byo = await checkVapiByoForDid(didToE164(decrypted.did));
+
   const bridge = (bridgeUrl ?? getSipBridgeUrl())?.replace(/\/$/, '');
   if (!bridge) {
     return {
       ok: false,
       message:
         `Credentials look complete for ${decrypted.sipUsername}@${decrypted.sipDomain}, but SOHO66_SIP_BRIDGE_URL is not set on the API. ` +
-        'Test cannot verify REGISTER. Live Judie inbound uses the VPS Asterisk Soho66 bridge — Register in-app needs the Node SIP bridge URL.',
+        'Test cannot verify in-app REGISTER; live Judie inbound uses the VPS Asterisk Soho66 bridge (use Go live). ' +
+        `Vapi BYO: ${byo.message}.`,
     };
   }
 
@@ -135,9 +161,13 @@ export async function testLineConnection(line: PhoneLine, bridgeUrl?: string): P
     if (!response.ok) {
       return { ok: false, message: `SIP bridge health check failed (${response.status})` };
     }
+    // Never claim ready when the inbound BYO is missing (when Vapi is configured).
+    const ready = byo.ok || !byo.configured;
     return {
-      ok: true,
-      message: `Bridge reachable. Line "${decrypted.label}" ready to register (${decrypted.sipUsername}@${decrypted.sipDomain}). Click Register to go live in-app.`,
+      ok: ready,
+      message: ready
+        ? `Bridge reachable and line "${decrypted.label}" ready (${decrypted.sipUsername}@${decrypted.sipDomain}). Vapi BYO: ${byo.message}.`
+        : `Bridge reachable, but inbound will fail: ${byo.message}. Run Go live to provision the Vapi BYO.`,
     };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : 'Bridge unreachable' };

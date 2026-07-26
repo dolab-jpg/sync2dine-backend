@@ -74,7 +74,13 @@ def load_lines():
         )
 
     if not normalized and ENV_USER and ENV_PASS and ENV_VAPI_USER and ENV_AI_HOST:
-        print("No lines.json entries - falling back to single-line env config.", file=sys.stderr)
+        print(
+            "ERROR-LEVEL WARNING: lines.json empty/missing - falling back to SINGLE-LINE env "
+            "(SOHO66_SIP_USERNAME=%s). This displaces every other AI line. Prefer writing "
+            "lines.json via POST /api/platform/phone-lines/sync-asterisk-bridge."
+            % ENV_USER,
+            file=sys.stderr,
+        )
         normalized.append(
             {
                 "user": ENV_USER,
