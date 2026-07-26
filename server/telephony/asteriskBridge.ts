@@ -186,8 +186,13 @@ export async function syncAsteriskBridge(opts?: { apply?: boolean }): Promise<Br
   const byoOk = !byo.configured || byo.ok;
   const ok = wrote && (!apply || (applyRes.ok && allRegistered)) && byoOk;
   const byoNote = byo.configured && !byo.ok
-    ? ` Vapi BYO incomplete: ${byo.results.filter((r) => !r.ok).map((r) => `${r.did} (${r.message})`).join('; ')}.`
-    : '';
+    ? ` Vapi inbound incomplete: ${[
+        ...(byo.inboundIp && !byo.inboundIp.ok ? [`IP allowlist: ${byo.inboundIp.message}`] : []),
+        ...byo.results.filter((r) => !r.ok).map((r) => `${r.did} (${r.message})`),
+      ].join('; ')}.`
+    : byo.inboundIp?.action === 'patched'
+      ? ` ${byo.inboundIp.message}.`
+      : '';
   return {
     ok,
     count: lines.length,

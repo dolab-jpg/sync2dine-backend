@@ -5,8 +5,12 @@
  * shared Sync2Dine SIP credential whose server.url points at the Sync2Dine
  * webhook. A missing BYO is exactly why an inbound call could "test fine" yet
  * drop to voicemail: Vapi had no identity for that number, so it never invoked
- * the assistant. Go live and Test both call in here so that class of failure is
- * caught up front instead of on a live customer call.
+ * the assistant.
+ *
+ * Additionally, Asterisk on the VPS must be allowlisted as an inboundEnabled
+ * gateway on that SIP credential. Without it, Vapi 401s the Dial and the caller
+ * hears Answer then silence/hangup. Go live and Test both call in here so those
+ * classes of failure are caught up front.
  *
  * This is a runtime TS port of scripts/vapi-ensure-byo.mjs (kept for CLI use).
  */
@@ -26,6 +30,15 @@ function webhookUrl(): string {
   return `${base}/webhooks/vapi`;
 }
 
+function inboundAllowedIp(): string | null {
+  return (
+    process.env.EXTERNAL_IP
+    || process.env.VAPI_INBOUND_ALLOWED_IP
+    || process.env.PUBLIC_IP
+    || null
+  )?.trim() || null;
+}
+
 /** Whether the API even has the credentials needed to talk to Vapi. */
 export function isVapiByoConfigured(): boolean {
   return Boolean(key() && credentialId());
@@ -37,6 +50,22 @@ interface VapiNumber {
   credentialId?: string;
   server?: { url?: string };
   serverUrl?: string;
+}
+
+interface VapiGateway {
+  ip?: string;
+  port?: number;
+  inboundEnabled?: boolean;
+  outboundEnabled?: boolean;
+  outboundProtocol?: string;
+  netmask?: number;
+}
+
+interface VapiCredential {
+  id?: string;
+  gateways?: VapiGateway[];
+  outboundAuthenticationPlan?: Record<string, unknown>;
+  outboundLeadingPlusEnabled?: boolean;
 }
 
 async function vapiFetch(path: string, init?: RequestInit): Promise<Response> {
@@ -76,16 +105,76 @@ export interface ByoResult {
   message: string;
 }
 
+export interface InboundIpResult {
+  ok: boolean;
+  ip: string | null;
+  action: 'exists' | 'patched' | 'skipped' | 'error';
+  message: string;
+}
+
 export interface ByoEnsureSummary {
   configured: boolean;
   ok: boolean;
   results: ByoResult[];
+  inboundIp?: InboundIpResult;
 }
 
 /**
- * Make sure every DID has a BYO number on the right credential + webhook.
- * Idempotent. If Vapi isn't configured, returns configured:false (callers
- * decide whether that is fatal for their context).
+ * Ensure the VPS public IP is inboundEnabled on the BYO SIP credential so
+ * Asterisk?Vapi Dial is accepted (avoids Answer-then-silent-Hangup).
+ */
+export async function ensureVapiInboundIp(ip?: string | null): Promise<InboundIpResult> {
+  const targetIp = (ip || inboundAllowedIp())?.trim() || null;
+  if (!isVapiByoConfigured()) {
+    return { ok: false, ip: targetIp, action: 'skipped', message: 'Vapi not configured' };
+  }
+  if (!targetIp) {
+    return {
+      ok: false,
+      ip: null,
+      action: 'skipped',
+      message: 'EXTERNAL_IP / VAPI_INBOUND_ALLOWED_IP not set — cannot verify Vapi inbound allowlist',
+    };
+  }
+  const cred = credentialId() as string;
+  try {
+    const get = await vapiFetch(`/credential/${cred}`);
+    if (!get.ok) {
+      return { ok: false, ip: targetIp, action: 'error', message: `GET credential ${get.status}` };
+    }
+    const cur = (await get.json()) as VapiCredential;
+    const gateways = Array.isArray(cur.gateways) ? [...cur.gateways] : [];
+    if (gateways.some((g) => g.ip === targetIp && g.inboundEnabled === true)) {
+      return { ok: true, ip: targetIp, action: 'exists', message: `inbound IP ${targetIp} already allowlisted` };
+    }
+    gateways.push({ ip: targetIp, inboundEnabled: true, outboundEnabled: false, netmask: 32 });
+    if (!gateways.some((g) => g.outboundEnabled)) {
+      gateways.push({
+        ip: 'sbc.soho66.co.uk',
+        port: 8060,
+        inboundEnabled: false,
+        outboundEnabled: true,
+        outboundProtocol: 'udp',
+      });
+    }
+    const body: Record<string, unknown> = {
+      gateways,
+      outboundLeadingPlusEnabled: cur.outboundLeadingPlusEnabled !== false,
+    };
+    if (cur.outboundAuthenticationPlan) body.outboundAuthenticationPlan = cur.outboundAuthenticationPlan;
+    const patch = await vapiFetch(`/credential/${cred}`, { method: 'PATCH', body: JSON.stringify(body) });
+    if (!patch.ok) {
+      return { ok: false, ip: targetIp, action: 'error', message: `PATCH credential ${patch.status}: ${await patch.text().catch(() => '')}` };
+    }
+    return { ok: true, ip: targetIp, action: 'patched', message: `inbound IP ${targetIp} allowlisted on Vapi SIP credential` };
+  } catch (err) {
+    return { ok: false, ip: targetIp, action: 'error', message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Make sure every DID has a BYO number on the right credential + webhook, and
+ * the VPS IP is allowlisted for inbound SIP to Vapi.
  */
 export async function ensureVapiByoForDids(didsE164: string[]): Promise<ByoEnsureSummary> {
   const dids = Array.from(new Set(didsE164.map((d) => String(d || '').trim()).filter(Boolean)));
@@ -94,11 +183,17 @@ export async function ensureVapiByoForDids(didsE164: string[]): Promise<ByoEnsur
   }
   const cred = credentialId() as string;
   const url = webhookUrl();
+  const inboundIp = await ensureVapiInboundIp();
   let existing: VapiNumber[];
   try {
     existing = await listNumbers();
   } catch (err) {
-    return { configured: true, ok: false, results: dids.map((did) => ({ did, ok: false, action: 'error', message: err instanceof Error ? err.message : String(err) })) };
+    return {
+      configured: true,
+      ok: false,
+      inboundIp,
+      results: dids.map((did) => ({ did, ok: false, action: 'error', message: err instanceof Error ? err.message : String(err) })),
+    };
   }
 
   const results: ByoResult[] = [];
@@ -130,7 +225,10 @@ export async function ensureVapiByoForDids(didsE164: string[]): Promise<ByoEnsur
       results.push({ did, ok: false, action: 'error', message: err instanceof Error ? err.message : String(err) });
     }
   }
-  return { configured: true, ok: results.every((r) => r.ok), results };
+  // inboundIp.skipped (no EXTERNAL_IP) is a warning, not a hard fail — live may still
+  // work if the IP was allowlisted manually. inboundIp.error / !ok when we tried = fail.
+  const inboundOk = inboundIp.action === 'skipped' || inboundIp.ok;
+  return { configured: true, ok: results.every((r) => r.ok) && inboundOk, results, inboundIp };
 }
 
 /** Read-only check for a single DID (used by Test). */
@@ -145,6 +243,22 @@ export async function checkVapiByoForDid(didE164: string): Promise<{ configured:
     if (!match) return { configured: true, ok: false, message: `No Vapi BYO number for ${did} — inbound calls will drop to voicemail` };
     const url = webhookUrl();
     if (serverOf(match) !== url) return { configured: true, ok: false, message: `Vapi BYO ${did} points at "${serverOf(match)}", not ${url}` };
+
+    const ip = inboundAllowedIp();
+    if (ip) {
+      const get = await vapiFetch(`/credential/${credentialId()}`);
+      if (get.ok) {
+        const cur = (await get.json()) as VapiCredential;
+        const allowed = (cur.gateways || []).some((g) => g.ip === ip && g.inboundEnabled === true);
+        if (!allowed) {
+          return {
+            configured: true,
+            ok: false,
+            message: `Vapi BYO ${did} exists, but VPS IP ${ip} is not inbound-allowlisted — calls Answer then hang up with no audio`,
+          };
+        }
+      }
+    }
     return { configured: true, ok: true, message: `Vapi BYO ${did} ready (id=${match.id})` };
   } catch (err) {
     return { configured: true, ok: false, message: err instanceof Error ? err.message : String(err) };
