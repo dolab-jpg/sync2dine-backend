@@ -5,20 +5,21 @@
  *
  * Every AI DID must have a BYO number on the shared Sync2Dine SIP credential with
  * server.url -> <webhook>/webhooks/vapi. A missing BYO is why an inbound call
- * "tests fine" but drops to voicemail — Vapi has no identity for that number.
+ * "tests fine" but drops to voicemail  Vapi has no identity for that number.
  *
  * Usage (on the VPS, env from the API .env):
  *   node scripts/vapi-ensure-byo.mjs +442071128727 [+44...]
  *
  * Env:
  *   VAPI_PRIVATE_KEY        (required)
- *   VAPI_SIP_CREDENTIAL_ID  (required — the BYO SIP trunk credential id)
+ *   VAPI_SIP_CREDENTIAL_ID  (required  the BYO SIP trunk credential id)
  *   WEBHOOK_BASE_URL        (default https://app.sync2dine.io)
  */
 const KEY = process.env.VAPI_PRIVATE_KEY || process.env.VAPI_API_KEY;
 const CRED = process.env.VAPI_SIP_CREDENTIAL_ID || process.env.VAPI_SIP_CREDENTIAL;
 const WEBHOOK = (process.env.WEBHOOK_BASE_URL || process.env.APP_BASE_URL || 'https://app.sync2dine.io').replace(/\/$/, '');
 const SERVER_URL = `${WEBHOOK}/webhooks/vapi`;
+const SERVER_SECRET = (process.env.VAPI_SERVER_SECRET || '').trim();
 const API = process.env.VAPI_API_BASE || 'https://api.vapi.ai';
 
 const numbers = process.argv.slice(2).map((n) => n.trim()).filter(Boolean);
@@ -34,6 +35,10 @@ if (numbers.length === 0) fail('Pass at least one E.164 number, e.g. +4420711287
 
 const headers = { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
 
+function serverBody() {
+  return SERVER_SECRET ? { url: SERVER_URL, secret: SERVER_SECRET } : { url: SERVER_URL };
+}
+
 async function listNumbers() {
   const res = await fetch(`${API}/phone-number`, { headers });
   if (!res.ok) fail(`GET /phone-number ${res.status}: ${await res.text()}`);
@@ -47,7 +52,7 @@ async function createByo(number) {
     number,
     credentialId: CRED,
     numberE164CheckEnabled: false,
-    server: { url: SERVER_URL },
+    server: serverBody(),
   };
   const res = await fetch(`${API}/phone-number`, { method: 'POST', headers, body: JSON.stringify(body) });
   const text = await res.text();
@@ -59,22 +64,28 @@ async function patchServer(id) {
   const res = await fetch(`${API}/phone-number/${id}`, {
     method: 'PATCH',
     headers,
-    body: JSON.stringify({ server: { url: SERVER_URL } }),
+    body: JSON.stringify({ server: serverBody() }),
   });
   return res.ok;
+}
+
+function hasSecret(match) {
+  return Boolean((match.server && match.server.secret) || match.serverUrlSecret);
 }
 
 async function main() {
   console.log(`Credential: ${CRED}`);
   console.log(`Webhook:    ${SERVER_URL}`);
+  console.log(`Secret:     ${SERVER_SECRET ? 'set' : 'MISSING (VAPI_SERVER_SECRET)'}`);
   const existing = await listNumbers();
   for (const number of numbers) {
     const match = existing.find((n) => (n.number || '') === number);
     if (match) {
       const server = (match.server && match.server.url) || match.serverUrl || '';
-      if (server !== SERVER_URL) {
+      const needPatch = server !== SERVER_URL || (SERVER_SECRET && !hasSecret(match));
+      if (needPatch) {
         const ok = await patchServer(match.id);
-        console.log(`~ ${number}: exists (id=${match.id}) — server ${ok ? 'updated' : 'update FAILED'} -> ${SERVER_URL}`);
+        console.log(`~ ${number}: exists (id=${match.id}) — server ${ok ? 'updated' : 'update FAILED'} -> ${SERVER_URL}${SERVER_SECRET ? ' (+secret)' : ''}`);
       } else {
         console.log(`= ${number}: already provisioned (id=${match.id}, cred=${match.credentialId || '?'})`);
       }

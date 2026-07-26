@@ -30,6 +30,16 @@ function webhookUrl(): string {
   return `${base}/webhooks/vapi`;
 }
 
+function webhookSecret(): string | null {
+  return process.env.VAPI_SERVER_SECRET?.trim() || null;
+}
+
+function serverPayload(): { url: string; secret?: string } {
+  const url = webhookUrl();
+  const secret = webhookSecret();
+  return secret ? { url, secret } : { url };
+}
+
 function inboundAllowedIp(): string | null {
   return (
     process.env.EXTERNAL_IP
@@ -133,7 +143,7 @@ export async function ensureVapiInboundIp(ip?: string | null): Promise<InboundIp
       ok: false,
       ip: null,
       action: 'skipped',
-      message: 'EXTERNAL_IP / VAPI_INBOUND_ALLOWED_IP not set ó cannot verify Vapi inbound allowlist',
+      message: 'EXTERNAL_IP / VAPI_INBOUND_ALLOWED_IP not set ù cannot verify Vapi inbound allowlist',
     };
   }
   const cred = credentialId() as string;
@@ -182,7 +192,6 @@ export async function ensureVapiByoForDids(didsE164: string[]): Promise<ByoEnsur
     return { configured: false, ok: false, results: dids.map((did) => ({ did, ok: false, action: 'skipped', message: 'VAPI_PRIVATE_KEY / VAPI_SIP_CREDENTIAL_ID not set' })) };
   }
   const cred = credentialId() as string;
-  const url = webhookUrl();
   const inboundIp = await ensureVapiInboundIp();
   let existing: VapiNumber[];
   try {
@@ -201,10 +210,13 @@ export async function ensureVapiByoForDids(didsE164: string[]): Promise<ByoEnsur
     const match = existing.find((n) => (n.number || '') === did);
     try {
       if (match) {
-        if (serverOf(match) !== url) {
-          const res = await vapiFetch(`/phone-number/${match.id}`, { method: 'PATCH', body: JSON.stringify({ server: { url } }) });
+        const want = serverPayload();
+        const haveSecret = Boolean((match.server && (match.server as { secret?: string }).secret) || (match as { serverUrlSecret?: string }).serverUrlSecret);
+        const needPatch = serverOf(match) !== want.url || (Boolean(want.secret) && !haveSecret);
+        if (needPatch) {
+          const res = await vapiFetch(`/phone-number/${match.id}`, { method: 'PATCH', body: JSON.stringify({ server: want }) });
           results.push(res.ok
-            ? { did, ok: true, id: match.id, action: 'patched', message: `serverUrl updated -> ${url}` }
+            ? { did, ok: true, id: match.id, action: 'patched', message: `server ${want.secret ? 'url+secret' : 'url'} updated -> ${want.url}` }
             : { did, ok: false, id: match.id, action: 'error', message: `PATCH ${res.status}` });
         } else {
           results.push({ did, ok: true, id: match.id, action: 'exists', message: `already on cred ${cred}` });
@@ -213,7 +225,13 @@ export async function ensureVapiByoForDids(didsE164: string[]): Promise<ByoEnsur
       }
       const res = await vapiFetch('/phone-number', {
         method: 'POST',
-        body: JSON.stringify({ provider: 'byo-phone-number', number: did, credentialId: cred, numberE164CheckEnabled: false, server: { url } }),
+        body: JSON.stringify({
+          provider: 'byo-phone-number',
+          number: did,
+          credentialId: cred,
+          numberE164CheckEnabled: false,
+          server: serverPayload(),
+        }),
       });
       if (res.ok) {
         const created = (await res.json()) as VapiNumber;
@@ -225,7 +243,7 @@ export async function ensureVapiByoForDids(didsE164: string[]): Promise<ByoEnsur
       results.push({ did, ok: false, action: 'error', message: err instanceof Error ? err.message : String(err) });
     }
   }
-  // inboundIp.skipped (no EXTERNAL_IP) is a warning, not a hard fail ó live may still
+  // inboundIp.skipped (no EXTERNAL_IP) is a warning, not a hard fail ù live may still
   // work if the IP was allowlisted manually. inboundIp.error / !ok when we tried = fail.
   const inboundOk = inboundIp.action === 'skipped' || inboundIp.ok;
   return { configured: true, ok: results.every((r) => r.ok) && inboundOk, results, inboundIp };
@@ -235,14 +253,25 @@ export async function ensureVapiByoForDids(didsE164: string[]): Promise<ByoEnsur
 export async function checkVapiByoForDid(didE164: string): Promise<{ configured: boolean; ok: boolean; message: string }> {
   const did = String(didE164 || '').trim();
   if (!isVapiByoConfigured()) {
-    return { configured: false, ok: false, message: 'VAPI_PRIVATE_KEY / VAPI_SIP_CREDENTIAL_ID not set ó cannot verify Vapi BYO' };
+    return { configured: false, ok: false, message: 'VAPI_PRIVATE_KEY / VAPI_SIP_CREDENTIAL_ID not set ù cannot verify Vapi BYO' };
   }
   try {
     const numbers = await listNumbers();
     const match = numbers.find((n) => (n.number || '') === did);
-    if (!match) return { configured: true, ok: false, message: `No Vapi BYO number for ${did} ó inbound calls will drop to voicemail` };
+    if (!match) return { configured: true, ok: false, message: `No Vapi BYO number for ${did} ù inbound calls will drop to voicemail` };
     const url = webhookUrl();
     if (serverOf(match) !== url) return { configured: true, ok: false, message: `Vapi BYO ${did} points at "${serverOf(match)}", not ${url}` };
+    const haveSecret = Boolean(
+      (match.server && (match.server as { secret?: string }).secret)
+      || (match as { serverUrlSecret?: string }).serverUrlSecret,
+    );
+    if (webhookSecret() && !haveSecret) {
+      return {
+        configured: true,
+        ok: false,
+        message: `Vapi BYO ${did} has no webhook secret ó Vapi will speak "invalid secret" instead of Judie`,
+      };
+    }
 
     const ip = inboundAllowedIp();
     if (ip) {
@@ -254,7 +283,7 @@ export async function checkVapiByoForDid(didE164: string): Promise<{ configured:
           return {
             configured: true,
             ok: false,
-            message: `Vapi BYO ${did} exists, but VPS IP ${ip} is not inbound-allowlisted ó calls Answer then hang up with no audio`,
+            message: `Vapi BYO ${did} exists, but VPS IP ${ip} is not inbound-allowlisted ù calls Answer then hang up with no audio`,
           };
         }
       }
