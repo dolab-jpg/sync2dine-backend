@@ -111,13 +111,18 @@ export const soho66Adapter: TelephonyProvider = {
     }
 
     const registered = lines.filter(l => l.status === 'registered').length;
-    const bridgeNote = bridgeUrl
-      ? `SIP bridge configured (${bridgeUrl}). ${registered}/${lines.length} lines registered.`
-      : 'Set SOHO66_SIP_BRIDGE_URL and use Register all lines in Call Centre.';
+    if (!bridgeUrl) {
+      return {
+        ok: false,
+        message:
+          `${lines.length} Soho66 line(s) saved, but SOHO66_SIP_BRIDGE_URL is not set. ` +
+          'In-app Register/Test cannot verify SIP. Live Judie uses the VPS Asterisk bridge separately.',
+      };
+    }
 
     return {
       ok: true,
-      message: `${lines.length} Soho66 line(s) configured. ${bridgeNote}`,
+      message: `${lines.length} Soho66 line(s) configured. SIP bridge (${bridgeUrl}). ${registered}/${lines.length} lines registered.`,
     };
   },
 };

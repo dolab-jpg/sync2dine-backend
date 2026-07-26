@@ -36,6 +36,8 @@ import {
 import { registerAllEnabledLines, registerLine, testLineConnection } from './telephony/lineRegistry';
 import { syncAsteriskBridge } from './telephony/asteriskBridge';
 import { collectAiPhoneLinesMasked } from './phone-lines';
+import { getSallyOfferTerms } from './sally/offer';
+import { getSallyOfferStored, updateSallyOfferStored, type SallyOfferStored } from './sally-offer-store';
 
 function assertPlatformAccess(req: IncomingMessage, res: ServerResponse): boolean {
   if (!isAuthEnforced()) return true;
@@ -153,6 +155,27 @@ export async function handlePlatformRoutes(
     }
     const result = await withOrgContextAsync(orgId, () => registerAllEnabledLines());
     sendJson(res, 200, result);
+    return true;
+  }
+
+  if (
+    pathname === '/api/platform/sally-offer'
+    && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST')
+  ) {
+    if (req.method === 'GET') {
+      sendJson(res, 200, {
+        offer: getSallyOfferTerms(),
+        stored: getSallyOfferStored(),
+      });
+      return true;
+    }
+
+    const body = JSON.parse((await readBody(req)) || '{}') as Partial<SallyOfferStored>;
+    const stored = updateSallyOfferStored(body, 'platform-owner');
+    sendJson(res, 200, {
+      offer: getSallyOfferTerms(),
+      stored,
+    });
     return true;
   }
 

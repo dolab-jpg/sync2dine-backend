@@ -123,8 +123,10 @@ export async function testLineConnection(line: PhoneLine, bridgeUrl?: string): P
   const bridge = (bridgeUrl ?? getSipBridgeUrl())?.replace(/\/$/, '');
   if (!bridge) {
     return {
-      ok: true,
-      message: `Credentials saved for ${decrypted.sipUsername}@${decrypted.sipDomain}. Set SOHO66_SIP_BRIDGE_URL to register live.`,
+      ok: false,
+      message:
+        `Credentials look complete for ${decrypted.sipUsername}@${decrypted.sipDomain}, but SOHO66_SIP_BRIDGE_URL is not set on the API. ` +
+        'Test cannot verify REGISTER. Live Judie inbound uses the VPS Asterisk Soho66 bridge — Register in-app needs the Node SIP bridge URL.',
     };
   }
 
@@ -135,7 +137,7 @@ export async function testLineConnection(line: PhoneLine, bridgeUrl?: string): P
     }
     return {
       ok: true,
-      message: `Bridge reachable. Line "${decrypted.label}" ready to register (${decrypted.sipUsername}@${decrypted.sipDomain}).`,
+      message: `Bridge reachable. Line "${decrypted.label}" ready to register (${decrypted.sipUsername}@${decrypted.sipDomain}). Click Register to go live in-app.`,
     };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : 'Bridge unreachable' };

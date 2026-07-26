@@ -13,7 +13,7 @@ import { exec } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { collectAiPhoneLines, type AiBridgeLine } from '../phone-lines';
-import { updatePhoneLineStatus } from '../data-store';
+import { updatePhoneLineStatus, withOrgContext } from '../data-store';
 
 export function getBridgeDir(): string {
   return (
@@ -58,6 +58,34 @@ function run(cmd: string, timeoutMs = 120_000): Promise<{ ok: boolean; output: s
       const output = `${stdout ?? ''}${stderr ? `\n${stderr}` : ''}`.trim();
       resolve({ ok: !err, output });
     });
+  });
+}
+
+export type AsteriskRegistrationStatus = 'Registered' | 'Unregistered' | 'Rejected' | 'Unknown';
+
+/** Parse `pjsip show registrations` without treating "Unregistered" as "Registered". */
+export function parseRegistrationStatuses(output: string): Map<string, AsteriskRegistrationStatus> {
+  const statuses = new Map<string, AsteriskRegistrationStatus>();
+  for (const row of String(output || '').split(/\r?\n/)) {
+    const match = row.match(
+      /^\s*reg-([^\s/]+)\/\S+\s+\S+\s+(Registered|Unregistered|Rejected)(?:\s|$)/i,
+    );
+    if (!match) continue;
+    const value = match[2].toLowerCase();
+    statuses.set(
+      match[1],
+      value === 'registered' ? 'Registered' : value === 'rejected' ? 'Rejected' : 'Unregistered',
+    );
+  }
+  return statuses;
+}
+
+function updateAiLineStatus(
+  line: AiBridgeLine,
+  patch: Parameters<typeof updatePhoneLineStatus>[1],
+): void {
+  withOrgContext(line.orgId, () => {
+    updatePhoneLineStatus(line.id, patch);
   });
 }
 
@@ -109,7 +137,7 @@ export async function syncAsteriskBridge(opts?: { apply?: boolean }): Promise<Br
     applyRes = await run(applyCmd);
     // Mark line statuses optimistically from apply success; live status confirmed by registration dump below.
     for (const l of lines) {
-      updatePhoneLineStatus(l.id, {
+      updateAiLineStatus(l, {
         status: applyRes.ok ? 'registering' : 'error',
         lastError: applyRes.ok ? undefined : 'Bridge apply failed',
       });
@@ -126,23 +154,27 @@ export async function syncAsteriskBridge(opts?: { apply?: boolean }): Promise<Br
       30_000,
     );
     registrations = dump.output;
-    if (registrations) {
-      // Each registration section is named reg-<sipUsername>; a Registered status on
-      // that line confirms it. Match per-username to set honest per-line status.
-      for (const l of lines) {
-        const rx = new RegExp(`reg-${l.sipUsername}\\b[^\\n]*Registered`, 'i');
-        if (rx.test(registrations)) {
-          updatePhoneLineStatus(l.id, {
-            status: 'registered',
-            registeredAt: new Date().toISOString(),
-            lastError: undefined,
-          });
-        }
+    const statuses = parseRegistrationStatuses(registrations);
+    for (const l of lines) {
+      const status = statuses.get(l.sipUsername) ?? 'Unknown';
+      if (status === 'Registered') {
+        updateAiLineStatus(l, {
+          status: 'registered',
+          registeredAt: new Date().toISOString(),
+          lastError: undefined,
+        });
+      } else {
+        updateAiLineStatus(l, {
+          status: 'error',
+          lastError: `Asterisk REGISTER status: ${status}`,
+        });
       }
     }
   }
 
-  const ok = wrote && (!apply || applyRes.ok);
+  const statuses = registrations ? parseRegistrationStatuses(registrations) : new Map();
+  const allRegistered = !apply || lines.every((l) => statuses.get(l.sipUsername) === 'Registered');
+  const ok = wrote && (!apply || (applyRes.ok && allRegistered));
   return {
     ok,
     count: lines.length,
@@ -153,6 +185,8 @@ export async function syncAsteriskBridge(opts?: { apply?: boolean }): Promise<Br
     registrations,
     message: ok
       ? `Synced ${lines.length} AI line(s) to Asterisk bridge${apply ? ' and recreated container' : ' (write-only)'}.`
-      : `Wrote lines.json but bridge apply failed. Run "${applyCmd}" on the VPS.`,
+      : applyRes.ok
+        ? `Bridge reloaded, but not every AI line reached Registered status.`
+        : `Wrote lines.json but bridge apply failed. Run "${applyCmd}" on the VPS.`,
   };
 }

@@ -17,8 +17,23 @@ import { getHomeOrgId } from './home-org';
 import { getOrganizationById } from './organizations';
 import { createOrganization, deleteOrganization, listOrganizations } from './organizations';
 import { withOrgContext, listPhoneLines, maskPhoneLine } from './data-store';
+import { parseRegistrationStatuses } from './telephony/asteriskBridge';
 
 const MASK = '••••••';
+
+describe('Asterisk registration status parsing', () => {
+  it('distinguishes Registered from Unregistered and Rejected per SIP username', () => {
+    const dump = `
+ reg-1005090093/sip:sbc.soho66.co.uk:8060  auth-1005090093  Registered    (exp. 285s)
+ reg-1014090093/sip:sbc.soho66.co.uk:8060  auth-1014090093  Unregistered  (exp. 0s)
+ reg-1015090093/sip:sbc.soho66.co.uk:8060  auth-1015090093  Rejected      (exp. 0s)
+`;
+    const statuses = parseRegistrationStatuses(dump);
+    assert.equal(statuses.get('1005090093'), 'Registered');
+    assert.equal(statuses.get('1014090093'), 'Unregistered');
+    assert.equal(statuses.get('1015090093'), 'Rejected');
+  });
+});
 
 describe('phone-lines platform provisioning', () => {
   let orgA: string;
