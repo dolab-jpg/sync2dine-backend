@@ -12,25 +12,21 @@ import { getOrganizationById } from '../../organizations';
  * Staff / platform CRM tools live on Sally (PIN), not here.
  */
 
-/** Inbound open line — brand first, then favourites, then how can I help. */
+/** Inbound open: Sync to Dine + best restaurant, then Favourites, then how can I help. */
 function buildJudieInboundGreeting(restaurantName: string, sayToday: string, aboutUs: string): string {
   const venue = restaurantName.trim() || 'Sync2Dine';
-  // TTS often mumbles "Sync2Dine" — speak it as "Sync to Dine" so callers hear the brand.
+  // TTS often mumbles "Sync2Dine" - speak as "Sync to Dine".
   const spokenVenue = /sync\s*2\s*dine/i.test(venue) ? 'Sync to Dine' : venue;
-  const bestBit = /sync\s*2\s*dine/i.test(venue)
-    ? 'the best restaurant around Birmingham'
-    : (() => {
-        const aboutLead = aboutUs.split(/[.!?]/)[0]?.trim() || '';
-        if (aboutLead && aboutLead.length <= 90 && /birmingham|best|around/i.test(aboutLead)) {
-          return aboutLead;
-        }
-        return '';
-      })();
   const favourites = sayToday.replace(/[.!?]+$/, '').trim();
-  const parts = [spokenVenue];
-  if (bestBit) parts.push(bestBit);
-  if (favourites) parts.push(`Favourites: ${favourites}`);
-  return `${parts.join('. ')}. How can I help?`;
+  const favBit = favourites ? ` Favourites: ${favourites}.` : '';
+  if (/sync\s*2\s*dine/i.test(venue)) {
+    return `Sync to Dine, the best restaurant around Birmingham.${favBit} How can I help?`;
+  }
+  const aboutLead = aboutUs.split(/[.!?]/)[0]?.trim() || '';
+  if (aboutLead && aboutLead.length <= 90 && /birmingham|best|around/i.test(aboutLead)) {
+    return `${spokenVenue}, ${aboutLead}.${favBit} How can I help?`;
+  }
+  return `Hello ${spokenVenue}.${favBit} How can I help you today?`;
 }
 
 export const judieBrain: BrainPackage = {
