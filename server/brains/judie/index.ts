@@ -12,21 +12,19 @@ import { getOrganizationById } from '../../organizations';
  * Staff / platform CRM tools live on Sally (PIN), not here.
  */
 
-/** Inbound open: Sync to Dine + best restaurant, then Favourites, then how can I help. */
-function buildJudieInboundGreeting(restaurantName: string, sayToday: string, aboutUs: string): string {
+/** Inbound open: short brand line only. sayToday is for soft upsell later — not firstMessage. */
+function buildJudieInboundGreeting(restaurantName: string, _sayToday: string, aboutUs: string): string {
   const venue = restaurantName.trim() || 'Sync2Dine';
   // TTS often mumbles "Sync2Dine" - speak as "Sync to Dine".
   const spokenVenue = /sync\s*2\s*dine/i.test(venue) ? 'Sync to Dine' : venue;
-  const favourites = sayToday.replace(/[.!?]+$/, '').trim();
-  const favBit = favourites ? ` Favourites: ${favourites}.` : '';
   if (/sync\s*2\s*dine/i.test(venue)) {
-    return `Sync to Dine, the best restaurant around Birmingham.${favBit} How can I help?`;
+    return 'Sync to Dine, the best restaurant around Birmingham. How can I help?';
   }
   const aboutLead = aboutUs.split(/[.!?]/)[0]?.trim() || '';
   if (aboutLead && aboutLead.length <= 90 && /birmingham|best|around/i.test(aboutLead)) {
-    return `${spokenVenue}, ${aboutLead}.${favBit} How can I help?`;
+    return `${spokenVenue}, ${aboutLead}. How can I help?`;
   }
-  return `Hello ${spokenVenue}.${favBit} How can I help you today?`;
+  return `Hello ${spokenVenue}, how can I help you today?`;
 }
 
 export const judieBrain: BrainPackage = {

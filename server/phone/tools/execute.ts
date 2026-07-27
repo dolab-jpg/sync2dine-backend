@@ -685,7 +685,21 @@ export async function executePhoneTool(
     // Prefer orch orgId (DID-routed restaurant). Never silently fall through to
     // home/platform — that tenant has no food products and Judie speaks "menu not set up".
     const menuOrgId = firstString(body.orgId) || getRequestOrgId();
-    const menu = await listMenuItemsForOrg(menuOrgId, category);
+    const kidsAsk = Boolean(category && /kid|child|children|junior|little\s*one/.test(category));
+    const menu = await listMenuItemsForOrg(menuOrgId, kidsAsk ? undefined : category);
+    if (kidsAsk) {
+      const kidsItems = menu.filter((m) => /kid|child|junior/.test(`${m.category} ${m.name}`.toLowerCase()));
+      if (!kidsItems.length) {
+        return {
+          ok: true,
+          menu: [],
+          aboutUs: aboutUs || undefined,
+          sayToday: sayToday || undefined,
+          spokenHint:
+            'We do not have a separate kids menu — happy to do a smaller main from the usual dishes. Speak that and ask what they fancy.',
+        };
+      }
+    }
     if (!menu.length) {
       return {
         ok: true,
@@ -925,8 +939,8 @@ export async function executePhoneTool(
       orgId: firstString(body.orgId) ?? getRequestOrgId(),
       callerPhone,
     };
-    // Vapi aborts tool-calls at ~20s; answer fast so Judie can speak the total (avoid silence-hook "blanked").
-    const PLACE_BUDGET_MS = 10_000;
+    // Vapi aborts tool-calls at ~20s; answer fast so Judie can speak the total (avoid silence-hook gaps).
+    const PLACE_BUDGET_MS = 6_000;
     try {
       const raced = await Promise.race([
         placeFoodOrder(payload),
@@ -937,7 +951,7 @@ export async function executePhoneTool(
         ok: false,
         error: 'place_timeout',
         spokenHint:
-          'Sorry love — kitchen was slow. I still have your order — say cash or card again and I will place it right away.',
+          'One moment love — say cash or card again and I will place that order straight away.',
       };
     } catch (err) {
       return {

@@ -211,15 +211,15 @@ export async function buildVapiAssistantForParty(opts: {
     process.env.SALLY_VOICEMAIL_MESSAGE?.trim() || SALLY_DEFAULT_VOICEMAIL;
   // Sally outbound: skip silence hangup so beep + voicemail drop can finish; stretch check/reask.
   const sallyOutbound = sally && opts.direction === 'outbound';
-  // Judie inbound: keep silence checks WELL above placeFoodOrder budget (~10s) so we
-  // do not apologise "I blanked" while the kitchen tool is still running.
+  // Judie inbound: omit auto hangup so we wait for caller goodbye after the order;
+  // keep gentle still-there checks, scaled past placeFoodOrder.
   const judieInbound = !sally && opts.direction === 'inbound';
   const silenceHooks = buildSilenceHooks(
     silencePersona,
     sallyOutbound
       ? { omitHangup: true, timeoutScale: 2.5 }
       : judieInbound
-        ? { timeoutScale: 2.75 }
+        ? { omitHangup: true, timeoutScale: 2.75 }
         : undefined,
   );
 

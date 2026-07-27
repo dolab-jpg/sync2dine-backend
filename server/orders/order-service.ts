@@ -560,30 +560,36 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
   let posPush: { attempted: boolean; ok?: boolean; error?: string } | undefined;
 
   if (posMode === 'automatic') {
-    // Never let POS/webhook hang past Vapi's ~20s tool timeout — kitchen save already succeeded.
-    const POS_BUDGET_MS = 4_000;
-    try {
-      const forwarded = await Promise.race([
-        forwardJudieOrderToProviders(orgId, record as Record<string, unknown>, config),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), POS_BUDGET_MS)),
-      ]);
-      if (forwarded) {
-        record = (forwarded.order as typeof record) ?? record;
+    // Phone/Judie: never wait on POS — kitchen row is already saved; forward in background.
+    if (phoneLike) {
+      posPush = { attempted: true, ok: true };
+      void forwardJudieOrderToProviders(orgId, record as Record<string, unknown>, config).catch(() => {});
+    } else {
+      // Never let POS/webhook hang past Vapi's ~20s tool timeout — kitchen save already succeeded.
+      const POS_BUDGET_MS = 4_000;
+      try {
+        const forwarded = await Promise.race([
+          forwardJudieOrderToProviders(orgId, record as Record<string, unknown>, config),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), POS_BUDGET_MS)),
+        ]);
+        if (forwarded) {
+          record = (forwarded.order as typeof record) ?? record;
+          posPush = {
+            attempted: forwarded.channel !== 'none',
+            ok: forwarded.ok,
+            error: forwarded.error,
+          };
+        } else {
+          posPush = { attempted: true, ok: false, error: 'pos_timeout' };
+          void forwardJudieOrderToProviders(orgId, record as Record<string, unknown>, config).catch(() => {});
+        }
+      } catch (err) {
         posPush = {
-          attempted: forwarded.channel !== 'none',
-          ok: forwarded.ok,
-          error: forwarded.error,
+          attempted: true,
+          ok: false,
+          error: err instanceof Error ? err.message.slice(0, 160) : 'pos_error',
         };
-      } else {
-        posPush = { attempted: true, ok: false, error: 'pos_timeout' };
-        void forwardJudieOrderToProviders(orgId, record as Record<string, unknown>, config).catch(() => {});
       }
-    } catch (err) {
-      posPush = {
-        attempted: true,
-        ok: false,
-        error: err instanceof Error ? err.message.slice(0, 160) : 'pos_error',
-      };
     }
   } else {
     posPush = { attempted: false };
