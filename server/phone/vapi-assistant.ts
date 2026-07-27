@@ -51,13 +51,13 @@ export function buildSilenceHooks(
                 : "I'll leave it there — shout if you need me. Bye!",
           }
         : {
-            // If Judie stalled after cash/card, these lines unstick the call when the line goes quiet.
+            // Only after a long quiet stretch — do NOT apologise mid placeFoodOrder.
             check: [
-              'Sorry love, I blanked for a second — still with me?',
+              'You still with me, love?',
               'Can you still hear me?',
-              'I am here — say that again for me?',
+              'I am here — what can I get you?',
             ],
-            reask: 'Sorry about that — tell me your name or what you wanted and I will get you sorted.',
+            reask: 'Sorry about that — what would you like to order?',
             bye: 'No worries — call back anytime. Bye for now!',
           };
 
@@ -207,14 +207,15 @@ export async function buildVapiAssistantForParty(opts: {
     process.env.SALLY_VOICEMAIL_MESSAGE?.trim() || SALLY_DEFAULT_VOICEMAIL;
   // Sally outbound: skip silence hangup so beep + voicemail drop can finish; stretch check/reask.
   const sallyOutbound = sally && opts.direction === 'outbound';
-  // Judie inbound: slightly longer hangup budget, but keep early "I blanked" recovery checks snappy.
+  // Judie inbound: keep silence checks WELL above placeFoodOrder budget (~10s) so we
+  // do not apologise "I blanked" while the kitchen tool is still running.
   const judieInbound = !sally && opts.direction === 'inbound';
   const silenceHooks = buildSilenceHooks(
     silencePersona,
     sallyOutbound
       ? { omitHangup: true, timeoutScale: 2.5 }
       : judieInbound
-        ? { timeoutScale: 1.25 }
+        ? { timeoutScale: 2.75 }
         : undefined,
   );
 

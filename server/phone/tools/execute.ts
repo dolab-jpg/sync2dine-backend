@@ -746,8 +746,8 @@ export async function executePhoneTool(
       aboutUs: aboutUs || undefined,
       sayToday: sayToday || undefined,
       spokenHint: sayToday
-        ? `Today: ${sayToday}. Read dish names by category only — do not read prices. After the basket, one soft offer (sayToday / dessert / drink / side / dish options) then place. Speak the total only after placeFoodOrder.`
-        : 'Read dish names by category only — do not read prices. After the basket, one soft offer (dessert / drink / side / dish options) then place. Speak the total only after placeFoodOrder.',
+        ? `Today's offer (use later as one soft line, not a full menu read): ${sayToday}. Do NOT read the whole menu unless they ask what you have. Meal-deal choices: ask aloud. Speak the total only after placeFoodOrder.`
+        : 'Do NOT read the whole menu unless they ask what you have. Ask what they want. Meal-deal choices: ask aloud. Speak the total only after placeFoodOrder.',
     };
   }
 
@@ -925,8 +925,8 @@ export async function executePhoneTool(
       orgId: firstString(body.orgId) ?? getRequestOrgId(),
       callerPhone,
     };
-    // Vapi aborts tool-calls at ~20s; always answer before that so Judie can speak the total.
-    const PLACE_BUDGET_MS = 14_000;
+    // Vapi aborts tool-calls at ~20s; answer fast so Judie can speak the total (avoid silence-hook "blanked").
+    const PLACE_BUDGET_MS = 10_000;
     try {
       const raced = await Promise.race([
         placeFoodOrder(payload),
@@ -937,7 +937,7 @@ export async function executePhoneTool(
         ok: false,
         error: 'place_timeout',
         spokenHint:
-          'Sorry — the kitchen system was slow. Say your name and items again and I will retry placing that order.',
+          'Sorry love — kitchen was slow. I still have your order — say cash or card again and I will place it right away.',
       };
     } catch (err) {
       return {

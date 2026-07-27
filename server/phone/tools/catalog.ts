@@ -356,7 +356,7 @@ export const PHONE_TOOLS = [
     function: {
       name: 'getMenu',
       description:
-        'Return the restaurant menu (categories + dish names, allergens). Do NOT read prices aloud — names only when listing the menu. The order total is spoken from placeFoodOrder spokenTotal at the end.',
+        'Return the restaurant menu for validation / meal-deal choices. Do NOT recite the whole menu unless the caller asks what you have. Prefer asking what they want. Never read prices aloud — names only when listing. Order total is spoken from placeFoodOrder spokenTotal at the end.',
       parameters: {
         type: 'object',
         properties: {

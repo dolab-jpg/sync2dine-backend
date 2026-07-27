@@ -1430,11 +1430,11 @@ async function handleVapiMessage(
       }
       try {
         // Vapi drops the call mute if tool-calls exceeds ~20s — always answer with a speakable hint.
-        const TOOL_BUDGET_MS = 14_000;
+        const TOOL_BUDGET_MS = 12_000;
         const timedOut = {
           ok: false,
           error: 'tool_timeout',
-          spokenHint: 'Sorry love, I blanked for a second — can you say that again?',
+          spokenHint: 'One moment love — say that again and I will sort it.',
         };
         const output = await Promise.race([
           executeTool(tool.name, tool.arguments, call, partyPhone),

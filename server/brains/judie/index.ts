@@ -12,23 +12,20 @@ import { getOrganizationById } from '../../organizations';
  * Staff / platform CRM tools live on Sally (PIN), not here.
  */
 
-/** Inbound open line - prefer saved sayToday; else Birmingham tagline for Sync2Dine demo venues. */
-function buildJudieInboundGreeting(restaurantName: string, sayToday: string, aboutUs: string): string {
+/** Inbound open line — short and clear. Never stuff sayToday into the greeting (that buried the venue name). */
+function buildJudieInboundGreeting(restaurantName: string, _sayToday: string, aboutUs: string): string {
   const venue = restaurantName.trim() || 'Sync2Dine';
-  if (sayToday) {
-    // sayToday is the saved daily colour - keep it, don't invent a parallel greeting store.
-    const colour = sayToday.replace(/[.!?]+$/, '').trim();
-    return `${venue}, ${colour}, how can I help?`;
-  }
+  // TTS often mumbles "Sync2Dine" — speak it as "Sync to Dine" so callers hear the brand.
+  const spokenVenue = /sync\s*2\s*dine/i.test(venue) ? 'Sync to Dine' : venue;
   // Soft fallback from aboutUs first sentence if it already pitches the venue.
   const aboutLead = aboutUs.split(/[.!?]/)[0]?.trim() || '';
   if (aboutLead && aboutLead.length <= 90 && /birmingham|best|around/i.test(aboutLead)) {
-    return `${venue}, ${aboutLead}, how can I help?`;
+    return `${spokenVenue}, ${aboutLead}. How can I help?`;
   }
   if (/sync\s*2\s*dine/i.test(venue)) {
-    return `${venue}, the best restaurant around Birmingham, how can I help?`;
+    return `${spokenVenue}, the best restaurant around Birmingham. How can I help?`;
   }
-  return `Hello ${venue}, how can I help you today?`;
+  return `Hello ${spokenVenue}, how can I help you today?`;
 }
 
 export const judieBrain: BrainPackage = {
