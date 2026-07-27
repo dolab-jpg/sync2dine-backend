@@ -356,7 +356,7 @@ export const PHONE_TOOLS = [
     function: {
       name: 'getMenu',
       description:
-        'Return the restaurant menu for Sync2Dine takeaway ordering (categories, item names, prices, UK 14 allergen contains/may-contain). Use before placing a food order.',
+        'Return the restaurant menu (categories + dish names, allergens). Do NOT read prices aloud — names only when listing the menu. The order total is spoken from placeFoodOrder spokenTotal at the end.',
       parameters: {
         type: 'object',
         properties: {

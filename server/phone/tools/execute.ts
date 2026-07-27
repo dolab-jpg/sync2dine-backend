@@ -699,10 +699,11 @@ export async function executePhoneTool(
     }
     return {
       ok: true,
+      // Omit per-item prices so Judie does not speak "nine point five zero" on every dish.
+      // Pricing is applied server-side in placeFoodOrder; speak spokenTotal only after place.
       menu: menu.map(({
         category: cat,
         name: itemName,
-        price,
         description,
         deal,
         allergensContains,
@@ -713,7 +714,6 @@ export async function executePhoneTool(
       }) => ({
         category: cat,
         name: itemName,
-        price,
         ...(description ? { description } : {}),
         allergensContains,
         allergensMayContain,
@@ -735,8 +735,8 @@ export async function executePhoneTool(
       aboutUs: aboutUs || undefined,
       sayToday: sayToday || undefined,
       spokenHint: sayToday
-        ? `Today: ${sayToday}. I can read the menu or take your order.`
-        : 'I can read the menu or take your order whenever you are ready.',
+        ? `Today: ${sayToday}. Read dish names by category only — do not read prices. Speak the total only after placeFoodOrder.`
+        : 'Read dish names by category only — do not read prices. Speak the total only after placeFoodOrder.',
     };
   }
 

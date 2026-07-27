@@ -338,27 +338,27 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
   const allergenSoftNotes: string[] = [];
   const channelLower = (firstString(input.channel) ?? 'phone').toLowerCase();
   const staffChannel = channelLower === 'staff' || channelLower === 'sync2dine';
+  const phoneLike = channelLower === 'phone' || channelLower === 'kiosk' || channelLower === 'vapi';
   const allergyNote = (customerAllergies || '').trim().toLowerCase();
   const callerDeclaredAllergy = Boolean(allergyNote && allergyNote !== 'none' && allergyNote !== 'no');
   for (const line of expanded.items) {
     const match = catalog.find((c) => c.name.toLowerCase() === String(line.name).toLowerCase());
     if (!match) continue;
-    // Phone: undeclared catalog allergens — soft note when caller said none; hard-fail only if they named an allergy.
-    if (!staffChannel) {
-      const safety = allergenSafetyHint(match);
-      if (safety) {
-        if (callerDeclaredAllergy) allergenWarnings.push(safety);
-        else allergenSoftNotes.push(safety);
-      }
-    }
+    const safety = allergenSafetyHint(match);
+    if (safety) allergenSoftNotes.push(safety);
     if (callerDeclaredAllergy) {
       const conflicts = customerAllergenConflict(customerAllergies, match.allergensContains ?? []);
       if (conflicts.length) {
-        allergenWarnings.push(
-          `${match.name} contains ${conflicts.join(', ')} which matches the caller allergies - suggest alternatives or kitchen check.`,
+        allergenSoftNotes.push(
+          `${match.name} contains ${conflicts.join(', ')} — matches caller allergy; kitchen must confirm.`,
         );
       }
     }
+  }
+  // Phone/Judie: never block the order on allergens — put an ALLERGY ALERT on the kitchen ticket.
+  // Staff till can still hard-stop if product rules require it later.
+  if (!phoneLike && !staffChannel && allergenSoftNotes.length && callerDeclaredAllergy) {
+    allergenWarnings.push(...allergenSoftNotes);
   }
   if (allergenWarnings.length) {
     return {
@@ -480,7 +480,14 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
   const baseNotes = firstString(input.notes) ?? '';
   const deliveryFeeNote =
     deliveryFeeApplied > 0 ? `Delivery fee ${formatSpokenGbp(deliveryFeeApplied)}` : '';
-  const notes = [baseNotes, specialAppliedNote, deliveryFeeNote].filter(Boolean).join(' | ');
+  const allergyKitchenMsg = callerDeclaredAllergy
+    ? `ALLERGY ALERT for kitchen: ${customerAllergies}${
+      allergenSoftNotes.length ? ` — ${allergenSoftNotes.slice(0, 3).join('; ')}` : ''
+    }. Confirm before cooking.`
+    : (allergenSoftNotes.length
+      ? `Kitchen: confirm allergens on undeclared dishes (${allergenSoftNotes.slice(0, 2).join('; ')}).`
+      : '');
+  const notes = [baseNotes, specialAppliedNote, deliveryFeeNote, allergyKitchenMsg].filter(Boolean).join(' | ');
 
   const payRaw = (firstString(input.paymentStatus) ?? 'unpaid').toLowerCase();
   let paymentStatus = 'unpaid';
@@ -613,8 +620,10 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     customerName,
     etaMinutes,
   });
-  if (allergenSoftNotes.length) {
-    spokenHint = `${spokenHint} Kitchen will double-check allergens on undeclared dishes.`;
+  if (callerDeclaredAllergy) {
+    spokenHint = `${spokenHint} I've messaged the kitchen about your ${customerAllergies} allergy.`;
+  } else if (allergenSoftNotes.length) {
+    spokenHint = `${spokenHint} Kitchen will double-check allergens.`;
   }
 
   return {
