@@ -58,11 +58,14 @@ export function buildWarmTransferPlan(opts?: {
       firstMessageMode: 'assistant-speaks-first',
       maxDurationSeconds: 90,
       model: {
+        // Nested transferAssistant only accepts OpenAI model ids (not DeepSeek).
+        // Never inherit VAPI_LLM_MODEL=deepseek-chat — that fails assistant-request validation.
         provider: 'openai',
-        model: process.env.VAPI_TRANSFER_LLM_MODEL?.trim()
-          || (process.env.VAPI_LLM_MODEL?.trim() && !/^gpt-4o/.test(process.env.VAPI_LLM_MODEL.trim())
-            ? process.env.VAPI_LLM_MODEL.trim()
-            : 'gpt-4.1'),
+        model: (() => {
+          const raw = (process.env.VAPI_TRANSFER_LLM_MODEL || 'gpt-4.1').trim();
+          if (!raw || raw.startsWith('deepseek') || /^gpt-4o($|-)/.test(raw)) return 'gpt-4.1';
+          return raw;
+        })(),
         messages: [
           {
             role: 'system',

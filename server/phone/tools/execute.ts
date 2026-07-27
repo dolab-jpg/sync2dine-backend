@@ -682,7 +682,10 @@ export async function executePhoneTool(
     const aboutUs = store.agentSettings?.aboutUs?.trim();
     const sayToday = store.agentSettings?.sayToday?.trim();
     const category = firstString(input.category)?.toLowerCase();
-    const menu = await listMenuItemsForOrg(firstString(body.orgId) ?? getRequestOrgId(), category);
+    // Prefer orch orgId (DID-routed restaurant). Never silently fall through to
+    // home/platform — that tenant has no food products and Judie speaks "menu not set up".
+    const menuOrgId = firstString(body.orgId) || getRequestOrgId();
+    const menu = await listMenuItemsForOrg(menuOrgId, category);
     if (!menu.length) {
       return {
         ok: true,

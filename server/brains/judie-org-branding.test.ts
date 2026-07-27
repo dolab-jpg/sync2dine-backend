@@ -1,5 +1,5 @@
 /**
- * Judie diner branding must follow DID-resolved org — not home / Sync2Dine.
+ * Judie diner branding must follow DID-resolved org  not home / Sync2Dine.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -54,10 +54,10 @@ describe('Judie per-org branding', () => {
     createdOrgIds.push(orgA, orgB);
 
     withOrgContext(orgA, () => {
-      updateAgentSettings({ aboutUs: 'Curry Palace on High Street — open until 11.' });
+      updateAgentSettings({ aboutUs: 'Curry Palace on High Street  open until 11.' });
     });
     withOrgContext(orgB, () => {
-      updateAgentSettings({ aboutUs: 'Noodle House by the station — cash or card.' });
+      updateAgentSettings({ aboutUs: 'Noodle House by the station  cash or card.' });
     });
   });
 
@@ -77,8 +77,9 @@ describe('Judie per-org branding', () => {
       orgId: orgA,
     });
     assert.equal(session.id, 'judie');
-    assert.match(session.firstMessage, /Judie from Curry Palace Branding A/i);
+    assert.match(session.firstMessage, /^Hello Curry Palace Branding A, how can I help you today\?$/i);
     assert.doesNotMatch(session.firstMessage, /Sync2Dine/i);
+    assert.doesNotMatch(session.firstMessage, /\bGuest\b/i);
     assert.match(session.assistantName, /Curry Palace Branding A/i);
     assert.match(session.instructions, /Restaurant you represent: Curry Palace Branding A/i);
     assert.match(session.instructions, /Curry Palace on High Street/i);
@@ -95,7 +96,7 @@ describe('Judie per-org branding', () => {
       agentPersona: 'judie',
       orgId: orgB,
     });
-    assert.match(session.firstMessage, /Judie from Noodle House Branding B/i);
+    assert.match(session.firstMessage, /^Hello Noodle House Branding B, how can I help you today\?$/i);
     assert.match(session.instructions, /Restaurant you represent: Noodle House Branding B/i);
     assert.match(session.instructions, /Noodle House by the station/i);
     assert.doesNotMatch(session.instructions, /Curry Palace on High Street/i);

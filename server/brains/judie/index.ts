@@ -45,11 +45,16 @@ export const judieBrain: BrainPackage = {
       }),
     );
 
+    // Never greet as "Hi Guest" — unknown callers get a clean venue open line.
+    const knownName = firstName && !/^guest$/i.test(firstName) ? firstName : '';
     let firstMessage: string;
     if (input.direction === 'outbound') {
-      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, it's Judie from ${restaurantName} — how are you getting on?`;
+      firstMessage = knownName
+        ? `Hello ${knownName}, it's Judie from ${restaurantName} — how can I help you today?`
+        : `Hello ${restaurantName}, how can I help you today?`;
     } else {
-      firstMessage = `Hi${firstName ? ` ${firstName}` : ''}, Judie from ${restaurantName} here — how can I help?`;
+      // Inbound: short open, then wait. Do not invent an order/table ask before they speak.
+      firstMessage = `Hello ${restaurantName}, how can I help you today?`;
     }
 
     const tools = getPhoneSessionChatTools(dinerIdentity, false) as ChatFunctionTool[];

@@ -114,8 +114,10 @@ export async function buildVapiModelBlock(opts: {
     const apiKey = await resolveDeepSeekApiKeyAsync(undefined, orgId);
     const model = defaultChatModelForProvider('deepseek', preferredModel);
     if (apiKey) {
+      // Ensure org BYOK credential exists in Vapi; do NOT put credentialId on the
+      // transient assistant model — Vapi assistant-request rejects that property
+      // ("model.property credentialId should not exist") → "Couldn't get assistance".
       await ensureDeepSeekCredential(apiKey);
-      // Native Vapi DeepSeek BYOK (credential on org) � also set url fallback via custom-llm if needed.
       return {
         provider: 'deep-seek',
         model,
@@ -123,7 +125,7 @@ export async function buildVapiModelBlock(opts: {
       };
     }
     // No key: try custom-llm with env URL only if somehow credential already exists
-    console.warn('[vapi-llm] DeepSeek selected but no API key � falling back to OpenAI for this call');
+    console.warn('[vapi-llm] DeepSeek selected but no API key — falling back to OpenAI for this call');
   }
 
   const openaiModelRaw = preferredModel && !preferredModel.startsWith('deepseek')

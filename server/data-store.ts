@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { BDIDDIES_HOME_ORG_LEGACY_ID, getHomeOrgId, sanitizeOrgId } from './home-org';
@@ -1145,17 +1145,27 @@ export function isWithin24hWindow(phone: string): boolean {
   return Date.now() - new Date(String(session.lastInboundAt)).getTime() < 24 * 60 * 60 * 1000;
 }
 
-export function getCallById(id: string): Record<string, unknown> | undefined {
-  return getDataStore().calls.find(c => String(c.id) === id);
+/** Org ids that may already have a synced-data file or in-memory store. */
+function knownOrgStoreIds(): string[] {
+  const ids = new Set<string>();
+  ids.add(resolveStorageOrgId(undefined));
+  ids.add(getHomeOrgId());
+  for (const key of memoryStores.keys()) ids.add(key);
+  try {
+    if (existsSync(DATA_DIR)) {
+      for (const name of readdirSync(DATA_DIR)) {
+        const m = /^synced-data-(.+)\.json$/i.exec(name);
+        if (m?.[1]) ids.add(m[1]);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...ids].filter(Boolean);
 }
 
-export function getCallByProviderId(providerCallId: string): Record<string, unknown> | undefined {
-  const id = String(providerCallId || '').trim();
-  if (!id) return undefined;
-  const matches = getDataStore().calls.filter((c) => String(c.providerCallId) === id);
-  if (!matches.length) return undefined;
+function pickPreferredCall(matches: Array<Record<string, unknown>>, providerCallId: string): Record<string, unknown> {
   if (matches.length === 1) return matches[0];
-  // Prefer TradePro-owned rows over orphan webhook rows that used the Vapi UUID as local id
   const preferred = matches.find((c) => {
     const localId = String(c.id);
     const meta = (c.metadata as Record<string, unknown> | undefined) || {};
@@ -1164,13 +1174,68 @@ export function getCallByProviderId(providerCallId: string): Record<string, unkn
       || localId.startsWith('call-')
       || localId.startsWith('vapi-out-')
       || String(meta.tradeproCallId || '') === localId
-      || localId !== id
+      || localId !== providerCallId
     );
   });
   return preferred || matches[0];
 }
 
+/**
+ * Find a call across tenant JSON stores. Vapi tool-calls often arrive without a DID
+ * while the ALS request org is still home — the live call was saved under the restaurant
+ * org at assistant-request time, so a single-org lookup misses it and getMenu returns [].
+ */
+export function findCallAcrossOrgs(opts: {
+  id?: string;
+  providerCallId?: string;
+}): { orgId: string; call: Record<string, unknown> } | undefined {
+  const localId = String(opts.id || '').trim();
+  const providerId = String(opts.providerCallId || '').trim();
+  if (!localId && !providerId) return undefined;
+
+  const currentOrg = resolveStorageOrgId(getRequestOrgId());
+  const order = [currentOrg, ...knownOrgStoreIds().filter((id) => id !== currentOrg)];
+
+  for (const orgId of order) {
+    const store = ensureOrgLoaded(orgId);
+    const calls = Array.isArray(store.calls) ? store.calls : [];
+    if (localId) {
+      const byId = calls.find((c) => String(c.id) === localId);
+      if (byId) return { orgId, call: byId };
+    }
+    if (providerId) {
+      const matches = calls.filter((c) => String(c.providerCallId || '') === providerId);
+      if (matches.length) return { orgId, call: pickPreferredCall(matches, providerId) };
+    }
+  }
+  return undefined;
+}
+
+export function getCallById(id: string): Record<string, unknown> | undefined {
+  const local = getDataStore().calls.find(c => String(c.id) === id);
+  if (local) return local;
+  const hit = findCallAcrossOrgs({ id });
+  if (!hit) return undefined;
+  // Switch request org so follow-up saveCall / getMenu hit the restaurant tenant.
+  setRequestOrgId(hit.orgId);
+  return hit.call;
+}
+
+export function getCallByProviderId(providerCallId: string): Record<string, unknown> | undefined {
+  const id = String(providerCallId || '').trim();
+  if (!id) return undefined;
+  const matches = getDataStore().calls.filter((c) => String(c.providerCallId) === id);
+  if (matches.length) return pickPreferredCall(matches, id);
+  const hit = findCallAcrossOrgs({ providerCallId: id, id });
+  if (!hit) return undefined;
+  setRequestOrgId(hit.orgId);
+  return hit.call;
+}
+
 export function saveCall(call: Record<string, unknown>): Record<string, unknown> {
+  const meta = (call.metadata as Record<string, unknown> | undefined) || {};
+  const orgHint = String(call.orgId || meta.resolvedOrgId || '').trim();
+  if (orgHint) setRequestOrgId(orgHint);
   const store = getDataStore();
   const id = String(call.id ?? `call-${Date.now()}`);
   const existing = store.calls.findIndex(c => String(c.id) === id);

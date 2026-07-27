@@ -103,6 +103,43 @@ async function listNumbers(): Promise<VapiNumber[]> {
   return Array.isArray(data) ? (data as VapiNumber[]) : [];
 }
 
+/** phoneNumberId ? E.164 (real SIP assistant-request often omits phoneNumber.number). */
+const phoneNumberIdToDidCache = new Map<string, string>();
+
+/**
+ * Resolve a Vapi BYO phoneNumberId to its E.164 DID.
+ * Critical for Judie: inbound webhooks often only send phoneNumberId, and without
+ * the DID we fall back to home org (empty menu).
+ */
+export async function resolveVapiPhoneNumberIdToDid(phoneNumberId: string): Promise<string | null> {
+  const id = String(phoneNumberId || '').trim();
+  if (!id) return null;
+  const cached = phoneNumberIdToDidCache.get(id);
+  if (cached) return cached;
+  if (!key()) return null;
+  try {
+    const res = await vapiFetch(`/phone-number/${id}`);
+    if (res.ok) {
+      const row = (await res.json()) as VapiNumber;
+      const number = String(row.number || '').trim();
+      if (number) {
+        phoneNumberIdToDidCache.set(id, number);
+        return number;
+      }
+    }
+    // Fallback: scan list once (warms cache for all BYOs)
+    const all = await listNumbers();
+    for (const n of all) {
+      const nid = String(n.id || '').trim();
+      const number = String(n.number || '').trim();
+      if (nid && number) phoneNumberIdToDidCache.set(nid, number);
+    }
+    return phoneNumberIdToDidCache.get(id) || null;
+  } catch {
+    return null;
+  }
+}
+
 function serverOf(n: VapiNumber): string {
   return (n.server && n.server.url) || n.serverUrl || '';
 }

@@ -50,23 +50,55 @@ export function preferredRecordingUrl(urls: ExtractedRecordings): string | undef
   return urls.stereoRecordingUrl || urls.recordingUrl;
 }
 
+/** Pull E.164 / national digits out of a SIP URI or raw phone field. */
+export function normalizeDidCandidate(raw: string | undefined | null): string {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  // sip:+442071128727@host:5060  or  sip:442071128727@host
+  const sipUser = s.match(/^sip:([^@;>]+)/i)?.[1] || '';
+  const candidate = sipUser || s;
+  // Keep leading + and digits only
+  const cleaned = candidate.replace(/[^\d+]/g, '');
+  if (!cleaned) return '';
+  // Reject bare SIP hosts / credential ids mistaken as numbers
+  if (/[a-z]/i.test(candidate) && !/^\+?\d+$/.test(cleaned)) return '';
+  return cleaned;
+}
+
+/** UK mobiles / private CLI — never treat as the restaurant inbound DID. */
+export function isLikelyCallerCli(did: string): boolean {
+  const digits = String(did || '').replace(/\D/g, '');
+  if (!digits) return false;
+  // +447… / 07… mobile, or short non-geographic junk
+  if (digits.startsWith('447') || (digits.startsWith('07') && digits.length >= 10)) return true;
+  if (digits.startsWith('7') && digits.length === 10) return true;
+  return false;
+}
+
 export function lineDidForDirection(
   direction: string,
   call: Record<string, unknown> | undefined,
   fallbackDid?: string,
 ): string {
   const dir = direction.toLowerCase();
-  const from = String(call?.from ?? '').trim();
-  const to = String(call?.to ?? '').trim();
+  const from = normalizeDidCandidate(String(call?.from ?? ''));
+  const to = normalizeDidCandidate(String(call?.to ?? ''));
   const phoneNumber = call?.phoneNumber;
   let phoneNumberStr = '';
-  if (typeof phoneNumber === 'string') phoneNumberStr = phoneNumber.trim();
+  if (typeof phoneNumber === 'string') phoneNumberStr = normalizeDidCandidate(phoneNumber);
   else if (phoneNumber && typeof phoneNumber === 'object') {
-    phoneNumberStr = String((phoneNumber as { number?: string }).number || '').trim();
+    phoneNumberStr = normalizeDidCandidate(String((phoneNumber as { number?: string }).number || ''));
   }
-  const envDid = String(fallbackDid || process.env.SOHO66_FROM_NUMBER || '').trim();
+  const envDid = normalizeDidCandidate(String(fallbackDid || process.env.SOHO66_FROM_NUMBER || ''));
   if (dir.includes('outbound')) return from || phoneNumberStr || envDid;
-  return to || phoneNumberStr || envDid;
+  // Prefer the BYO phoneNumber.number (always E.164) over `to`, because SIP inbound
+  // often sets `to` to sip:+E164@<credential>.sip.vapi.ai which used to break DID routing.
+  // Never use a mobile CLI as the business line DID.
+  const candidates = [phoneNumberStr, to, envDid].filter(Boolean);
+  for (const c of candidates) {
+    if (!isLikelyCallerCli(c)) return c;
+  }
+  return '';
 }
 
 export function enrichCallListRow(call: Record<string, unknown>): Record<string, unknown> {

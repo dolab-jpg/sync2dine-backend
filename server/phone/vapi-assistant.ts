@@ -51,8 +51,8 @@ export function buildSilenceHooks(
                 : "I'll leave it there — shout if you need me. Bye!",
           }
         : {
-            check: ['You still there?', 'Can you still hear me?'],
-            reask: 'Anything else I can help with, or shall I leave it there?',
+            check: ['Take your time — I am still here.', 'Can you still hear me?'],
+            reask: 'Whenever you are ready — I can take an order or book a table.',
             bye: 'No worries — call back anytime. Bye for now!',
           };
 
@@ -202,13 +202,21 @@ export async function buildVapiAssistantForParty(opts: {
     process.env.SALLY_VOICEMAIL_MESSAGE?.trim() || SALLY_DEFAULT_VOICEMAIL;
   // Sally outbound: skip silence hangup so beep + voicemail drop can finish; stretch check/reask.
   const sallyOutbound = sally && opts.direction === 'outbound';
-  const silenceHooks = buildSilenceHooks(silencePersona, sallyOutbound
-    ? { omitHangup: true, timeoutScale: 2.5 }
-    : undefined);
+  // Judie inbound: give diners time to think after "how can I help you today?" before silence hangup.
+  const judieInbound = !sally && opts.direction === 'inbound';
+  const silenceHooks = buildSilenceHooks(
+    silencePersona,
+    sallyOutbound
+      ? { omitHangup: true, timeoutScale: 2.5 }
+      : judieInbound
+        ? { timeoutScale: 2 }
+        : undefined,
+  );
 
   const assistant: Record<string, unknown> = {
     name: assistantName,
     firstMessage,
+    firstMessageMode: 'assistant-speaks-first',
     model,
     voice,
     transcriber: {
@@ -217,7 +225,7 @@ export async function buildVapiAssistantForParty(opts: {
       model: process.env.VAPI_DEEPGRAM_MODEL?.trim() || 'nova-2',
       language: deepgramLanguageForPack(language),
     },
-    silenceTimeoutSeconds: sallyOutbound ? 60 : 35,
+    silenceTimeoutSeconds: sallyOutbound ? 60 : judieInbound ? 55 : 35,
     maxDurationSeconds: Number(
       process.env.VAPI_MAX_CALL_SECONDS
       || (sally ? 1200 : 900),
