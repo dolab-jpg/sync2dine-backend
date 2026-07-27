@@ -39,6 +39,14 @@ export interface MealDeal {
   roles: MealDealRole[];
 }
 
+/** Upgrade option groups from Menu Manager (Judie upsells). */
+export type MenuItemOptionChoice = { name: string; priceDelta?: number };
+export type MenuItemOptionGroup = {
+  role: string;
+  required?: boolean;
+  choices: MenuItemOptionChoice[];
+};
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -54,6 +62,8 @@ export interface MenuItem {
   allergenDeclared?: boolean;
   /** When set, this special expands into component kitchen lines on placeFoodOrder. */
   deal?: MealDeal;
+  /** Per-dish upgrade groups Judie can offer (crust, side*, etc.). */
+  options?: MenuItemOptionGroup[];
   /** POS catalog ids — e.g. Square item variation id */
   externalIds?: { square?: string; epos_now?: string };
 }
@@ -112,6 +122,42 @@ function parseDeal(raw: unknown): MealDeal | undefined {
   return roles.length ? { roles } : undefined;
 }
 
+function parseOptions(raw: unknown): MenuItemOptionGroup[] | undefined {
+  if (!Array.isArray(raw) || !raw.length) return undefined;
+  const groups: MenuItemOptionGroup[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const role = String(r.role ?? '').trim().toLowerCase();
+    if (!role) continue;
+    const choicesRaw = Array.isArray(r.choices) ? r.choices : [];
+    const choices: MenuItemOptionChoice[] = [];
+    for (const c of choicesRaw) {
+      if (typeof c === 'string') {
+        const name = c.trim();
+        if (name) choices.push({ name });
+        continue;
+      }
+      if (!c || typeof c !== 'object') continue;
+      const co = c as Record<string, unknown>;
+      const name = String(co.name ?? '').trim();
+      if (!name) continue;
+      const delta = Number(co.priceDelta ?? co.price ?? NaN);
+      choices.push({
+        name,
+        ...(Number.isFinite(delta) ? { priceDelta: delta } : {}),
+      });
+    }
+    if (!choices.length) continue;
+    groups.push({
+      role,
+      required: r.required === true || role.endsWith('*'),
+      choices,
+    });
+  }
+  return groups.length ? groups : undefined;
+}
+
 function rowToMenuItem(id: string, data: Record<string, unknown>): MenuItem | null {
   const name = typeof data.name === 'string' ? data.name.trim() : '';
   if (!name) return null;
@@ -123,6 +169,7 @@ function rowToMenuItem(id: string, data: Record<string, unknown>): MenuItem | nu
   const rawCategory = typeof data.category === 'string' ? data.category.trim().toLowerCase() : '';
   const category = FOOD_CATEGORIES.has(rawCategory) ? rawCategory : 'other';
   const deal = parseDeal(data.deal);
+  const options = parseOptions(data.options);
   const allergens = normalizeAllergenFields(data);
   const externalIdsRaw = (data.externalIds && typeof data.externalIds === 'object')
     ? data.externalIds as Record<string, unknown>
@@ -149,6 +196,7 @@ function rowToMenuItem(id: string, data: Record<string, unknown>): MenuItem | nu
     ...(allergens.allergenNotes ? { allergenNotes: allergens.allergenNotes } : {}),
     ...(allergens.allergenDeclared ? { allergenDeclared: true } : {}),
     ...(deal ? { deal } : {}),
+    ...(options ? { options } : {}),
     ...(externalIds ? { externalIds } : {}),
   };
 }

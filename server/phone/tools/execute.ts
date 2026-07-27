@@ -706,6 +706,7 @@ export async function executePhoneTool(
         name: itemName,
         description,
         deal,
+        options,
         allergensContains,
         allergensMayContain,
         dietary,
@@ -731,12 +732,22 @@ export async function executePhoneTool(
               },
             }
           : {}),
+        // Upgrade groups for Judie offers — names only (no priceDelta) so she does not speak add-on prices.
+        ...(options?.length
+          ? {
+              options: options.map((g) => ({
+                role: g.role,
+                required: g.required === true,
+                choices: g.choices.map((c) => c.name),
+              })),
+            }
+          : {}),
       })),
       aboutUs: aboutUs || undefined,
       sayToday: sayToday || undefined,
       spokenHint: sayToday
-        ? `Today: ${sayToday}. Read dish names by category only — do not read prices. Speak the total only after placeFoodOrder.`
-        : 'Read dish names by category only — do not read prices. Speak the total only after placeFoodOrder.',
+        ? `Today: ${sayToday}. Read dish names by category only — do not read prices. After the basket, one soft offer (sayToday / dessert / drink / side / dish options) then place. Speak the total only after placeFoodOrder.`
+        : 'Read dish names by category only — do not read prices. After the basket, one soft offer (dessert / drink / side / dish options) then place. Speak the total only after placeFoodOrder.',
     };
   }
 
@@ -826,6 +837,71 @@ export async function executePhoneTool(
     };
   }
 
+  if (name === 'lookupCallerOrders') {
+    const phone = firstString(input.customerPhone, callerPhone) ?? '';
+    const digits = phone.replace(/\D/g, '');
+    const needle = digits.length >= 10 ? digits.slice(-10) : digits;
+    if (!needle || needle.length < 7) {
+      return {
+        ok: false,
+        error: 'phone_required',
+        spokenHint: 'What name was the order under, love?',
+      };
+    }
+    const orgId = firstString(body.orgId) ?? getRequestOrgId();
+    const { listOrderRecords } = await import('../../data-store');
+    const all = await listOrderRecords(orgId);
+    const limit = Math.min(10, Math.max(1, Number(input.limit ?? 5) || 5));
+    const openStatuses = new Set(['new', 'coming', 'ready', 'delivery', 'preparing', 'confirmed']);
+    const matched = all
+      .filter((o) => {
+        const p = String(o.customerPhone ?? o.phone ?? '').replace(/\D/g, '');
+        return p.includes(needle) || (p.length >= 10 && needle.includes(p.slice(-10)));
+      })
+      .sort((a, b) => {
+        const ta = Date.parse(String(a.placedAt ?? a.createdAt ?? a.created_at ?? 0)) || 0;
+        const tb = Date.parse(String(b.placedAt ?? b.createdAt ?? b.created_at ?? 0)) || 0;
+        return tb - ta;
+      })
+      .slice(0, limit)
+      .map((o) => {
+        const items = Array.isArray(o.items) ? o.items : [];
+        const itemNames = items
+          .map((it) => {
+            const row = it as Record<string, unknown>;
+            const qty = Number(row.qty ?? 1) || 1;
+            const nm = String(row.name ?? row.dealName ?? 'item');
+            return qty > 1 ? `${qty}× ${nm}` : nm;
+          })
+          .slice(0, 8);
+        const status = String(o.status ?? 'new').toLowerCase();
+        return {
+          orderNumber: o.orderNumber ?? o.number,
+          customerName: o.customerName ?? o.customer,
+          status,
+          open: openStatuses.has(status) && status !== 'cancelled' && status !== 'completed',
+          orderType: o.orderType ?? o.type,
+          total: o.total,
+          paymentMethod: o.paymentMethod ?? o.paymentStatus,
+          items: itemNames,
+          placedAt: o.placedAt ?? o.createdAt ?? o.created_at,
+        };
+      });
+    const open = matched.filter((o) => o.open);
+    return {
+      ok: true,
+      count: matched.length,
+      openCount: open.length,
+      orders: matched,
+      spokenHint:
+        open.length > 0
+          ? `Found ${open.length} open order(s) for this caller — read order number and items back; do NOT say it failed.`
+          : matched.length > 0
+            ? 'Earlier orders exist but none are open on the board — offer to place a fresh order.'
+            : 'No recent orders for this number — offer to take a new order. Only then may you say nothing is on the board yet.',
+    };
+  }
+
   if (name === 'placeFoodOrder') {
     const { placeFoodOrder } = await import('../../order-service');
     const payload = {
@@ -878,8 +954,20 @@ export async function executePhoneTool(
     if (!startsAt) {
       return { ok: false, error: 'startsAt_required', spokenHint: 'What day and time were you thinking?' };
     }
-    const result = await checkTableAvailability({ startsAt, partySize }, firstString(body.orgId) ?? getRequestOrgId());
+    const orgId = firstString(body.orgId) ?? getRequestOrgId();
+    const { listDiningTables } = await import('../../reservations-store');
+    const configured = (await listDiningTables(orgId)).filter((t) => t.active);
+    const result = await checkTableAvailability({ startsAt, partySize }, orgId);
     if (!result.ok) return { ok: false, error: result.error, spokenHint: 'I could not check tables just now.' };
+    if (!configured.length) {
+      return {
+        ok: false,
+        available: false,
+        error: 'no_tables_configured',
+        spokenHint:
+          'We have not set the dining floor plan up yet — I can take your name and preferred time and the team will call you back to confirm.',
+      };
+    }
     if (!result.availableTables.length) {
       const next = result.nextSlots?.[0];
       return {

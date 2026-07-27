@@ -113,8 +113,11 @@ function buildSpokenHint(opts: {
         ? ' Pay by card when you collect — no card charge on this call.'
         : '';
   const etaSpeak = ` Ready in about ${spokenEtaMinutes(opts.etaMinutes)} minutes — say ${readyByClockSpoken(opts.etaMinutes)}.`;
+  // Thank-you / appreciation lives here so Judie speaks it from spokenHint (already in playbook).
+  const thanks = 'Thank you for your order — we really appreciate it.';
   if (opts.orderType === 'collection') {
     return [
+      thanks,
       `Order ${opts.orderNumber}${nameBit} is on the kitchen board — ${opts.spokenTotal}.`,
       'Collection.',
       opts.specialSpeak.trim(),
@@ -127,7 +130,7 @@ function buildSpokenHint(opts: {
     opts.orderType === 'delivery' && opts.deliveryAddress
       ? ` Delivery to ${opts.deliveryAddress}.`
       : '';
-  const base = `Order ${opts.orderNumber}${nameBit} is on the kitchen board — ${opts.spokenTotal}.${where}${opts.specialSpeak}${paySpeak}${etaSpeak}`;
+  const base = `${thanks} Order ${opts.orderNumber}${nameBit} is on the kitchen board — ${opts.spokenTotal}.${where}${opts.specialSpeak}${paySpeak}${etaSpeak}`;
   if (opts.posMode === 'automatic') {
     if (opts.posOk) return `${base} POS synced.`;
     if (opts.syncState === 'error' || opts.syncState === 'pending_out') {

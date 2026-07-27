@@ -395,6 +395,20 @@ export const PHONE_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'lookupCallerOrders',
+      description:
+        'Look up recent kitchen orders for this caller (by phone). MUST call this when they say they already ordered, want to change/add to an order, or ask if an order went through. Never invent "did not go through" — only say that if this tool returns no matching open orders.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Max orders to return (default 5)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'placeFoodOrder',
       description:
         'Place a takeaway food order for collection, delivery, or table. Call this as soon as the caller answers cash or card — do not stall. Cash/card is pay-on-arrival metadata only (never charge on the phone; never paymentStatus paid). Always pass customerName (asked earlier) and customerPhone. After success, speak spokenHint: it includes spokenTotal, ready-in time (~40 minutes), and collection counter instructions. For delivery, pass postcode (and address) after checkDeliveryArea. For meal deals, pass qty plus dealChoices.',
@@ -559,6 +573,7 @@ export const PHONE_AUTO_ACTIONS = new Set([
   'sendEmailReply',
   'scheduleSalesFollowUp',
   'getMenu',
+  'lookupCallerOrders',
   'placeFoodOrder',
   'checkDeliveryArea',
   'getDeliveryAreas',

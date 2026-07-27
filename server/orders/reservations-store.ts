@@ -289,7 +289,11 @@ export async function checkTableAvailability(
   const duration = Math.max(30, Number(input.durationMinutes ?? DEFAULT_SLOT_MINUTES) || DEFAULT_SLOT_MINUTES);
   const ends = addMinutes(starts, duration);
 
-  const tables = (await listDiningTables(orgId)).filter((t) => t.active && t.seats >= partySize);
+  const allActive = (await listDiningTables(orgId)).filter((t) => t.active);
+  if (!allActive.length) {
+    return { ok: true, availableTables: [], error: 'no_tables_configured' };
+  }
+  const tables = allActive.filter((t) => t.seats >= partySize);
   const reservations = (await listReservations(orgId)).filter((r) => activeReservationStatuses().has(r.status));
 
   const bookedTableIds = new Set<string>();
@@ -305,12 +309,11 @@ export async function checkTableAvailability(
     .map((t) => ({ id: t.id, label: t.label, seats: t.seats, zone: t.zone }));
 
   const nextSlots: string[] = [];
-  if (!availableTables.length) {
-    for (let offset = 1; offset <= 4; offset += 1) {
+  if (!availableTables.length && tables.length) {
+    for (let offset = 1; offset <= 8; offset += 1) {
       const slotStart = addMinutes(starts, offset * 30);
       const slotEnd = addMinutes(slotStart, duration);
       const free = tables.some((t) => {
-        if (bookedTableIds.has(t.id)) return false;
         const clash = reservations.some((r) => {
           if (r.tableId && r.tableId !== t.id) return false;
           const rStart = parseIso(r.startsAt);
