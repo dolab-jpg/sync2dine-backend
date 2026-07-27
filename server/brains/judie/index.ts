@@ -12,20 +12,25 @@ import { getOrganizationById } from '../../organizations';
  * Staff / platform CRM tools live on Sally (PIN), not here.
  */
 
-/** Inbound open line — short and clear. Never stuff sayToday into the greeting (that buried the venue name). */
-function buildJudieInboundGreeting(restaurantName: string, _sayToday: string, aboutUs: string): string {
+/** Inbound open line — brand first, then favourites, then how can I help. */
+function buildJudieInboundGreeting(restaurantName: string, sayToday: string, aboutUs: string): string {
   const venue = restaurantName.trim() || 'Sync2Dine';
   // TTS often mumbles "Sync2Dine" — speak it as "Sync to Dine" so callers hear the brand.
   const spokenVenue = /sync\s*2\s*dine/i.test(venue) ? 'Sync to Dine' : venue;
-  // Soft fallback from aboutUs first sentence if it already pitches the venue.
-  const aboutLead = aboutUs.split(/[.!?]/)[0]?.trim() || '';
-  if (aboutLead && aboutLead.length <= 90 && /birmingham|best|around/i.test(aboutLead)) {
-    return `${spokenVenue}, ${aboutLead}. How can I help?`;
-  }
-  if (/sync\s*2\s*dine/i.test(venue)) {
-    return `${spokenVenue}, the best restaurant around Birmingham. How can I help?`;
-  }
-  return `Hello ${spokenVenue}, how can I help you today?`;
+  const bestBit = /sync\s*2\s*dine/i.test(venue)
+    ? 'the best restaurant around Birmingham'
+    : (() => {
+        const aboutLead = aboutUs.split(/[.!?]/)[0]?.trim() || '';
+        if (aboutLead && aboutLead.length <= 90 && /birmingham|best|around/i.test(aboutLead)) {
+          return aboutLead;
+        }
+        return '';
+      })();
+  const favourites = sayToday.replace(/[.!?]+$/, '').trim();
+  const parts = [spokenVenue];
+  if (bestBit) parts.push(bestBit);
+  if (favourites) parts.push(`Favourites: ${favourites}`);
+  return `${parts.join('. ')}. How can I help?`;
 }
 
 export const judieBrain: BrainPackage = {

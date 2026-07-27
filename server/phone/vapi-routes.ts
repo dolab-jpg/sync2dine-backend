@@ -1363,26 +1363,65 @@ async function handleVapiMessage(
         return;
       }
     }
-    const call = await ensureCallFromVapi(message);
-    const vapiId = String(
-      ((message.call || {}) as Record<string, unknown>).id
-      || message.callId
-      || call.providerCallId
-      || '',
-    );
-    auditVapiWebhook({
-      type,
-      vapiCallId: vapiId || null,
-      matchedLocalCallId: String(call.id),
-      matchMethod: priorByProvider ? 'providerCallId' : (getCallById(String(call.id)) ? 'localId' : 'new'),
-      authOk: true,
-    });
-    if (vapiId) {
-      void enrichMonitorUrlsFromVapi(String(call.id), vapiId, extractMonitorUrls(message));
+    // Vapi hard-times-out assistant-request around 7.5s — always answer before that.
+    const ASSISTANT_BUDGET_MS = 5_500;
+    const t0 = Date.now();
+    try {
+      const built = await Promise.race([
+        (async () => {
+          const call = await ensureCallFromVapi(message);
+          const vapiId = String(
+            ((message.call || {}) as Record<string, unknown>).id
+            || message.callId
+            || call.providerCallId
+            || '',
+          );
+          auditVapiWebhook({
+            type,
+            vapiCallId: vapiId || null,
+            matchedLocalCallId: String(call.id),
+            matchMethod: priorByProvider ? 'providerCallId' : (getCallById(String(call.id)) ? 'localId' : 'new'),
+            authOk: true,
+          });
+          if (vapiId) {
+            void enrichMonitorUrlsFromVapi(String(call.id), vapiId, extractMonitorUrls(message));
+          }
+          return buildTransientAssistant(message);
+        })(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), ASSISTANT_BUDGET_MS)),
+      ]);
+      if (built) {
+        console.log(`[vapi] assistant-request ok in ${Date.now() - t0}ms`);
+        sendJson(res, 200, { assistant: built });
+        return;
+      }
+      console.warn(`[vapi] assistant-request budget ${ASSISTANT_BUDGET_MS}ms exceeded — fast Judie fallback`);
+      const { assistant } = await buildVapiAssistantForParty({
+        partyPhone: '',
+        direction: 'inbound',
+        agentPersona: 'judie',
+        orgId: getDemoKitchenOrgId(),
+      });
+      console.log(`[vapi] assistant-request fallback ok in ${Date.now() - t0}ms`);
+      sendJson(res, 200, { assistant });
+      return;
+    } catch (err) {
+      console.error('[vapi] assistant-request failed', err instanceof Error ? err.message : err);
+      try {
+        const { assistant } = await buildVapiAssistantForParty({
+          partyPhone: '',
+          direction: 'inbound',
+          agentPersona: 'judie',
+          orgId: getDemoKitchenOrgId(),
+        });
+        sendJson(res, 200, { assistant });
+      } catch (err2) {
+        sendJson(res, 500, {
+          error: err2 instanceof Error ? err2.message : 'assistant_request_failed',
+        });
+      }
+      return;
     }
-    const assistant = await buildTransientAssistant(message);
-    sendJson(res, 200, { assistant });
-    return;
   }
 
   if (type === 'tool-calls' || type === 'function-call') {

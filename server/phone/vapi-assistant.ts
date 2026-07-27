@@ -120,7 +120,11 @@ export async function buildVapiAssistantForParty(opts: {
   agentPersona?: string;
 }> {
   const orgId = String(opts.orgId || getHomeOrgId() || DEFAULT_ORG_ID).trim();
-  await hydrateCallerFromCloud(opts.partyPhone);
+  // Never block assistant-request on CRM hydrate (Vapi budget ~7.5s).
+  void Promise.race([
+    hydrateCallerFromCloud(opts.partyPhone),
+    new Promise((resolve) => setTimeout(resolve, 400)),
+  ]).catch(() => undefined);
   const identity = resolvePhoneCallerIdentity(opts.partyPhone, orgId);
   const verified = opts.callId ? isPhoneAuthVerified(opts.callId) : false;
   const existingCall = opts.callId ? getCallById(opts.callId) : undefined;

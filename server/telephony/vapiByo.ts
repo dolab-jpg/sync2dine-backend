@@ -78,9 +78,9 @@ interface VapiCredential {
   outboundLeadingPlusEnabled?: boolean;
 }
 
-async function vapiFetch(path: string, init?: RequestInit): Promise<Response> {
+async function vapiFetch(path: string, init?: RequestInit, timeoutMs = 15_000): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(`${API_BASE}${path}`, {
       ...init,
@@ -106,10 +106,27 @@ async function listNumbers(): Promise<VapiNumber[]> {
 /** phoneNumberId ? E.164 (real SIP assistant-request often omits phoneNumber.number). */
 const phoneNumberIdToDidCache = new Map<string, string>();
 
+function seedKnownPhoneNumberIds(): void {
+  // Warm cache so inbound assistant-request never waits on Vapi list/get (Vapi budget ~7.5s).
+  const pairs = [
+    [process.env.JUDIE_VAPI_PHONE_NUMBER_ID, process.env.JUDIE_DID || process.env.SOHO66_ARIA_DID],
+    [process.env.VAPI_JUDIE_PHONE_NUMBER_ID, process.env.JUDIE_DID],
+    // Live Judie BYO (app.sync2dine.io demo kitchen line)
+    ['3019a4c8-d063-48e9-92c9-f0c51dd58d7b', '+442071128727'],
+  ] as Array<[string | undefined, string | undefined]>;
+  for (const [id, did] of pairs) {
+    const nid = String(id || '').trim();
+    const number = String(did || '').trim();
+    if (nid && number) phoneNumberIdToDidCache.set(nid, number);
+  }
+}
+seedKnownPhoneNumberIds();
+
 /**
  * Resolve a Vapi BYO phoneNumberId to its E.164 DID.
  * Critical for Judie: inbound webhooks often only send phoneNumberId, and without
  * the DID we fall back to home org (empty menu).
+ * Must stay fast — Vapi assistant-request times out at ~7.5s.
  */
 export async function resolveVapiPhoneNumberIdToDid(phoneNumberId: string): Promise<string | null> {
   const id = String(phoneNumberId || '').trim();
@@ -118,7 +135,8 @@ export async function resolveVapiPhoneNumberIdToDid(phoneNumberId: string): Prom
   if (cached) return cached;
   if (!key()) return null;
   try {
-    const res = await vapiFetch(`/phone-number/${id}`);
+    // Short timeout — never burn the whole assistant-request budget on Vapi GET.
+    const res = await vapiFetch(`/phone-number/${id}`, undefined, 2_000);
     if (res.ok) {
       const row = (await res.json()) as VapiNumber;
       const number = String(row.number || '').trim();
@@ -127,13 +145,16 @@ export async function resolveVapiPhoneNumberIdToDid(phoneNumberId: string): Prom
         return number;
       }
     }
-    // Fallback: scan list once (warms cache for all BYOs)
-    const all = await listNumbers();
-    for (const n of all) {
-      const nid = String(n.id || '').trim();
-      const number = String(n.number || '').trim();
-      if (nid && number) phoneNumberIdToDidCache.set(nid, number);
-    }
+    // Do not list-all on the hot path (can exceed 7.5s). Warm cache in background.
+    void listNumbers()
+      .then((all) => {
+        for (const n of all) {
+          const nid = String(n.id || '').trim();
+          const number = String(n.number || '').trim();
+          if (nid && number) phoneNumberIdToDidCache.set(nid, number);
+        }
+      })
+      .catch(() => undefined);
     return phoneNumberIdToDidCache.get(id) || null;
   } catch {
     return null;
@@ -306,7 +327,7 @@ export async function checkVapiByoForDid(didE164: string): Promise<{ configured:
       return {
         configured: true,
         ok: false,
-        message: `Vapi BYO ${did} has no webhook secret — Vapi will speak "invalid secret" instead of Judie`,
+        message: `Vapi BYO ${did} has no webhook secret  Vapi will speak "invalid secret" instead of Judie`,
       };
     }
 

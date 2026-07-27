@@ -114,10 +114,9 @@ export async function buildVapiModelBlock(opts: {
     const apiKey = await resolveDeepSeekApiKeyAsync(undefined, orgId);
     const model = defaultChatModelForProvider('deepseek', preferredModel);
     if (apiKey) {
-      // Ensure org BYOK credential exists in Vapi; do NOT put credentialId on the
-      // transient assistant model — Vapi assistant-request rejects that property
-      // ("model.property credentialId should not exist") → "Couldn't get assistance".
-      await ensureDeepSeekCredential(apiKey);
+      // Do NOT await Vapi credential create/list here — assistant-request must answer in <7.5s.
+      // Credential sync is background-only; transient model must not include credentialId anyway.
+      void ensureDeepSeekCredential(apiKey);
       return {
         provider: 'deep-seek',
         model,
