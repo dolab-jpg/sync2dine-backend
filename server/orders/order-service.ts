@@ -621,7 +621,10 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     etaMinutes,
   });
   if (callerDeclaredAllergy) {
-    spokenHint = `${spokenHint} I've messaged the kitchen about your ${customerAllergies} allergy.`;
+    const allergySpeak = /allerg/i.test(customerAllergies)
+      ? customerAllergies
+      : `${customerAllergies} allergy`;
+    spokenHint = `${spokenHint} I've messaged the kitchen about your ${allergySpeak}.`;
   } else if (allergenSoftNotes.length) {
     spokenHint = `${spokenHint} Kitchen will double-check allergens.`;
   }
