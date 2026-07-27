@@ -1429,14 +1429,30 @@ async function handleVapiMessage(
         };
       }
       try {
-        const output = await executeTool(tool.name, tool.arguments, call, partyPhone);
-        const resultJson = JSON.stringify(output);
+        // Vapi drops the call mute if tool-calls exceeds ~20s — always answer with a speakable hint.
+        const TOOL_BUDGET_MS = 14_000;
+        const timedOut = {
+          ok: false,
+          error: 'tool_timeout',
+          spokenHint: 'Sorry love, I blanked for a second — can you say that again?',
+        };
+        const output = await Promise.race([
+          executeTool(tool.name, tool.arguments, call, partyPhone),
+          new Promise<typeof timedOut>((resolve) => {
+            setTimeout(() => resolve(timedOut), TOOL_BUDGET_MS);
+          }),
+        ]);
+        const withHint = (output && typeof output === 'object' && !(output as { spokenHint?: string }).spokenHint
+          && (output as { ok?: boolean }).ok === false)
+          ? { ...output, spokenHint: timedOut.spokenHint }
+          : output;
+        const resultJson = JSON.stringify(withHint);
         rememberToolResult(String(call.id), tool.id, resultJson);
         appendCallTurn(String(call.id), {
           role: 'system',
-          content: summarizeToolResult(tool.name, output),
+          content: summarizeToolResult(tool.name, withHint),
         });
-        const outputOk = !(output && typeof output === 'object' && 'ok' in output && (output as { ok?: unknown }).ok === false);
+        const outputOk = !(withHint && typeof withHint === 'object' && 'ok' in withHint && (withHint as { ok?: unknown }).ok === false);
         auditVapiWebhook({
           type: 'tool-result',
           toolName: tool.name,
@@ -1449,7 +1465,11 @@ async function handleVapiMessage(
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        const resultJson = JSON.stringify({ ok: false, error: message });
+        const resultJson = JSON.stringify({
+          ok: false,
+          error: message,
+          spokenHint: 'Sorry love, I blanked for a second — can you say that again?',
+        });
         rememberToolResult(String(call.id), tool.id, resultJson);
         appendCallTurn(String(call.id), {
           role: 'system',

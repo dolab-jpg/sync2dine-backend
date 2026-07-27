@@ -51,8 +51,13 @@ export function buildSilenceHooks(
                 : "I'll leave it there — shout if you need me. Bye!",
           }
         : {
-            check: ['Take your time — I am still here.', 'Can you still hear me?'],
-            reask: 'Whenever you are ready — I can take an order or book a table.',
+            // If Judie stalled after cash/card, these lines unstick the call when the line goes quiet.
+            check: [
+              'Sorry love, I blanked for a second — still with me?',
+              'Can you still hear me?',
+              'I am here — say that again for me?',
+            ],
+            reask: 'Sorry about that — tell me your name or what you wanted and I will get you sorted.',
             bye: 'No worries — call back anytime. Bye for now!',
           };
 
@@ -202,14 +207,14 @@ export async function buildVapiAssistantForParty(opts: {
     process.env.SALLY_VOICEMAIL_MESSAGE?.trim() || SALLY_DEFAULT_VOICEMAIL;
   // Sally outbound: skip silence hangup so beep + voicemail drop can finish; stretch check/reask.
   const sallyOutbound = sally && opts.direction === 'outbound';
-  // Judie inbound: give diners time to think after "how can I help you today?" before silence hangup.
+  // Judie inbound: slightly longer hangup budget, but keep early "I blanked" recovery checks snappy.
   const judieInbound = !sally && opts.direction === 'inbound';
   const silenceHooks = buildSilenceHooks(
     silencePersona,
     sallyOutbound
       ? { omitHangup: true, timeoutScale: 2.5 }
       : judieInbound
-        ? { timeoutScale: 2 }
+        ? { timeoutScale: 1.25 }
         : undefined,
   );
 
