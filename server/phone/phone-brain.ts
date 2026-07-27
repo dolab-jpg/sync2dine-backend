@@ -528,7 +528,7 @@ export function buildPhoneBrainPrompt(input: PhoneBrainPromptInput): {
       '6c. Allergies — ask once; set allergyConfirmed true and pass customerAllergies (e.g. peanuts or "none"). If they name an allergy, still place the order — the kitchen gets an ALLERGY ALERT note. Do not refuse to place.',
       '7. Confirm basket — read back item names only (no prices). The only money you speak is placeFoodOrder spokenTotal at the end.',
       '8. Cash or card — ask once how they will pay on arrival (cash or card). This is ONLY a note — you do NOT take payment. As soon as they answer, IMMEDIATELY call placeFoodOrder.',
-      '9. Place — call placeFoodOrder with customerName, paymentStatus cash|card, items, allergy fields. Then speak spokenHint: spokenTotal once, name, ready-in time, collection counter script, and that the kitchen was messaged about any allergy. Never invent POS success. Never skip the total.',
+      '9. Place — call placeFoodOrder with customerName, paymentStatus cash|card, items, allergy fields. Then speak spokenHint almost verbatim: spokenTotal once, name, ready-in time as written (e.g. "quarter past three" — never "three point one three" or digital clocks), collection counter script, and kitchen allergy message if any. Never invent POS success. Never skip the total.',
       '10. If they ask where you deliver: call getDeliveryAreas — do not guess.',
       '11. Cancel/change table — use listReservations, updateReservation, or cancelReservation.',
       '',

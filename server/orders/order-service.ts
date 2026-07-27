@@ -15,6 +15,7 @@ import { getConnectorConfig } from '../connectors/config-store';
 import { forwardJudieOrderToProviders } from '../connectors/judie-order-forward';
 import { resolvePosPushMode, type PosPushMode } from '../connectors/types';
 import { findOrderBySourceCallId } from './supabase-orders';
+import { readyByClockSpoken } from './spoken-ready-time';
 
 export type { PosPushMode };
 export { resolvePosPushMode };
@@ -89,16 +90,6 @@ function spokenEtaMinutes(mins: number): string {
   return words[n] || String(n);
 }
 
-function readyByClock(etaMinutes: number): string {
-  const ready = new Date(Date.now() + etaMinutes * 60_000);
-  return ready.toLocaleTimeString('en-GB', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: 'Europe/London',
-  });
-}
-
 function buildSpokenHint(opts: {
   orderNumber: string | number | undefined;
   spokenTotal: string;
@@ -121,7 +112,7 @@ function buildSpokenHint(opts: {
       : opts.paymentMethod === 'card'
         ? ' Pay by card when you collect — no card charge on this call.'
         : '';
-  const etaSpeak = ` Ready in about ${spokenEtaMinutes(opts.etaMinutes)} minutes — around ${readyByClock(opts.etaMinutes)}.`;
+  const etaSpeak = ` Ready in about ${spokenEtaMinutes(opts.etaMinutes)} minutes — say ${readyByClockSpoken(opts.etaMinutes)}.`;
   if (opts.orderType === 'collection') {
     return [
       `Order ${opts.orderNumber}${nameBit} is on the kitchen board — ${opts.spokenTotal}.`,
