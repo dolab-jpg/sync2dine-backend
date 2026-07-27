@@ -295,6 +295,28 @@ export async function listOrdersFromSupabase(
   };
 }
 
+/** Fast phone double-place guard — avoid listing every order on each placeFoodOrder. */
+export async function findOrderBySourceCallId(
+  callId: string,
+  orgIdHint?: string | null,
+): Promise<Record<string, unknown> | null> {
+  const client = getAdmin();
+  const orgId = resolveOrdersOrgId(orgIdHint);
+  const id = String(callId || '').trim();
+  if (!client || !orgId || !id) return null;
+  const { data, error } = await client
+    .from('orders')
+    .select('*')
+    .eq('org_id', orgId)
+    .eq('source_call_id', id)
+    .neq('status', 'cancelled')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return rowToOrder(data as OrderRow);
+}
+
 export async function nextOrderNumber(orgIdHint?: string | null): Promise<number> {
   const client = getAdmin();
   const orgId = resolveOrdersOrgId(orgIdHint);

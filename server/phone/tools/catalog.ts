@@ -397,7 +397,7 @@ export const PHONE_TOOLS = [
     function: {
       name: 'placeFoodOrder',
       description:
-        'Place a takeaway food order for collection, delivery, or table. Confirm items and total with the caller before calling. For collection/delivery: ask cash or card (pay on arrival) and pass paymentStatus cash or card — never paid. For delivery, pass postcode (and address) after checkDeliveryArea succeeds. For meal deals (getMenu items with a deal object), pass qty plus dealChoices — one object per unit with main/side/drink (or whatever roles the deal lists). The kitchen receives expanded component lines.',
+        'Place a takeaway food order for collection, delivery, or table. Call this as soon as the caller answers cash or card — do not stall. Cash/card is pay-on-arrival metadata only (never charge on the phone; never paymentStatus paid). Always pass customerName (asked earlier) and customerPhone. After success, speak spokenHint: it includes spokenTotal, ready-in time (~40 minutes), and collection counter instructions. For delivery, pass postcode (and address) after checkDeliveryArea. For meal deals, pass qty plus dealChoices.',
       parameters: {
         type: 'object',
         properties: {

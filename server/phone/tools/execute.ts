@@ -828,7 +828,7 @@ export async function executePhoneTool(
 
   if (name === 'placeFoodOrder') {
     const { placeFoodOrder } = await import('../../order-service');
-    return placeFoodOrder({
+    const payload = {
       items: Array.isArray(input.items) ? input.items : [],
       orderType: firstString(input.orderType),
       postcode: firstString(input.postcode),
@@ -848,7 +848,28 @@ export async function executePhoneTool(
       callIds: callId ? [callId] : [],
       orgId: firstString(body.orgId) ?? getRequestOrgId(),
       callerPhone,
-    });
+    };
+    // Vapi aborts tool-calls at ~20s; always answer before that so Judie can speak the total.
+    const PLACE_BUDGET_MS = 14_000;
+    try {
+      const raced = await Promise.race([
+        placeFoodOrder(payload),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), PLACE_BUDGET_MS)),
+      ]);
+      if (raced) return raced;
+      return {
+        ok: false,
+        error: 'place_timeout',
+        spokenHint:
+          'Sorry — the kitchen system was slow. Say your name and items again and I will retry placing that order.',
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message.slice(0, 160) : 'place_failed',
+        spokenHint: 'I could not save that order just now — can we try once more?',
+      };
+    }
   }
 
   if (name === 'checkTableAvailability') {

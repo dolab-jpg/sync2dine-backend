@@ -5,7 +5,6 @@
 import {
   getDataStore,
   getRequestOrgId,
-  listOrderRecords,
   lookupContactByPhone,
   saveOrderRecord,
 } from '../data-store';
@@ -15,6 +14,7 @@ import { allergenSafetyHint, customerAllergenConflict } from './allergens';
 import { getConnectorConfig } from '../connectors/config-store';
 import { forwardJudieOrderToProviders } from '../connectors/judie-order-forward';
 import { resolvePosPushMode, type PosPushMode } from '../connectors/types';
+import { findOrderBySourceCallId } from './supabase-orders';
 
 export type { PosPushMode };
 export { resolvePosPushMode };
@@ -73,6 +73,32 @@ function firstString(...values: unknown[]): string | undefined {
   return undefined;
 }
 
+function spokenEtaMinutes(mins: number): string {
+  const n = Math.max(1, Math.round(mins));
+  const words: Record<number, string> = {
+    15: 'fifteen',
+    20: 'twenty',
+    25: 'twenty-five',
+    30: 'thirty',
+    35: 'thirty-five',
+    40: 'forty',
+    45: 'forty-five',
+    50: 'fifty',
+    60: 'sixty',
+  };
+  return words[n] || String(n);
+}
+
+function readyByClock(etaMinutes: number): string {
+  const ready = new Date(Date.now() + etaMinutes * 60_000);
+  return ready.toLocaleTimeString('en-GB', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Europe/London',
+  });
+}
+
 function buildSpokenHint(opts: {
   orderNumber: string | number | undefined;
   spokenTotal: string;
@@ -83,24 +109,38 @@ function buildSpokenHint(opts: {
   posMode: PosPushMode;
   posOk?: boolean;
   paymentMethod?: string;
+  customerName?: string;
+  etaMinutes: number;
 }): string {
+  const nameBit = opts.customerName && !/^guest$/i.test(opts.customerName)
+    ? ` for ${opts.customerName}`
+    : '';
+  const paySpeak =
+    opts.paymentMethod === 'cash'
+      ? ' Pay cash when you collect — no card charge on this call.'
+      : opts.paymentMethod === 'card'
+        ? ' Pay by card when you collect — no card charge on this call.'
+        : '';
+  const etaSpeak = ` Ready in about ${spokenEtaMinutes(opts.etaMinutes)} minutes — around ${readyByClock(opts.etaMinutes)}.`;
+  if (opts.orderType === 'collection') {
+    return [
+      `Order ${opts.orderNumber}${nameBit} is on the kitchen board — ${opts.spokenTotal}.`,
+      'Collection.',
+      opts.specialSpeak.trim(),
+      paySpeak.trim(),
+      etaSpeak.trim(),
+      'Come to the counter, say you are here for collection, and we will match your phone number.',
+    ].filter(Boolean).join(' ');
+  }
   const where =
     opts.orderType === 'delivery' && opts.deliveryAddress
       ? ` Delivery to ${opts.deliveryAddress}.`
-      : opts.orderType === 'collection'
-        ? ' Collection.'
-        : '';
-  const paySpeak =
-    opts.paymentMethod === 'cash'
-      ? ' Paying cash on arrival.'
-      : opts.paymentMethod === 'card'
-        ? ' Paying by card on arrival.'
-        : '';
-  const base = `Order ${opts.orderNumber} is on the kitchen board ? ${opts.spokenTotal}.${where}${opts.specialSpeak}${paySpeak}`;
+      : '';
+  const base = `Order ${opts.orderNumber}${nameBit} is on the kitchen board — ${opts.spokenTotal}.${where}${opts.specialSpeak}${paySpeak}${etaSpeak}`;
   if (opts.posMode === 'automatic') {
     if (opts.posOk) return `${base} POS synced.`;
     if (opts.syncState === 'error' || opts.syncState === 'pending_out') {
-      return `${base} POS pending or failed ? staff can retry from the board.`;
+      return `${base} POS pending or failed — staff can retry from the board.`;
     }
   }
   return base;
@@ -127,21 +167,17 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
 
   const channelEarly = (firstString(input.channel) ?? 'phone').toLowerCase();
   const callIdEarly = firstString(input.sourceCallId);
-  // Phone/Judie double-place guard: one successful order per call id.
+  // Phone/Judie double-place guard: one successful order per call id (indexed lookup — not full list).
   if (callIdEarly && (channelEarly === 'phone' || channelEarly === 'kiosk' || channelEarly === 'vapi')) {
     try {
-      const existing = await listOrderRecords(orgId);
-      const prior = existing.find((o) => {
-        const sc = String(o.sourceCallId ?? '');
-        const st = String(o.status ?? '').toLowerCase();
-        return sc === callIdEarly && st !== 'cancelled';
-      });
+      const prior = await findOrderBySourceCallId(callIdEarly, orgId);
       if (prior) {
         const spokenTotal = formatSpokenGbp(Number(prior.total ?? 0));
         const orderNumber =
           typeof prior.orderNumber === 'string' || typeof prior.orderNumber === 'number'
             ? prior.orderNumber
             : undefined;
+        const etaMinutes = Number(prior.etaMinutes ?? 40) || 40;
         return {
           ok: true,
           orderId: String(prior.id),
@@ -153,7 +189,18 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
           deliveryPostcode: prior.deliveryPostcode != null ? String(prior.deliveryPostcode) : null,
           customerId: prior.customerId != null ? String(prior.customerId) : null,
           syncState: String(prior.syncState ?? 'local'),
-          spokenHint: `Order ${orderNumber ?? prior.id} is already on the kitchen board ? ${spokenTotal}. No need to place it again.`,
+          spokenHint: buildSpokenHint({
+            orderNumber: orderNumber ?? prior.id,
+            spokenTotal,
+            orderType: String(prior.orderType || 'collection'),
+            deliveryAddress: prior.deliveryAddress != null ? String(prior.deliveryAddress) : undefined,
+            specialSpeak: '',
+            syncState: String(prior.syncState ?? 'local'),
+            posMode: 'manual_only',
+            paymentMethod: prior.paymentMethod != null ? String(prior.paymentMethod) : undefined,
+            customerName: prior.customerName != null ? String(prior.customerName) : undefined,
+            etaMinutes,
+          }),
           order: prior,
           posPush: { attempted: false },
         };
@@ -288,18 +335,23 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
   }
 
   const allergenWarnings: string[] = [];
+  const allergenSoftNotes: string[] = [];
   const channelLower = (firstString(input.channel) ?? 'phone').toLowerCase();
   const staffChannel = channelLower === 'staff' || channelLower === 'sync2dine';
+  const allergyNote = (customerAllergies || '').trim().toLowerCase();
+  const callerDeclaredAllergy = Boolean(allergyNote && allergyNote !== 'none' && allergyNote !== 'no');
   for (const line of expanded.items) {
     const match = catalog.find((c) => c.name.toLowerCase() === String(line.name).toLowerCase());
     if (!match) continue;
-    // Phone: undeclared allergens hard-fail. Staff till: allergyConfirmed already required.
+    // Phone: undeclared catalog allergens — soft note when caller said none; hard-fail only if they named an allergy.
     if (!staffChannel) {
       const safety = allergenSafetyHint(match);
-      if (safety) allergenWarnings.push(safety);
+      if (safety) {
+        if (callerDeclaredAllergy) allergenWarnings.push(safety);
+        else allergenSoftNotes.push(safety);
+      }
     }
-    const allergyNote = (customerAllergies || '').trim().toLowerCase();
-    if (allergyNote && allergyNote !== 'none') {
+    if (callerDeclaredAllergy) {
       const conflicts = customerAllergenConflict(customerAllergies, match.allergensContains ?? []);
       if (conflicts.length) {
         allergenWarnings.push(
@@ -454,11 +506,30 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
   const channel = firstString(input.channel) ?? 'phone';
   const source = firstString(input.source) ?? channel;
   const callId = firstString(input.sourceCallId);
+  const customerName = firstString(input.customerName) ?? 'Guest';
+  // Collection and delivery: ~40 minutes ready (spoken wrap-up uses this).
+  const etaMinutes = orderType === 'table' ? 0 : 40;
+
+  // Keep CRM lead in sync with name + phone (Judie should have asked for a name).
+  if (phone && customerName && !/^guest$/i.test(customerName)) {
+    try {
+      const { captureOrUpdateLead } = await import('../phone/tools/leads');
+      const lead = captureOrUpdateLead(
+        { name: customerName, phone, notes: `Phone ${orderType} order` },
+        { callId, fallbackPhone: phone },
+      );
+      if (lead.customer?.id && !customerId) {
+        customerId = String(lead.customer.id);
+      }
+    } catch {
+      /* lead is best-effort — never block the kitchen order */
+    }
+  }
 
   let record = await saveOrderRecord(
     {
       customerId: customerId || undefined,
-      customerName: firstString(input.customerName) ?? 'Guest',
+      customerName,
       customerPhone: phone,
       channel,
       orderType,
@@ -478,7 +549,7 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
       source,
       syncState: 'local',
       placedAt: new Date().toISOString(),
-      etaMinutes: orderType === 'delivery' ? 40 : 20,
+      etaMinutes,
     },
     orgId,
   );
@@ -488,17 +559,31 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
   let posPush: { attempted: boolean; ok?: boolean; error?: string } | undefined;
 
   if (posMode === 'automatic') {
-    const forwarded = await forwardJudieOrderToProviders(
-      orgId,
-      record as Record<string, unknown>,
-      config,
-    );
-    record = (forwarded.order as typeof record) ?? record;
-    posPush = {
-      attempted: forwarded.channel !== 'none',
-      ok: forwarded.ok,
-      error: forwarded.error,
-    };
+    // Never let POS/webhook hang past Vapi's ~20s tool timeout — kitchen save already succeeded.
+    const POS_BUDGET_MS = 4_000;
+    try {
+      const forwarded = await Promise.race([
+        forwardJudieOrderToProviders(orgId, record as Record<string, unknown>, config),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), POS_BUDGET_MS)),
+      ]);
+      if (forwarded) {
+        record = (forwarded.order as typeof record) ?? record;
+        posPush = {
+          attempted: forwarded.channel !== 'none',
+          ok: forwarded.ok,
+          error: forwarded.error,
+        };
+      } else {
+        posPush = { attempted: true, ok: false, error: 'pos_timeout' };
+        void forwardJudieOrderToProviders(orgId, record as Record<string, unknown>, config).catch(() => {});
+      }
+    } catch (err) {
+      posPush = {
+        attempted: true,
+        ok: false,
+        error: err instanceof Error ? err.message.slice(0, 160) : 'pos_error',
+      };
+    }
   } else {
     posPush = { attempted: false };
   }
@@ -515,7 +600,7 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     typeof rec.deliveryAddress === 'string'
       ? rec.deliveryAddress
       : deliveryAddress;
-  const spokenHint = buildSpokenHint({
+  let spokenHint = buildSpokenHint({
     orderNumber,
     spokenTotal,
     orderType,
@@ -525,7 +610,12 @@ export async function placeFoodOrder(input: PlaceFoodOrderInput): Promise<PlaceF
     posMode,
     posOk: posPush?.ok,
     paymentMethod,
+    customerName,
+    etaMinutes,
   });
+  if (allergenSoftNotes.length) {
+    spokenHint = `${spokenHint} Kitchen will double-check allergens on undeclared dishes.`;
+  }
 
   return {
     ok: true,
