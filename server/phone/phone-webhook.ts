@@ -406,6 +406,19 @@ export async function handlePhoneOutboundWebhook(req: IncomingMessage, res: Serv
   res.end(built.body);
 }
 
+/**
+ * Sources that only exist in the Sync2Dine sales shell. Callers there are always
+ * Sally sales dials, so an omitted persona must not resolve to the Judie brain.
+ */
+const SALES_ONLY_OUTBOUND_SOURCES = new Set(['crm_call_this_person', 'sales_csv_dial']);
+
+function resolveOutboundPersona(context: Record<string, unknown> | undefined): string | undefined {
+  const persona = String(context?.agentPersona ?? '').trim().toLowerCase();
+  if (persona) return persona;
+  const source = String(context?.source ?? '').trim();
+  return SALES_ONLY_OUTBOUND_SOURCES.has(source) ? 'sally' : undefined;
+}
+
 export async function handleOutboundCallApi(req: IncomingMessage, res: ServerResponse) {
   const body = JSON.parse(await readBody(req));
   const { to, template, context, scheduledAt, fromWorker } = body;
@@ -418,14 +431,13 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
   const config = resolveTelephonyConfig();
   const provider = getTelephonyProvider(config);
   const callId = `out-${Date.now()}`;
+  const agentPersona = resolveOutboundPersona(context);
   const meta = {
     ...(context && typeof context === 'object' ? context : {}),
     customerId: context?.customerId,
     aim: context?.aim ?? context?.reason,
     brief: context?.brief ?? context?.aim ?? context?.reason,
-    ...(context?.agentPersona != null && String(context.agentPersona).trim()
-      ? { agentPersona: String(context.agentPersona).trim().toLowerCase() }
-      : {}),
+    ...(agentPersona ? { agentPersona } : {}),
     ...(context?.source != null && String(context.source).trim()
       ? { source: String(context.source).trim() }
       : {}),
