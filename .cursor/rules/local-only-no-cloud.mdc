@@ -1,0 +1,13 @@
+---
+description: Never use Cursor Cloud Agents for Sync2Dine — local PC only
+alwaysApply: true
+---
+
+# Local-only (no Cursor Cloud)
+
+**Do not use Cursor Cloud Agents** for Sync2Dine work. Always work on the Windows machine against:
+
+- `C:\Users\dolab\Downloads\sync2dine-frontend`
+- `C:\Users\dolab\Downloads\sync2dine-backend`
+
+Cloud agents cannot `ssh vps` with `C:\Users\dolab\.ssh\id_ed25519`, so they cannot restart `:3011` or deploy. Ship only from local: commit ? `git push origin master` ? from FE `bash scripts/push-live-local.sh` ? verify `https://app.sync2dine.io/health`.
