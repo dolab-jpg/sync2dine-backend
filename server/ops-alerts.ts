@@ -46,6 +46,25 @@ export function raiseOpsAlert(input: {
   alerts.unshift(alert);
   if (alerts.length > MAX) alerts.length = MAX;
   console.error(`[ops-alert:${input.severity}] ${input.code} org=${input.orgId} ${input.title} — ${input.message}`);
+
+  // Fan-out critical/high to platform contacts (email / SMS / Trae webhook).
+  if (input.severity === 'critical' || input.severity === 'high') {
+    void import('./ops-notify')
+      .then(({ sendOpsNotify }) =>
+        sendOpsNotify({
+          event: 'ops_alert',
+          severity: input.severity,
+          title: input.title,
+          message: input.message,
+          code: input.code,
+          orgId: input.orgId,
+        }),
+      )
+      .catch((err) => {
+        console.warn('[ops-alert] notify fan-out failed:', err instanceof Error ? err.message : err);
+      });
+  }
+
   return alert;
 }
 

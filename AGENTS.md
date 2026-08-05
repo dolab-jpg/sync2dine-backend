@@ -39,13 +39,15 @@ Prefer `server/brains/`, `phone/`, `sally/`, `orders/`, `ai/`, `billing/`, `conn
 Live **https://app.sync2dine.io** (:3011). Local default :3001.
 
 ```bash
+curl -sS https://app.sync2dine.io/health
+curl -sS https://app.sync2dine.io/api/vapi/health
 npm run extract:registries
 npm run check:agent-maps
 npm run smoke:orders
 npm run smoke:sally-web
 ```
 
-Ship from FE: `bash scripts/push-live-local.sh`.
+Ship from FE: `bash scripts/push-live-local.sh`. Outage notify / watchdog: FE [`DEPLOYMENT_MAP.md`](../sync2dine-frontend/docs/DEPLOYMENT_MAP.md), UI `/platform/ops`.
 
 ## When adding a feature
 

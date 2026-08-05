@@ -39,6 +39,11 @@ nohup "$NODE" \
   >/tmp/sync2dine-api.log 2>&1 &
 echo "$!" >/tmp/sync2dine-api.pid
 echo "spawned pid=$!"
+# Keep the outage watchdog cron installed (idempotent).
+if [[ -x "$BE/scripts/install-api-health-watchdog.sh" ]]; then
+  bash "$BE/scripts/install-api-health-watchdog.sh" || true
+fi
+
 for i in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fsS http://127.0.0.1:3011/health >/tmp/sync2dine-health.json 2>/dev/null; then
     echo "health_ok"

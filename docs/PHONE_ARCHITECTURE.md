@@ -35,6 +35,10 @@ Inbound DID
 - Until a construction DID is set to `purpose: 'cynthia'`, behaviour stays Judie/Sally as today.
 - **One Judie brain for every restaurant.** Per-customer identity is DID → `orgId` → `Organization.name` + that org’s `agentSettings` (aboutUs / sayToday / delivery) + menu/orders. Greeting is “Judie from {RestaurantName}”, not Sync2Dine. Do not create a new brain package per client.
 
+## Uptime dependency
+
+Inbound phone **requires the Node API on :3011**. If nginx returns **502** for `/health` or `/webhooks/vapi`, Vapi rejects `assistant-request` and callers hear failure. Ops paging for that case is the VPS cron watchdog + `/platform/ops` contacts (see FE [`DEPLOYMENT_MAP.md`](../../sync2dine-frontend/docs/DEPLOYMENT_MAP.md)) — not the in-app ops banner alone.
+
 ## Live call path (Vapi)
 
 1. Provider webhook → `handleVapiRoutes` (`phone/vapi-routes.ts`)

@@ -28,6 +28,7 @@
 | Webhook processors | `whatsapp-webhook`, `phone-webhook`, `vapi-routes`, Stripe webhook | request-driven, not interval |
 | Vapi tool-calls | `vapi-routes` | per-call |
 | Self-heal loop | inside code-fix worker | concurrency limits in handler |
+| **API health watchdog (VPS cron)** | `scripts/api-health-watchdog.sh` | Outside Node — every 1m probes `:3011/health`, auto-restarts, emails/SMS/Trae using `server/data/ops-contacts.json`. Install via `install-api-health-watchdog.sh` (also from `restart-sync2dine-api.sh`). |
 
 ## Failure behaviour
 

@@ -159,6 +159,37 @@ export async function handlePlatformRoutes(
   }
 
   if (
+    pathname === '/api/platform/ops-contacts'
+    && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST')
+  ) {
+    const { getOpsContacts, updateOpsContacts } = await import('./ops-contacts-store');
+    if (req.method === 'GET') {
+      sendJson(res, 200, { contacts: getOpsContacts() });
+      return true;
+    }
+    const body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
+    const stored = updateOpsContacts({
+      alertEmail: typeof body.alertEmail === 'string' ? body.alertEmail : undefined,
+      alertPhone: typeof body.alertPhone === 'string' ? body.alertPhone : undefined,
+      traeWebhookUrl: typeof body.traeWebhookUrl === 'string' ? body.traeWebhookUrl : undefined,
+    }, 'platform-owner');
+    sendJson(res, 200, { contacts: stored });
+    return true;
+  }
+
+  if (pathname === '/api/platform/ops-contacts/test' && req.method === 'POST') {
+    const { sendOpsNotify } = await import('./ops-notify');
+    const result = await sendOpsNotify({
+      event: 'test',
+      severity: 'info',
+      title: 'Sync2Dine ops test',
+      message: 'Platform owner triggered a test alert from /platform/ops. Channels configured in ops contacts were used.',
+    });
+    sendJson(res, 200, result);
+    return true;
+  }
+
+  if (
     pathname === '/api/platform/sally-offer'
     && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST')
   ) {

@@ -13,7 +13,10 @@ Exact auth enforcement varies by handler — prefer reading the route file. Many `
 
 | Prefix / family | Handler module | Class | Notes |
 |-----------------|----------------|-------|-------|
-| `/health` | whatsapp-webhook | public | health |
+| `/health` | whatsapp-webhook | public | health — must stay 200 for phone; nginx 502 = API process down |
+| `/api/ops/alerts` | agent-routes | auth | in-process banner alerts (useless if API dead) |
+| `/api/platform/ops-contacts` | platform-routes | platform_owner | GET/PUT alert email/SMS/Trae webhook |
+| `/api/platform/ops-contacts/test` | platform-routes | platform_owner | POST test fan-out |
 | `/webhooks/whatsapp` | whatsapp-webhook | webhook | Meta cold unless enabled |
 | `/webhooks/voice/*`, `/api/calls/*` | phone/phone-webhook | webhook / auth | softphone + call APIs |
 | `/webhooks/vapi`, `/api/vapi/*` | phone/vapi-routes | webhook / auth | **live phone AI** |
