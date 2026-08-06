@@ -84,20 +84,12 @@ send_email() {
   elif command -v node >/dev/null 2>&1; then
     node_bin=$(command -v node)
   fi
-  if [[ -n "$node_bin" && -f "$BE/scripts/ops-send-alert-email.ts" ]]; then
-    local tsx_bin="$BE/node_modules/.bin/tsx"
-    if [[ ! -x "$tsx_bin" ]]; then
-      tsx_bin=""
-    fi
+  local tsx_cli="$BE/node_modules/tsx/dist/cli.mjs"
+  if [[ -n "$node_bin" && -f "$BE/scripts/ops-send-alert-email.ts" && -f "$tsx_cli" ]]; then
     if (
       cd "$BE"
-      if [[ -n "$tsx_bin" ]]; then
-        "$tsx_bin" --env-file=.env scripts/ops-send-alert-email.ts \
-          --to "$to" --subject "$subject" --body "$body"
-      else
-        "$node_bin" --import tsx --env-file=.env scripts/ops-send-alert-email.ts \
-          --to "$to" --subject "$subject" --body "$body"
-      fi
+      "$node_bin" "$tsx_cli" --env-file=.env scripts/ops-send-alert-email.ts \
+        --to "$to" --subject "$subject" --body "$body"
     ) >>"$LOG_FILE" 2>&1; then
       log "email_ok via=gmail_or_smtp to=$to"
       return 0
