@@ -160,7 +160,7 @@ export function formatOfferFactsBlock(): string {
   const founder = stored.founderName || 'Shervin Dolab';
   const authority =
     stored.authorityBlurb ||
-    `Sync2Dine is the restaurant side of Sync2Gear—the system our founder ${founder} created and holds patent licences for. We’re leading in AI for venues. Judie is your AI phone receptionist—orders and bookings so your team isn’t stuck on the line. Plus Atmosphere: the only audio sustainable management of its kind worldwide—room, messaging, and staff training that runs the venue for revenue.`;
+    `Sync2Dine is the restaurant side of Sync2Gear—the system our founder ${founder} created and holds patent licences for. We’re leading in AI for venues. Judie is your AI phone receptionist—orders and bookings so your team isn’t stuck on the line. Plus Atmosphere: exclusive venue soundtrack shaped from their brand and keywords, seating vs kitchen moods, owner-directed announcements, and multi-week staff training modules that play while service runs. Proven track record helping venues increase sales via guest atmosphere and in-venue offers — cite as evidence, never invent ROI % or guarantee identical results.`;
   const patent = stored.patentRefs ? `Patent refs: ${stored.patentRefs}` : '';
 
   const pkgLines = SAAS_PACKAGE_IDS.map((id) => {
@@ -182,7 +182,8 @@ export function formatOfferFactsBlock(): string {
     patent,
     'PRODUCT NAMES: Sell Judie (restaurant AI receptionist) and/or Atmosphere. NEVER sell Sally as the phone product. Sally is the sales agent only. Never say Cynthia on a Sync2Dine sale.',
     'ROUTING (after 60–90s discovery):',
-    '  1) Room / reviews / spend / training pain → lead with Atmosphere (£139/wk launch).',
+    '  Discover first: footfall vs in-venue spend vs service standards vs staff training/motivation — then pick 2–3 matching Atmosphere USPs (do not dump the full list).',
+    '  1) Room / reviews / spend / training / staff motivation → lead with Atmosphere (£139/wk launch).',
     '  2) Missed calls / orders / phone busy → lead with Judie Starter (£139/wk launch).',
     '  3) Both or growth appetite → lead with Complete (£208/wk launch = Atmosphere + Judie Starter, best value).',
     '  Always mention the other product briefly after the primary pitch. If they pick one, soft upsell Complete.',
@@ -211,7 +212,7 @@ export function formatOfferFactsBlock(): string {
 export function formatObjectionPlaybook(): string {
   return [
     'OBJECTION PLAYBOOK (short, honest answers):',
-    '- Too expensive / Spotify: Atmosphere is exclusive sustainable audio management + messaging + training — not a music stream. Founder patent licences. Judie frees staff from the phone.',
+    '- Too expensive / Spotify: Atmosphere is not a music stream — exclusive brand soundtrack from their keywords, seating vs kitchen moods, controllable announcements, and multi-week staff training while service runs. Proven track record helping venues lift sales; do not invent ROI %. Founder patent licences. Judie frees staff from the phone.',
     '- We already answer the phone: Judie covers missed/overflow/after-hours, takes orders into the app, transfers exceptions to humans.',
     '- Afraid of unlimited bills: No unlimited minutes sold. Clear weekly allowance + published overage. They choose continue_bill / pause_transfer / approval_required.',
     '- Minutes too low: Upsell Judie Pro (420) or Enterprise (840), or explain £/min overage is transparent.',

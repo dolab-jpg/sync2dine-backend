@@ -201,7 +201,7 @@ export function formatDialTimingPromptBlock(s: DialWindowSuggestion): string {
       : s.pitchAngle === 'judie_phone'
         ? 'Lean Judie (missed calls / orders) unless they name room/audio pain.'
         : s.pitchAngle === 'atmosphere_room'
-          ? 'Lean Atmosphere (room/audio) unless they name missed-call pain; Judie for bookings soft.'
+          ? 'Lean Atmosphere (exclusive soundtrack, seating vs kitchen mood, announcements, multi-week training, proven sales-lift track record) unless they name missed-call pain; Judie for bookings soft. Diagnose footfall vs spend vs service vs staff training first.'
           : s.pitchAngle === 'complete_both'
             ? 'Multi-site / both pains — aim senior meeting; Complete as guest outcomes.'
             : '',

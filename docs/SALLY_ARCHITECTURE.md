@@ -21,10 +21,22 @@ Cynthia / Builder Diddies are separate historical concepts. Do not treat them as
 - Offer / pricing facts — `getSallyOfferTerms` + `formatOfferFactsBlock` in `server/sally/offer.ts` (backed by `sally-offer-store` + saas packages)
 - Objection playbook — `formatObjectionPlaybook` in `offer.ts`
 - Sales tool schemas + `executeSallyTool` — `server/sally/tools.ts` + `execute.ts`
-- Product knowledge inject — `server/sally-product-kb/`
+- Product knowledge inject — `server/sally-product-kb/` (approved Atmosphere talking points seeded via `ensureApprovedAtmosphereTalkingPoints` / `atmosphere-talking-points.ts`; prices still only via `getOfferTerms`)
 - **Trust Engine** — `server/sally/trust-engine.ts` (live principle + after-call scores via Sales Brain ? CRM `sallyTrust`)
 - **Venue dial windows** — `server/sally/dial-windows.ts` + `scheduleVenueCallback` / `updateVenueProfile`
 - **Relationship memory** — `server/sally/relationship-memory.ts` (injected on phone + `recallAccountMemory`)
+
+### Atmosphere sales language (phone + web)
+
+Atmosphere is a **product SKU**, not a brain (`AI_REGISTRY.md`). Outbound Sally may cite:
+
+- exclusive keyword/brand soundtrack (not Spotify);
+- seating vs kitchen moods;
+- controllable announcements;
+- multi-week staff training while service runs;
+- proven track record helping venues increase sales (evidence language — no invented ROI % / no identical-result guarantees).
+
+Authoritative phone USPs live in `buildOfferTermsPayload().usps.atmosphere` (`phone/sally-sales-phone.ts`). Capability claims are **sales service proposition** — they do **not** prove an in-app Atmosphere control dashboard exists in Sync2Dine staff UI (landing remains THIN).
 
 ## Channel-specific (must stay separate)
 

@@ -46,7 +46,7 @@ Classifications: `phone_brain` | `web_persona` | `channel_adapter` | `domain_age
 |----|-------|---------|-------|
 | `lizzie` | alias | `judie` | `brains/index.ts` resolve |
 | language friends (Lucùa, Ania, ù) | user_label | Judie session | spoken name only |
-| Atmosphere | non_ai | product SKU | landing page, not a brain |
+| Atmosphere | non_ai | product SKU | landing page, not a brain; Sally outbound may cite approved sales USPs (exclusive soundtrack, zones, announcements, multi-week training, proven sales-lift track record) ? not proof of staff-UI audio controls |
 | line purpose `staff` | non_ai | human softphone | not an AI persona |
 | Aria | user_label | Judie DID purpose | line purpose `aria` |
 | line purpose `cynthia` | user_label | `cynthia_phone` / BrainId `cynthia` | construction DID only |

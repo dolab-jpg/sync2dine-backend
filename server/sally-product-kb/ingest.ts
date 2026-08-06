@@ -6,6 +6,7 @@ import { getHomeOrgId } from '../home-org';
 import { debugLog } from '../debug-session-log';
 import {
   DEFAULT_SALLY_SOURCES,
+  ensureApprovedAtmosphereTalkingPoints,
   insertPendingChunks,
   listSallySources,
   markSourceFetched,
@@ -101,6 +102,7 @@ export async function ensureDefaultSallySources(): Promise<number> {
     await upsertSallySource(d);
     added += 1;
   }
+  await ensureApprovedAtmosphereTalkingPoints().catch(() => 0);
   return added;
 }
 

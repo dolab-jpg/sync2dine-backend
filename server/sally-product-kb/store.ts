@@ -208,6 +208,51 @@ export function isSallyKbConfigured(): boolean {
   return Boolean(getAdmin());
 }
 
+/**
+ * Idempotently upsert approved Atmosphere talking points (non-price).
+ * Matches by title within the Sally org so re-runs refresh body without duplicates.
+ */
+export async function ensureApprovedAtmosphereTalkingPoints(): Promise<number> {
+  const sb = getAdmin();
+  if (!sb) return 0;
+  const orgId = await resolveSallyOrgId();
+  const { ATMOSPHERE_APPROVED_TALKING_POINTS } = await import('./atmosphere-talking-points');
+  let touched = 0;
+  for (const point of ATMOSPHERE_APPROVED_TALKING_POINTS) {
+    const { data: existing } = await sb
+      .from('sally_knowledge_chunks')
+      .select('id')
+      .eq('org_id', orgId)
+      .eq('title', point.title)
+      .limit(1)
+      .maybeSingle();
+    const payload = {
+      org_id: orgId,
+      category: point.category,
+      title: point.title,
+      body: point.body,
+      evidence_note: point.evidence_note || null,
+      source_url: 'https://app.sync2dine.io/atmosphere',
+      status: 'approved' as const,
+      active: true,
+      approved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    if (existing?.id) {
+      const { error } = await sb
+        .from('sally_knowledge_chunks')
+        .update(payload)
+        .eq('id', existing.id)
+        .eq('org_id', orgId);
+      if (!error) touched += 1;
+    } else {
+      const { error } = await sb.from('sally_knowledge_chunks').insert(payload);
+      if (!error) touched += 1;
+    }
+  }
+  return touched;
+}
+
 /** Default allowlisted Sync2Dine marketing URLs. */
 export const DEFAULT_SALLY_SOURCES: Array<{ kind: 'url'; url: string; title: string }> = [
   { kind: 'url', url: 'https://sync2dine.io/', title: 'Sync2Dine home' },

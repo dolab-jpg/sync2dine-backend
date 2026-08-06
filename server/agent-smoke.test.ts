@@ -10,7 +10,9 @@ import { resolveMode } from './ai/orchestrator/helpers';
 import { executePhoneTool } from './phone/tools/execute';
 import type { OrchestratorRequest } from './ai/orchestrator-types';
 import { isSallyToolName } from './sally/tools';
-import { formatOfferFactsBlock } from './sally/offer';
+import { formatOfferFactsBlock, formatObjectionPlaybook } from './sally/offer';
+import { buildOfferTermsPayload } from './phone/sally-sales-phone';
+import { ATMOSPHERE_APPROVED_TALKING_POINTS } from './sally-product-kb/atmosphere-talking-points';
 
 describe('agent smoke (code-level)', () => {
   it('Cynthia staff mode exposes orchestrator tools', () => {
@@ -49,6 +51,33 @@ describe('agent smoke (code-level)', () => {
     );
     assert.equal(result.intent, 'general');
     assert.ok(isSallyToolName('bookCallback'));
-    assert.match(formatOfferFactsBlock(), /OFFER FACTS|Judie|Atmosphere|£/i);
+    assert.match(formatOfferFactsBlock(), /OFFER FACTS|Judie|Atmosphere/i);
+  });
+
+  it('Atmosphere offer facts discover beyond footfall and keep pricing guardrails', () => {
+    const facts = formatOfferFactsBlock();
+    assert.match(facts, /footfall vs in-venue spend|training\/motivation|Discover first/i);
+    assert.match(facts, /139\/wk launch/);
+    assert.match(facts, /208\/wk launch/);
+    assert.match(facts, /proven track record helping venues increase sales/i);
+    assert.match(facts, /never invent ROI/i);
+    assert.match(facts, /cite as evidence/i);
+    const objections = formatObjectionPlaybook();
+    assert.match(objections, /not a music stream|exclusive brand soundtrack/i);
+    assert.match(objections, /do not invent ROI/i);
+  });
+
+  it('getOfferTerms Atmosphere USPs cover exclusive music, zones, training, and track record', () => {
+    const payload = buildOfferTermsPayload();
+    const usps = (payload.usps as { atmosphere?: string[] }).atmosphere || [];
+    const joined = usps.join('\n');
+    assert.match(joined, /Exclusive soundtrack|keywords/i);
+    assert.match(joined, /seating|kitchen/i);
+    assert.match(joined, /announcements/i);
+    assert.match(joined, /multi(?:ple)? weeks|training modules/i);
+    assert.match(joined, /proven track record/i);
+    assert.match(joined, /never invent ROI/i);
+    assert.ok(ATMOSPHERE_APPROVED_TALKING_POINTS.length >= 5);
+    assert.ok(ATMOSPHERE_APPROVED_TALKING_POINTS.every((p) => !/\d+\s*\/wk/.test(p.body)));
   });
 });

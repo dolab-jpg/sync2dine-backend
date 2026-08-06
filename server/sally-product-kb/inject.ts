@@ -108,6 +108,12 @@ export function getSallyKnowledgePromptBlockCached(): string {
 }
 
 export async function warmSallyKnowledgeCache(): Promise<void> {
+  try {
+    const { ensureApprovedAtmosphereTalkingPoints } = await import('./store');
+    await ensureApprovedAtmosphereTalkingPoints();
+  } catch {
+    /* non-fatal ? prompt still builds from whatever approved chunks exist */
+  }
   const body = await buildSallyKnowledgePromptBlock();
   cache = { at: Date.now(), body };
   // #region agent log

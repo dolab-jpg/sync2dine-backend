@@ -44,7 +44,7 @@ export function draftSallyFollowThrough(input: {
         ? 'We will call back at a better time for you.'
         : input.pitchAngle === 'no_kitchen_revenue'
           ? 'If you ever enable collection or takeaway, Judie can take those phone orders into the app so you do not miss the revenue.'
-          : 'Happy to share how Judie (phone orders/bookings) and Atmosphere (venue audio) help hospitality teams.',
+          : 'Happy to share how Judie (phone orders/bookings) and Atmosphere (exclusive venue soundtrack, announcements, multi-week staff training with a proven sales-lift track record) help hospitality teams.',
     '',
     'Cheers,',
     'Sally · Sync2Dine',

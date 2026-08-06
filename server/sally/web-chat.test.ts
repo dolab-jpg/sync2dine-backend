@@ -17,6 +17,15 @@ describe('Sally web channel', () => {
     const facts = formatOfferFactsBlock();
     assert.match(facts, /PACKAGES|Judie|Atmosphere/i);
     assert.match(facts, /£|GBP|\/wk/i);
+    assert.match(facts, /proven track record helping venues increase sales/i);
+    assert.match(facts, /Discover first|footfall vs in-venue spend/i);
+  });
+
+  it('web Atmosphere pitch cites track record without inventing prices in overlay', () => {
+    const prompt = buildSallyWebPrompt({ page: '/atmosphere' });
+    assert.match(prompt, /exclusive keyword soundtrack|proven sales-lift track record/i);
+    assert.match(prompt, /never invent ROI/i);
+    assert.match(prompt, /getOfferTerms|OFFER FACTS/i);
   });
 
   it('web tools exclude outbound blast and provision', () => {
