@@ -458,12 +458,22 @@ async function sendSallyEmail(to: string, subject: string, body: string): Promis
     || connections.find((c) => c.status !== 'disconnected' && c.status !== 'needs_reconnect')
     || connections[0];
   if (!conn?.id) return { ok: false, error: 'no_mailbox_connected' };
+  const { wrapSalesEmail } = await import('../sales-email-html');
+  const wrapped = wrapSalesEmail(body, {
+    subject,
+    heroTitle: subject,
+    companyName: 'Sync2Dine',
+    sentBy: 'Sally · Sync2Dine',
+    ctaUrl: 'https://sync2dine.io',
+    ctaLabel: 'See Sync2Dine',
+    showPackages: true,
+  });
   const result = await sendFromMailbox({
     connectionId: conn.id,
     to,
     subject,
-    body,
-    html: `<p>${body.replace(/\n/g, '<br/>')}</p>`,
+    body: wrapped.text,
+    html: wrapped.html,
   });
   if (!result.success) return { ok: false, error: result.error || 'send_failed' };
   return { ok: true, messageId: result.messageId };
@@ -614,15 +624,18 @@ export async function executeSallySalesPhoneTool(
     const demoPhone = String(offer.demoPhone || '');
     const spoken = String(offer.spokenDemoPhone || speakUkPhone(demoPhone));
     const includeDemo = input.includeDemoPhone === true;
+    const customBody = String(input.body || '').trim();
+    // Prefer the model/custom body when it is a real draft. Do not concatenate the
+    // canned intro on top — that produced duplicated greetings in Gmail.
     const defaultBody = [
       'Hi — Sally from Sync2Dine here.',
       'You already heard Judie on our sales call (that’s me). Next step is a 20-minute install / senior-management integration meeting.',
       includeDemo ? `If you want a number to try later: ${toUkNationalDigits(demoPhone) || demoPhone} (${spoken}).` : '',
       'Judie takes full orders; Atmosphere runs venue audio. Complete does both — we always recommend covering both so guests get a better experience and come back.',
-      String(input.body || '').trim(),
     ]
       .filter(Boolean)
       .join('\n\n');
+    const bodyText = customBody.length >= 40 ? customBody : defaultBody;
     const subject = String(input.subject || 'Sync2Dine — next steps / integration meeting').trim();
     const sentVia: string[] = [];
     const errors: string[] = [];
@@ -634,7 +647,7 @@ export async function executeSallySalesPhoneTool(
       if (!toEmail.includes('@')) {
         errors.push('email_required');
       } else {
-        const r = await sendSallyEmail(toEmail, subject, defaultBody);
+        const r = await sendSallyEmail(toEmail, subject, bodyText);
         if (r.ok) {
           sentVia.push('email');
           emailMessageId = r.messageId;
@@ -649,7 +662,7 @@ export async function executeSallySalesPhoneTool(
       } else {
         try {
           const to = toE164Uk(mobileRaw);
-          const sms = await sendTwilioSms(to, defaultBody.slice(0, 600));
+          const sms = await sendTwilioSms(to, bodyText.slice(0, 600));
           if (sms.stub) errors.push('sms_not_configured');
           else if (sms.sid) {
             sentVia.push('sms');

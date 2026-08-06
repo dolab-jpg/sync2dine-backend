@@ -71,7 +71,6 @@ import {
   parseBoolish,
   generateTempPassword,
   seedTenantProfile,
-  linkCrmToSallyOrg,
   type SallyOfferTerms,
   type SallyTermsRecord,
   SALLY_PERSONA,
@@ -115,8 +114,23 @@ export async function sendSallyEmail(
   subject: string,
   text: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { wrapSalesEmail } = await import('../sales-email-html');
+  const wrapped = wrapSalesEmail(text, {
+    subject,
+    heroTitle: subject,
+    companyName: 'Sync2Dine',
+    sentBy: 'Sally · Sync2Dine',
+    ctaUrl: 'https://sync2dine.io',
+    ctaLabel: 'See Sync2Dine',
+    showPackages: true,
+  });
   const { sendPlainTextEmail } = await import('../email-service');
-  const result = await sendPlainTextEmail({ to, subject, text });
+  const result = await sendPlainTextEmail({
+    to,
+    subject,
+    text: wrapped.text,
+    html: wrapped.html,
+  });
   if (!result.ok) return { ok: false, error: result.error };
   return { ok: true };
 }
@@ -476,70 +490,60 @@ export async function executeSallyTool(
     });
 
     try {
-      const {
-        canProvisionViaSupabase,
-        provisionOrganizationInSupabase,
-        mapSupabaseOrgToApi,
-      } = await import('../provision-org');
-
-      if (canProvisionViaSupabase()) {
-        const provisioned = await provisionOrganizationInSupabase({
-          name: businessName,
-          contactName,
-          contactEmail,
-          contactPhone: draft.phone || partyPhone,
-          address: draft.address,
-          plan,
-          adminPassword,
-          notes: `Provisioned by Sally${callId ? ` on call ${callId}` : ''}.\n${aboutNotes}`,
-        });
-        const org = mapSupabaseOrgToApi(provisioned.organization);
-        await seedTenantProfile(org.id, { ...draft, businessName, contactEmail, phone: draft.phone || partyPhone }, contactEmail);
-        writeDraft(sessionKey, {
-          ...draft,
-          businessName,
-          contactEmail,
-          phone: draft.phone || partyPhone,
-        }, callId || undefined, {
-          sallyProvisionedOrgId: org.id,
-          sallyProvisionedAt: new Date().toISOString(),
-        });
-        linkCrmToSallyOrg(org.id, contactEmail, draft.phone || partyPhone);
-        return {
-          ok: true,
-          organizationId: org.id,
-          organizationName: org.name,
-          contactEmail,
-          temporaryPassword: adminPassword,
-          plan: org.plan,
-          spokenHint: `All set — I've created ${org.name} on Sync2Dine. They can log in with ${contactEmail}. I've set a temporary password; tell them to change it after first login.`,
-        };
-      }
-
-      const { createOrganization } = await import('../organizations');
-      const local = createOrganization({
-        name: businessName,
+      const { ensurePlatformClientFromCrmCustomer } = await import('../provision-from-crm');
+      const result = await ensurePlatformClientFromCrmCustomer({
+        force: true,
+        sellingOrgId: getHomeOrgId(),
+        businessName,
         contactName,
         contactEmail,
-        contactPhone: String(draft.phone || partyPhone || ''),
+        contactPhone: draft.phone || partyPhone,
         address: draft.address,
-        plan: plan as 'starter' | 'pro' | 'enterprise',
+        plan,
+        adminPassword,
         notes: `Provisioned by Sally${callId ? ` on call ${callId}` : ''}.\n${aboutNotes}`,
       });
-      writeDraft(sessionKey, { ...draft, businessName, contactEmail }, callId || undefined, {
-        sallyProvisionedOrgId: local.id,
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: result.error,
+          spokenHint: 'Sorry — creating the restaurant account failed. Offer a callback and we will finish setup from the office.',
+        };
+      }
+      if (result.skipped) {
+        return {
+          ok: false,
+          error: result.reason,
+          spokenHint: 'Sorry — creating the restaurant account failed. Offer a callback and we will finish setup from the office.',
+        };
+      }
+      if (!result.localOnly) {
+        await seedTenantProfile(
+          result.organizationId,
+          { ...draft, businessName, contactEmail, phone: draft.phone || partyPhone },
+          contactEmail,
+        );
+      }
+      writeDraft(sessionKey, {
+        ...draft,
+        businessName,
+        contactEmail,
+        phone: draft.phone || partyPhone,
+      }, callId || undefined, {
+        sallyProvisionedOrgId: result.organizationId,
         sallyProvisionedAt: new Date().toISOString(),
       });
-      linkCrmToSallyOrg(local.id, contactEmail, draft.phone || partyPhone);
       return {
         ok: true,
-        organizationId: local.id,
-        organizationName: local.name,
-        contactEmail,
-        temporaryPassword: adminPassword,
-        plan: local.plan,
-        localOnly: true,
-        spokenHint: `I've created ${local.name} on Sync2Dine (local record). Login email ${contactEmail}.`,
+        organizationId: result.organizationId,
+        organizationName: result.organizationName,
+        contactEmail: result.contactEmail,
+        temporaryPassword: result.temporaryPassword || adminPassword,
+        plan: result.plan,
+        localOnly: result.localOnly,
+        spokenHint: result.localOnly
+          ? `I've created ${result.organizationName} on Sync2Dine (local record). Login email ${result.contactEmail}.`
+          : `All set — I've created ${result.organizationName} on Sync2Dine. They can log in with ${result.contactEmail}. I've set a temporary password; tell them to change it after first login.`,
       };
     } catch (err) {
       return {
