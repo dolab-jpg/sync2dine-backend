@@ -228,6 +228,35 @@ async function upsertJobToSupabase(job: CodeFixJob): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+async function deleteJobFromSupabase(id: string): Promise<void> {
+  const { getSupabaseAdmin } = await import('./supabase-admin.js');
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from('code_fix_jobs').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+function deleteJobLocal(id: string): boolean {
+  const jobs = readJobs();
+  const next = jobs.filter((j) => j.id !== id);
+  if (next.length === jobs.length) return false;
+  writeJobs(next);
+  return true;
+}
+
+async function hardDeleteJob(id: string): Promise<boolean> {
+  const existed = Boolean(findJob(id));
+  const removedLocal = deleteJobLocal(id);
+  if (!existed && !removedLocal) return false;
+  if (supabaseConfigured()) {
+    try {
+      await deleteJobFromSupabase(id);
+    } catch (err) {
+      console.warn('[code-fix] Supabase delete failed:', err instanceof Error ? err.message : err);
+    }
+  }
+  return true;
+}
+
 async function hydrateJobsCache(): Promise<void> {
   if (!supabaseConfigured()) {
     jobsCache = readJobsLocal();
@@ -283,7 +312,7 @@ function newId() {
  * deploy.env resolution order:
  * 1. DEPLOY_ENV_PATH env var (explicit override for standalone/VPS deployments)
  * 2. <repo root>/.cursor/local/deploy.env
- * 3. Dev-only sibling fallback: ../<frontend workspace>/.cursor/local/deploy.env
+ * 3. Dev-only sibling fallback: ../sync2dine-frontend/.cursor/local/deploy.env
  */
 function resolveDeployEnvCandidates(): string[] {
   const candidates: string[] = [];
@@ -292,7 +321,7 @@ function resolveDeployEnvCandidates(): string[] {
   candidates.push(join(__dirname, '..', '.cursor', 'local', 'deploy.env'));
   if (process.env.NODE_ENV !== 'production') {
     candidates.push(
-      join(__dirname, '..', '..', 'Bathroom Sales Estimation Platform', '.cursor', 'local', 'deploy.env'),
+      join(__dirname, '..', '..', 'sync2dine-frontend', '.cursor', 'local', 'deploy.env'),
     );
   }
   return candidates;
@@ -580,6 +609,7 @@ function findDedupe(errorCode: string, route: string): CodeFixJob | undefined {
 function jobAlerts(jobs: CodeFixJob[]) {
   const now = Date.now();
   return jobs.filter((j) => {
+    if (j.status === 'offered') return true;
     if (j.status === 'failed') return true;
     if (j.status === 'awaiting_cursor_approval') return true;
     if (j.status === 'pr_open') return true;
@@ -671,6 +701,31 @@ export async function handleCodeFixRoutes(
 
   if (isAuthEnforced() && !requireAuth(req)) {
     sendJson(res, 401, { error: 'Unauthorized' });
+    return true;
+  }
+
+  // POST /api/ai/code-fix/delete-batch
+  if (req.method === 'POST' && pathname === '/api/ai/code-fix/delete-batch') {
+    let body: { ids?: string[] } = {};
+    try {
+      body = JSON.parse(await readBody(req) || '{}') as { ids?: string[] };
+    } catch {
+      body = {};
+    }
+    const ids = [...new Set((body.ids ?? []).filter(Boolean))];
+    if (ids.length === 0) {
+      sendJson(res, 400, { error: 'ids required' });
+      return true;
+    }
+    const results: Array<{ id: string; ok: boolean }> = [];
+    for (const id of ids) {
+      const ok = await hardDeleteJob(id);
+      results.push({ id, ok });
+    }
+    sendJson(res, 200, {
+      results,
+      deleted: results.filter((r) => r.ok).length,
+    });
     return true;
   }
 
@@ -772,6 +827,17 @@ export async function handleCodeFixRoutes(
       queuePosition: queuePosition(job.id),
       alerts: jobAlerts([job]),
     });
+    return true;
+  }
+
+  // DELETE /api/ai/code-fix/:id
+  if (req.method === 'DELETE' && detailMatch) {
+    const ok = await hardDeleteJob(detailMatch[1]);
+    if (!ok) {
+      sendJson(res, 404, { error: 'Job not found' });
+      return true;
+    }
+    sendJson(res, 200, { ok: true, id: detailMatch[1] });
     return true;
   }
 
