@@ -46,6 +46,44 @@ function extFromContentType(ct: string, url: string): string {
   return m ? m[1].toLowerCase() : 'wav';
 }
 
+/** Defensive: rewrite PCM WAV fmt byteRate/blockAlign when they disagree with channels/rate/bits. */
+export function repairWavHeader(buffer: Buffer): { buffer: Buffer; repaired: boolean } {
+  if (buffer.length < 44) return { buffer, repaired: false };
+  if (buffer.slice(0, 4).toString('ascii') !== 'RIFF' || buffer.slice(8, 12).toString('ascii') !== 'WAVE') {
+    return { buffer, repaired: false };
+  }
+
+  let offset = 12;
+  while (offset + 8 <= buffer.length) {
+    const id = buffer.slice(offset, offset + 4).toString('ascii');
+    const size = buffer.readUInt32LE(offset + 4);
+    const dataStart = offset + 8;
+    if (id === 'fmt ' && dataStart + 16 <= buffer.length) {
+      const audioFormat = buffer.readUInt16LE(dataStart);
+      const channels = buffer.readUInt16LE(dataStart + 2);
+      const sampleRate = buffer.readUInt32LE(dataStart + 4);
+      const bitsPerSample = buffer.readUInt16LE(dataStart + 14);
+      if (audioFormat !== 1 || channels < 1 || sampleRate < 1 || bitsPerSample < 8) {
+        return { buffer, repaired: false };
+      }
+      const blockAlign = channels * (bitsPerSample / 8);
+      if (!Number.isInteger(blockAlign) || blockAlign < 1) return { buffer, repaired: false };
+      const byteRate = sampleRate * blockAlign;
+      const curByteRate = buffer.readUInt32LE(dataStart + 8);
+      const curBlockAlign = buffer.readUInt16LE(dataStart + 12);
+      if (curByteRate === byteRate && curBlockAlign === blockAlign) {
+        return { buffer, repaired: false };
+      }
+      const out = Buffer.from(buffer);
+      out.writeUInt32LE(byteRate, dataStart + 8);
+      out.writeUInt16LE(blockAlign, dataStart + 12);
+      return { buffer: out, repaired: true };
+    }
+    offset = dataStart + size + (size % 2);
+  }
+  return { buffer, repaired: false };
+}
+
 async function downloadAudio(url: string): Promise<{ buffer: Buffer; contentType: string } | null> {
   const headers: Record<string, string> = { Accept: 'audio/*,*/*' };
   const vapiKey = getVapiPrivateKey();
@@ -67,7 +105,15 @@ async function downloadAudio(url: string): Promise<{ buffer: Buffer; contentType
     const contentType = res.headers.get('content-type') || 'audio/wav';
     const ab = await res.arrayBuffer();
     if (!ab.byteLength) return null;
-    return { buffer: Buffer.from(ab), contentType };
+    let buffer = Buffer.from(ab);
+    if (/wav|wave|octet-stream/i.test(contentType) || buffer.slice(0, 4).toString('ascii') === 'RIFF') {
+      const repaired = repairWavHeader(buffer);
+      if (repaired.repaired) {
+        console.info('[call-recording-store] repaired WAV header (blockAlign/byteRate)');
+        buffer = repaired.buffer;
+      }
+    }
+    return { buffer, contentType: contentType.includes('wav') ? 'audio/wav' : contentType };
   } catch (err) {
     console.warn('[call-recording-store] download error:', err instanceof Error ? err.message : err);
     return null;
@@ -112,6 +158,7 @@ export async function createCallRecordingSignedUrl(
   }
   return data.signedUrl;
 }
+
 
 export type IngestResult = {
   recordingUrl?: string;
@@ -251,18 +298,22 @@ export async function resolveCallPlaybackUrl(callId: string): Promise<{
   const call = getCallById(callId);
   if (!call) return { url: null, source: 'none' };
 
+  // Prefer mono for Listen — stereo keeps agent/customer on separate ears.
   const storagePath = String(
-    call.stereoStoragePath || call.recordingStoragePath || '',
+    call.recordingStoragePath || call.stereoStoragePath || '',
   ).trim();
   if (storagePath) {
     const signed = await createCallRecordingSignedUrl(storagePath);
     if (signed) return { url: signed, source: 'storage', storagePath };
   }
 
-  const provider = preferredRecordingUrl({
-    recordingUrl: call.recordingUrl ? String(call.recordingUrl) : undefined,
-    stereoRecordingUrl: call.stereoRecordingUrl ? String(call.stereoRecordingUrl) : undefined,
-  });
+  const provider = (call.recordingUrl && String(call.recordingUrl))
+    || (call.stereoRecordingUrl && String(call.stereoRecordingUrl))
+    || preferredRecordingUrl({
+      recordingUrl: call.recordingUrl ? String(call.recordingUrl) : undefined,
+      stereoRecordingUrl: call.stereoRecordingUrl ? String(call.stereoRecordingUrl) : undefined,
+    })
+    || null;
   if (provider) return { url: provider, source: 'provider' };
   return { url: null, source: 'none' };
 }
