@@ -75,6 +75,37 @@ send_email() {
   local subject="$1" body="$2" to="$3"
   [[ -z "$to" ]] && return 0
   load_env
+
+  # Prefer connected Gmail OAuth (same mailbox tokens as Communications Hub).
+  # Works even when the API process is down — reads mailbox-data.json + TOKEN_ENCRYPTION_KEY.
+  local node_bin=""
+  if [[ -x /opt/plesk/node/24/bin/node ]]; then
+    node_bin=/opt/plesk/node/24/bin/node
+  elif command -v node >/dev/null 2>&1; then
+    node_bin=$(command -v node)
+  fi
+  if [[ -n "$node_bin" && -f "$BE/scripts/ops-send-alert-email.ts" ]]; then
+    local tsx_bin="$BE/node_modules/.bin/tsx"
+    if [[ ! -x "$tsx_bin" ]]; then
+      tsx_bin=""
+    fi
+    if (
+      cd "$BE"
+      if [[ -n "$tsx_bin" ]]; then
+        "$tsx_bin" --env-file=.env scripts/ops-send-alert-email.ts \
+          --to "$to" --subject "$subject" --body "$body"
+      else
+        "$node_bin" --import tsx --env-file=.env scripts/ops-send-alert-email.ts \
+          --to "$to" --subject "$subject" --body "$body"
+      fi
+    ) >>"$LOG_FILE" 2>&1; then
+      log "email_ok via=gmail_or_smtp to=$to"
+      return 0
+    fi
+    log "email_fail gmail_cli to=$to"
+  fi
+
+  # Legacy SMTP fallback (curl/node one-liner) if CLI helper missing.
   local host="${SMTP_HOST:-}" user="${SMTP_USER:-${SMTP_USERNAME:-}}" pass="${SMTP_PASSWORD:-${SMTP_PASS:-}}"
   local from="${SMTP_FROM:-${SMTP_FROM_EMAIL:-$user}}"
   local port="${SMTP_PORT:-587}"
@@ -82,29 +113,26 @@ send_email() {
     log "email_skip smtp_not_configured to=$to"
     return 0
   fi
-  if command -v curl >/dev/null 2>&1; then
-    # Prefer node one-liner if available (handles TLS/auth correctly).
-    if [[ -x /opt/plesk/node/24/bin/node && -d "$BE/node_modules/nodemailer" ]]; then
-      (
-        cd "$BE"
-        SUBJECT="$subject" BODY="$body" TO="$to" FROM="$from" HOST="$host" PORT="$port" USER="$user" PASS="$pass" \
-        /opt/plesk/node/24/bin/node --input-type=module -e '
-          import nodemailer from "nodemailer";
-          const t = nodemailer.createTransport({
-            host: process.env.HOST,
-            port: Number(process.env.PORT||587),
-            secure: process.env.SMTP_SECURE === "true",
-            auth: { user: process.env.USER, pass: process.env.PASS },
-          });
-          await t.sendMail({
-            from: process.env.FROM,
-            to: process.env.TO,
-            subject: process.env.SUBJECT,
-            text: process.env.BODY,
-          });
-        '
-      ) 2>>"$LOG_FILE" && log "email_ok to=$to" && return 0 || log "email_fail to=$to"
-    fi
+  if [[ -n "$node_bin" && -d "$BE/node_modules/nodemailer" ]]; then
+    (
+      cd "$BE"
+      SUBJECT="$subject" BODY="$body" TO="$to" FROM="$from" HOST="$host" PORT="$port" USER="$user" PASS="$pass" \
+      "$node_bin" --input-type=module -e '
+        import nodemailer from "nodemailer";
+        const t = nodemailer.createTransport({
+          host: process.env.HOST,
+          port: Number(process.env.PORT||587),
+          secure: process.env.SMTP_SECURE === "true",
+          auth: { user: process.env.USER, pass: process.env.PASS },
+        });
+        await t.sendMail({
+          from: process.env.FROM,
+          to: process.env.TO,
+          subject: process.env.SUBJECT,
+          text: process.env.BODY,
+        });
+      '
+    ) 2>>"$LOG_FILE" && log "email_ok via=smtp to=$to" && return 0 || log "email_fail smtp to=$to"
   fi
   log "email_skip no_mailer to=$to"
 }
@@ -173,6 +201,7 @@ read_state
 now=$(date +%s)
 
 if probe_ok; then
+  log "health_ok"
   if [[ "$was_down" == "1" ]]; then
     log "recovered after fails"
     notify_all "api_recovered" "Sync2Dine API recovered" "https://app.sync2dine.io/health is responding again after an outage."

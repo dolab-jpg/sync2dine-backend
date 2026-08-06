@@ -18,7 +18,7 @@ export type OpsNotifyPayload = {
 };
 
 export type OpsNotifyResult = {
-  email?: { ok: boolean; error?: string };
+  email?: { ok: boolean; error?: string; via?: string; from?: string };
   sms?: { ok: boolean; error?: string; stub?: boolean };
   webhook?: { ok: boolean; error?: string; status?: number };
 };
@@ -85,8 +85,8 @@ export async function sendOpsNotify(input: {
 
   if (want.email && contacts.alertEmail) {
     try {
-      const { sendPlainTextEmail } = await import('./email-service');
-      const r = await sendPlainTextEmail({
+      const { sendOpsAlertEmail } = await import('./ops-gmail-send');
+      const r = await sendOpsAlertEmail({
         to: contacts.alertEmail,
         subject: `[Sync2Dine ${payload.severity}] ${payload.title}`,
         text: [
@@ -103,7 +103,9 @@ export async function sendOpsNotify(input: {
           .filter(Boolean)
           .join('\n'),
       });
-      results.email = r.ok ? { ok: true } : { ok: false, error: r.error };
+      results.email = r.ok
+        ? { ok: true, via: r.via, from: r.from }
+        : { ok: false, error: r.error, via: r.via };
     } catch (err) {
       results.email = { ok: false, error: err instanceof Error ? err.message : 'email_failed' };
     }
