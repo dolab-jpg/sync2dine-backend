@@ -23,7 +23,9 @@ Cynthia / Builder Diddies are separate historical concepts. Do not treat them as
 - Sales tool schemas + `executeSallyTool` — `server/sally/tools.ts` + `execute.ts`
 - Product knowledge inject — `server/sally-product-kb/` (approved Atmosphere talking points seeded via `ensureApprovedAtmosphereTalkingPoints` / `atmosphere-talking-points.ts`; prices still only via `getOfferTerms`)
 - **Trust Engine** — `server/sally/trust-engine.ts` (live principle + after-call scores via Sales Brain ? CRM `sallyTrust`)
-- **Venue dial windows** — `server/sally/dial-windows.ts` + `scheduleVenueCallback` / `updateVenueProfile`
+- **Venue dial windows** — `server/sally/dial-windows.ts` + `scheduleVenueCallback` / `updateVenueProfile` / CSV+bulk import scheduling via `server/sally/schedule-outbound.ts`
+- **Referral capture** — live Vapi tool `captureReferralAndQueue` (gatekeeper ? boss number + Sally follow-up brief)
+- **Call eligibility** — `server/sally/call-eligibility.ts` (DNC / consent enforced on enqueue + worker)
 - **Relationship memory** — `server/sally/relationship-memory.ts` (injected on phone + `recallAccountMemory`)
 
 ### Atmosphere sales language (phone + web)

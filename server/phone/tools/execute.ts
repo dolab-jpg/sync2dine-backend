@@ -101,34 +101,123 @@ export async function executePhoneTool(
     const scheduledIso = preferredRaw
       ? (resolveCallbackIso(preferredRaw) || preferredRaw)
       : undefined;
-    const job = enqueueOutboundCall({
-      to: dialTo,
-      template: 'lead_callback',
-      status: 'queued',
-      context: {
-        name: input.name,
-        reason: input.reason,
-        preferredTime: preferredRaw || scheduledIso,
-        urgency: input.urgency ?? 'medium',
-        callId,
-        customerId: firstString(input.customerId, body.customerContext?.customerId),
-        aim: firstString(input.aim) || 'callback',
-      },
-      scheduledAt: scheduledIso,
-    });
     const customerId = firstString(input.customerId, body.customerContext?.customerId);
+    let customer: Record<string, unknown> | undefined;
     if (customerId) {
+      customer = getDataStore().customers.find((c) => String(c.id) === customerId) as Record<string, unknown> | undefined;
+    }
+    if (!customer) {
+      const hit = lookupContactByPhone(dialTo);
+      if (hit.found && hit.customerId) {
+        customer = getDataStore().customers.find((c) => String(c.id) === hit.customerId) as Record<string, unknown> | undefined;
+      }
+    }
+    try {
+      const { assessContactEligibility } = await import('../../sally/call-eligibility');
+      const eligibility = assessContactEligibility(customer);
+      if (!eligibility.eligible) {
+        return {
+          callbackQueued: false,
+          error: eligibility.reason,
+          spokenHint: eligibility.doNotCall
+            ? 'That number is marked do-not-call — I will not dial it.'
+            : 'I cannot call that number right now.',
+        };
+      }
+    } catch {
+      /* eligibility optional if module missing */
+    }
+
+    // Prefer Sally sales brain when callback is from a Sally call or sales aim
+    const callIdStr = callId ? String(callId) : '';
+    let callAgentPersona = '';
+    let callAim = '';
+    let callSource = '';
+    if (callIdStr) {
+      try {
+        const { getCallById } = await import('../../data-store');
+        const call = getCallById(callIdStr);
+        const meta = (call?.metadata as Record<string, unknown> | undefined) || {};
+        callAgentPersona = String(meta.agentPersona || call?.agentPersona || '').toLowerCase();
+        callAim = String(meta.aim || '').toLowerCase();
+        callSource = String(meta.source || '').toLowerCase();
+      } catch {
+        /* ignore */
+      }
+    }
+    const fromSally =
+      callAgentPersona === 'sally'
+      || callAim === 'sales_outreach'
+      || callSource === 'sales_csv_dial'
+      || callSource === 'gatekeeper_referral'
+      || String(input.aim || '').toLowerCase() === 'sales_outreach'
+      || String(input.agentPersona || '').toLowerCase() === 'sally'
+      || Boolean(input.asSally);
+    const aim = firstString(input.aim) || (fromSally ? 'sales_outreach' : 'callback');
+    const reason = firstString(input.reason) || 'Callback requested';
+
+    let job: Record<string, unknown>;
+    if (fromSally) {
+      const { scheduleSallyOutboundDial } = await import('../../sally/schedule-outbound');
+      const scheduled = scheduleSallyOutboundDial({
+        to: dialTo,
+        customerId: customerId || (customer?.id != null ? String(customer.id) : undefined),
+        customerName: firstString(input.name) || (customer?.name != null ? String(customer.name) : undefined),
+        template: 'sally_sales',
+        aim,
+        source: 'book_callback',
+        brief: reason,
+        scheduledAt: scheduledIso,
+        venueAware: !scheduledIso,
+        customer: customer || null,
+        context: {
+          name: input.name,
+          reason,
+          preferredTime: preferredRaw || scheduledIso,
+          urgency: input.urgency ?? 'medium',
+          callId,
+        },
+      });
+      if (!scheduled.ok) {
+        return {
+          callbackQueued: false,
+          error: scheduled.reason || 'queue_failed',
+          spokenHint: scheduled.reason === 'do_not_call'
+            ? 'That number is marked do-not-call — I will not dial it.'
+            : 'I could not queue that callback.',
+        };
+      }
+      job = scheduled.job || {};
+    } else {
+      job = enqueueOutboundCall({
+        to: dialTo,
+        template: 'lead_callback',
+        status: 'queued',
+        context: {
+          name: input.name,
+          reason,
+          preferredTime: preferredRaw || scheduledIso,
+          urgency: input.urgency ?? 'medium',
+          callId,
+          customerId: customerId || undefined,
+          aim,
+        },
+        scheduledAt: scheduledIso,
+      });
+    }
+    const resolvedCustomerId = customerId || (customer?.id != null ? String(customer.id) : undefined);
+    if (resolvedCustomerId) {
       appendCustomerCallActivity({
-        customerId,
+        customerId: resolvedCustomerId,
         callId: callId ?? undefined,
         summary: `Callback booked to ${dialTo}${scheduledIso ? ` (${scheduledIso})` : preferredRaw ? ` (${preferredRaw})` : ''}`,
-        detail: String(input.reason ?? 'Callback requested'),
-        aim: 'callback',
+        detail: reason,
+        aim: fromSally ? 'sales_outreach' : 'callback',
         type: 'callback',
       });
       if (scheduledIso || preferredRaw) {
         const store = getDataStore();
-        const idx = store.customers.findIndex((c) => String(c.id) === customerId);
+        const idx = store.customers.findIndex((c) => String(c.id) === resolvedCustomerId);
         if (idx >= 0) {
           store.customers[idx] = { ...store.customers[idx], nextFollowUp: scheduledIso || preferredRaw };
           syncData(store);
@@ -140,7 +229,8 @@ export async function executePhoneTool(
       jobId: job.id,
       to: dialTo,
       preferredTime: preferredRaw || undefined,
-      scheduledAt: scheduledIso,
+      scheduledAt: scheduledIso || (job.scheduledAt != null ? String(job.scheduledAt) : undefined),
+      agentPersona: fromSally ? 'sally' : undefined,
       spokenHint: `Callback queued to ${dialTo}${scheduledIso ? ` at ${scheduledIso}` : preferredRaw ? ` around ${preferredRaw}` : ''}.`,
     };
   }

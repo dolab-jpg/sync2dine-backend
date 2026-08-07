@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T12:43:04.404Z",
+  "generatedAt": "2026-08-07T14:04:51.090Z",
   "bootFromIndex": [
     {
       "name": "startMailboxPoller",
@@ -250,7 +250,7 @@
       "file": "server/org-integrations-status.ts"
     },
     {
-      "specifier": "../whatsapp-webhook",
+      "specifier": "../../whatsapp-webhook",
       "file": "server/phone/tools/execute.ts"
     },
     {

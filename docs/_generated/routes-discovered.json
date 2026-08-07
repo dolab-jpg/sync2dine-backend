@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T12:43:04.404Z",
+  "generatedAt": "2026-08-07T14:04:51.091Z",
   "prefixes": [
     "/api/agent/capacity",
     "/api/agent/credentials",
@@ -27,15 +27,20 @@
     "/api/ai/categorize-transaction",
     "/api/ai/chat",
     "/api/ai/code-fix",
+    "/api/ai/code-fix/delete-batch",
     "/api/ai/code-fix/health",
     "/api/ai/code-fix/merge-batch",
     "/api/ai/compose-email",
     "/api/ai/conversation-log",
+    "/api/ai/conversation-log/delete-batch",
     "/api/ai/cyrus",
     "/api/ai/estimate",
     "/api/ai/health",
     "/api/ai/orchestrate",
     "/api/ai/orchestrate/stream",
+    "/api/ai/phone-incidents",
+    "/api/ai/phone-incidents/batch-code-fix",
+    "/api/ai/phone-incidents/delete-batch",
     "/api/ai/planning",
     "/api/ai/project",
     "/api/ai/receipt",
@@ -157,10 +162,16 @@
     "/api/org/usage-bundle",
     "/api/org/weekly-usage",
     "/api/platform/",
+    "/api/platform/ops-contacts",
+    "/api/platform/ops-contacts/test",
     "/api/platform/organizations",
+    "/api/platform/organizations/sync-from-crm",
     "/api/platform/phone-lines",
+    "/api/platform/phone-lines/ai-set",
     "/api/platform/phone-lines/register-all",
+    "/api/platform/phone-lines/sync-asterisk-bridge",
     "/api/platform/plans",
+    "/api/platform/sally-offer",
     "/api/platform/sally-phone-line",
     "/api/platform/stats",
     "/api/platform/stripe-status",
@@ -591,6 +602,11 @@
       "kind": "exact"
     },
     {
+      "prefix": "/api/ai/conversation-log/delete-batch",
+      "file": "server/ai/conversation-audit.ts",
+      "kind": "exact"
+    },
+    {
       "prefix": "/api/ai/conversation-log",
       "file": "server/ai/conversation-audit.ts",
       "kind": "exact"
@@ -743,6 +759,36 @@
     {
       "handler": "handleOrchestrator",
       "file": "server/ai/orchestrator/handle.ts",
+      "kind": "handler_export"
+    },
+    {
+      "prefix": "/api/ai/phone-incidents",
+      "file": "server/ai/phone-incidents.ts",
+      "kind": "startsWith"
+    },
+    {
+      "prefix": "/api/ai/phone-incidents/delete-batch",
+      "file": "server/ai/phone-incidents.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/phone-incidents/batch-code-fix",
+      "file": "server/ai/phone-incidents.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/phone-incidents",
+      "file": "server/ai/phone-incidents.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/phone-incidents",
+      "file": "server/ai/phone-incidents.ts",
+      "kind": "exact"
+    },
+    {
+      "handler": "handlePhoneIncidents",
+      "file": "server/ai/phone-incidents.ts",
       "kind": "handler_export"
     },
     {
@@ -1022,6 +1068,11 @@
     },
     {
       "prefix": "/api/ai/code-fix/health",
+      "file": "server/code-fix-handler.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/ai/code-fix/delete-batch",
       "file": "server/code-fix-handler.ts",
       "kind": "exact"
     },
@@ -1571,7 +1622,32 @@
       "kind": "exact"
     },
     {
+      "prefix": "/api/platform/phone-lines/ai-set",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/phone-lines/sync-asterisk-bridge",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
       "prefix": "/api/platform/phone-lines/register-all",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/ops-contacts",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/ops-contacts/test",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/sally-offer",
       "file": "server/platform-routes.ts",
       "kind": "exact"
     },
@@ -1597,6 +1673,11 @@
     },
     {
       "prefix": "/api/platform/organizations",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/organizations/sync-from-crm",
       "file": "server/platform-routes.ts",
       "kind": "exact"
     },
@@ -2130,6 +2211,11 @@
     {
       "handler": "handleOrchestrator",
       "file": "server/ai/orchestrator/handle.ts",
+      "kind": "handler_export"
+    },
+    {
+      "handler": "handlePhoneIncidents",
+      "file": "server/ai/phone-incidents.ts",
       "kind": "handler_export"
     },
     {

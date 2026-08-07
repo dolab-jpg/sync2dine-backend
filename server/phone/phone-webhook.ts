@@ -550,40 +550,108 @@ export async function handleOutboundCallApi(req: IncomingMessage, res: ServerRes
 
 export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerResponse) {
   const body = JSON.parse(await readBody(req)) as {
-    rows?: Array<{ company?: string; name?: string; phone?: string; customerId?: string }>;
+    rows?: Array<{
+      company?: string;
+      name?: string;
+      phone?: string;
+      customerId?: string;
+      venueType?: string;
+      openingHours?: string;
+      closedDays?: string;
+      preferredContactTimes?: string;
+      timezone?: string;
+      notes?: string;
+    }>;
     template?: string;
     batchId?: string;
     brief?: string;
     agentPersona?: string;
     aim?: string;
+    venueAware?: boolean;
   };
   const rows = Array.isArray(body.rows) ? body.rows : [];
   if (!rows.length) {
     sendJson(res, 400, { error: 'rows array is required' });
     return;
   }
-  const template = String(body.template ?? 'lead_callback');
+  const template = String(body.template ?? 'sally_sales');
   const batchId = String(body.batchId ?? `sales-csv-${new Date().toISOString().slice(0, 10)}`);
   const defaultBrief = String(body.brief ?? 'Sales outreach — introduce Sync2Dine takeaway phone platform.');
   const aim = String(body.aim ?? 'sales_outreach').trim() || 'sales_outreach';
   const agentPersona = String(body.agentPersona ?? '').trim().toLowerCase() || 'sally';
-  const { enqueueOutboundCall } = await import('../data-store');
+  const venueAware = body.venueAware !== false && agentPersona === 'sally';
+  const { scheduleSallyOutboundDial } = await import('../sally/schedule-outbound');
+  const { saveCustomerRecord, normalizePhoneExport } = await import('../data-store');
+  const { normalizeVenueType } = await import('../sally/dial-windows');
   const jobs: Array<Record<string, unknown>> = [];
   const skipped: string[] = [];
 
   for (const row of rows) {
-    const phone = String(row.phone ?? '').trim();
+    const phoneRaw = String(row.phone ?? '').trim();
     const company = String(row.company ?? row.name ?? '').trim();
-    if (!phone) {
+    if (!phoneRaw) {
       skipped.push('missing phone');
       continue;
     }
+    const phoneNorm = normalizePhoneExport(phoneRaw);
+    let customerId = row.customerId ? String(row.customerId) : undefined;
+    try {
+      const saved = saveCustomerRecord({
+        id: customerId,
+        name: company || 'Restaurant',
+        phone: phoneNorm.startsWith('+') ? phoneNorm : `+${phoneNorm}`,
+        status: 'lead',
+        source: 'sales_csv_dial',
+        consentSource: 'sales_csv_dial',
+        consentToCall: true,
+        venueType: row.venueType ? normalizeVenueType(row.venueType) : undefined,
+        openingHours: row.openingHours,
+        closedDays: row.closedDays,
+        preferredContactTimes: row.preferredContactTimes,
+        timezone: row.timezone || 'Europe/London',
+        notes: row.notes,
+        rawUpload: { ...row },
+      });
+      customerId = String(saved.id);
+    } catch {
+      /* phone-only */
+    }
+
+    if (venueAware) {
+      const result = scheduleSallyOutboundDial({
+        to: phoneNorm.startsWith('+') ? phoneNorm : `+${phoneNorm}`,
+        customerId,
+        customerName: company,
+        company,
+        template,
+        aim,
+        source: 'sales_csv_dial',
+        brief: company ? `${defaultBrief} Company: ${company}.` : defaultBrief,
+        venueAware: true,
+        venueProfile: {
+          venueType: row.venueType,
+          openingHours: row.openingHours,
+          closedDays: row.closedDays,
+          preferredContactTimes: row.preferredContactTimes,
+          timezone: row.timezone || 'Europe/London',
+        },
+        context: {
+          agentPersona,
+          batchId,
+        },
+      });
+      if (result.ok && result.job) jobs.push(result.job);
+      else skipped.push(result.reason || 'skipped');
+      continue;
+    }
+
+    const { enqueueOutboundCall } = await import('../data-store');
     const job = enqueueOutboundCall({
-      to: phone,
+      to: phoneNorm.startsWith('+') ? phoneNorm : `+${phoneNorm}`,
       template,
       status: 'queued',
       context: {
-        customerId: row.customerId,
+        customerId,
         company,
         aim,
         agentPersona,
@@ -600,6 +668,7 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
     queued: jobs.length,
     skipped: skipped.length,
     batchId,
+    venueAware,
     jobs: jobs.slice(0, 50),
   });
 }

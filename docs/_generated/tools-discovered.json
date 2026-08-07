@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-07-23T12:43:04.403Z",
-  "toolCount": 180,
-  "occurrenceCount": 211,
+  "generatedAt": "2026-08-07T14:04:51.089Z",
+  "toolCount": 186,
+  "occurrenceCount": 218,
   "uniqueNames": [
     "addComment",
     "addLeadNote",
@@ -22,6 +22,7 @@
     "cancelReservation",
     "captureLead",
     "captureMessage",
+    "captureReferralAndQueue",
     "categorizeTransaction",
     "chaseUnpaidInvoice",
     "checkDeliveryArea",
@@ -93,6 +94,7 @@
     "logDrawing",
     "logFollowUp",
     "logHours",
+    "lookupCallerOrders",
     "lookupCustomerByPhone",
     "lookupProjectStatus",
     "lookupQuote",
@@ -122,6 +124,7 @@
     "raiseChangeRequest",
     "readData",
     "readDraftAloud",
+    "recallAccountMemory",
     "recordCostEntry",
     "recordCouncil",
     "rejectQuote",
@@ -139,6 +142,7 @@
     "schedulePaymentReminder",
     "scheduleRecurringJob",
     "scheduleSalesFollowUp",
+    "scheduleVenueCallback",
     "screenCandidate",
     "searchBuildingRegs",
     "searchCustomers",
@@ -166,6 +170,7 @@
     "sendWhatsAppMedia",
     "sendWhatsAppTemplate",
     "setCallLanguage",
+    "setCallObjective",
     "setDeadline",
     "setPricing",
     "setStage",
@@ -180,6 +185,7 @@
     "updateQuoteLines",
     "updateReservation",
     "updateTaskStatus",
+    "updateVenueProfile",
     "upsertMenuItem",
     "verifyStaffPhonePin",
     "writeData"
@@ -314,6 +320,12 @@
     {
       "name": "captureMessage",
       "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "captureReferralAndQueue",
+      "file": "server/phone/sally-sales-phone.ts",
       "priority": true,
       "source": "schema_scan"
     },
@@ -822,6 +834,12 @@
       "source": "schema_scan"
     },
     {
+      "name": "lookupCallerOrders",
+      "file": "server/phone/tools/catalog.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
       "name": "lookupCustomerByPhone",
       "file": "server/phone/phone-brain.ts",
       "priority": true,
@@ -1014,6 +1032,12 @@
       "source": "schema_scan"
     },
     {
+      "name": "recallAccountMemory",
+      "file": "server/phone/sally-sales-phone.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
       "name": "recordCostEntry",
       "file": "server/ai/orchestrator/tool-catalog-project.ts",
       "priority": true,
@@ -1058,6 +1082,12 @@
     {
       "name": "requestSitePhotos",
       "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "researchRestaurantProfile",
+      "file": "server/phone/sally-sales-phone.ts",
       "priority": true,
       "source": "schema_scan"
     },
@@ -1124,6 +1154,12 @@
     {
       "name": "scheduleSalesFollowUp",
       "file": "server/sally-receptionist.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "scheduleVenueCallback",
+      "file": "server/phone/sally-sales-phone.ts",
       "priority": true,
       "source": "schema_scan"
     },
@@ -1344,6 +1380,12 @@
       "source": "schema_scan"
     },
     {
+      "name": "setCallObjective",
+      "file": "server/phone/sally-sales-phone.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
       "name": "setDeadline",
       "file": "server/ai/planning-tools.ts",
       "priority": true,
@@ -1430,6 +1472,12 @@
     {
       "name": "updateTaskStatus",
       "file": "server/ai/orchestrator/tool-catalog-project.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
+      "name": "updateVenueProfile",
+      "file": "server/phone/sally-sales-phone.ts",
       "priority": true,
       "source": "schema_scan"
     },
@@ -1854,6 +1902,14 @@
       ]
     },
     {
+      "file": "server/ai/phone-incidents.ts",
+      "sampleNames": [
+        "statusCode",
+        "createdAt",
+        "lastSeenAt"
+      ]
+    },
+    {
       "file": "server/ai/restaurant-ai-tools.ts",
       "sampleNames": [
         "getMenu",
@@ -2016,12 +2072,12 @@
         "placeOutboundCall",
         "enqueueOutboundCall",
         "getMenu",
+        "lookupCallerOrders",
         "placeFoodOrder",
         "checkDeliveryArea",
         "getDeliveryAreas",
         "checkTableAvailability",
-        "bookTable",
-        "updateReservation"
+        "bookTable"
       ]
     },
     {
@@ -2031,6 +2087,12 @@
         "bookIntegrationMeeting",
         "bookDemo",
         "sendSalesFollowUp",
+        "setCallObjective",
+        "recallAccountMemory",
+        "researchRestaurantProfile",
+        "scheduleVenueCallback",
+        "updateVenueProfile",
+        "captureReferralAndQueue",
         "bookCallback",
         "captureLead",
         "captureMessage",
@@ -2062,6 +2124,7 @@
         "getMenu",
         "checkDeliveryArea",
         "getDeliveryAreas",
+        "lookupCallerOrders",
         "placeFoodOrder",
         "checkTableAvailability",
         "startsAt",
@@ -2080,8 +2143,7 @@
         "sendEmailReply",
         "scheduleSalesFollowUp",
         "upsertMenuItem",
-        "deleteMenuItem",
-        "listOrders"
+        "deleteMenuItem"
       ]
     },
     {
@@ -2105,6 +2167,7 @@
         "deliverCallFollowUp",
         "getDeliveryAreas",
         "checkDeliveryArea",
+        "lookupCallerOrders",
         "placeFoodOrder",
         "checkTableAvailability",
         "bookTable",
@@ -2149,6 +2212,12 @@
         "bookDemo",
         "bookIntegrationMeeting",
         "sendSalesFollowUp",
+        "recallAccountMemory",
+        "setCallObjective",
+        "researchRestaurantProfile",
+        "scheduleVenueCallback",
+        "updateVenueProfile",
+        "captureReferralAndQueue",
         "providerCallId",
         "localId"
       ]
@@ -2366,6 +2435,16 @@
         "proposeSchedule",
         "draftInvoice",
         "convertQuoteToProject"
+      ]
+    },
+    {
+      "file": "server/telephony/vapiAdapter.ts",
+      "sampleNames": [
+        "agentPersona",
+        "batchId",
+        "customerId",
+        "customerName",
+        "projectId"
       ]
     },
     {

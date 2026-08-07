@@ -7,6 +7,7 @@ import {
   queueStatusAfterDisposition,
   type LeadCallDisposition,
 } from './lead-call-disposition';
+import { londonMinutesNow } from './sally/dial-windows';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
 export const DEFAULT_ORG_ID = 'default';
@@ -1062,7 +1063,8 @@ export function isWithinCallQueueQuietHours(now = new Date()): boolean {
   const startM = toMins(start);
   const endM = toMins(end);
   if (startM == null || endM == null) return false;
-  const cur = now.getHours() * 60 + now.getMinutes();
+  // Europe/London — matches dial-windows / venue slots (not server local / UTC alone)
+  const cur = londonMinutesNow(now, 'Europe/London');
   if (startM === endM) return false;
   if (startM < endM) return cur >= startM && cur < endM;
   return cur >= startM || cur < endM;

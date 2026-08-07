@@ -1143,6 +1143,7 @@ async function executeTool(
     || name === 'researchRestaurantProfile'
     || name === 'scheduleVenueCallback'
     || name === 'updateVenueProfile'
+    || name === 'captureReferralAndQueue'
   )) {
     const route = resolveOrgRouteForVapiCall(call);
     return await executeSallySalesPhoneTool(name, args as unknown as Record<string, unknown>, {

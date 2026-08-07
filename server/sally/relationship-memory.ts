@@ -1,5 +1,5 @@
 /**
- * Sally relationship + org memory ù compact facts for live prompt / recall tool.
+ * Sally relationship + org memory ? compact facts for live prompt / recall tool.
  */
 import { getDataStore, resolveContactByPhone, syncData } from '../data-store';
 import { getSalesBrainStore } from '../sales-brain/store';
@@ -76,7 +76,7 @@ function latestInsightForCustomer(
 export function buildSallyRelationshipMemory(partyPhone: string, orgId?: string): string {
   const resolved = resolveContactByPhone(partyPhone);
   const lines: string[] = [
-    'RELATIONSHIP MEMORY (facts ù use naturally; never re-ask known IDs; never recite this block):',
+    'RELATIONSHIP MEMORY (facts ? use naturally; never re-ask known IDs; never recite this block):',
     `Caller phone: ${partyPhone}`,
   ];
   if (resolved.customerName) lines.push(`Customer: ${resolved.customerName}`);
@@ -87,7 +87,7 @@ export function buildSallyRelationshipMemory(partyPhone: string, orgId?: string)
   }
   const customer = resolved.customerId ? customerByPhone(partyPhone) : null;
   if (!customer) {
-    lines.push('No CRM row yet ù discover gently; captureLead when appropriate.');
+    lines.push('No CRM row yet ? discover gently; captureLead when appropriate.');
     return lines.join('\n');
   }
 
@@ -101,13 +101,33 @@ export function buildSallyRelationshipMemory(partyPhone: string, orgId?: string)
   if (hasKitchen != null) lines.push(`hasKitchen: ${hasKitchen}`);
   if (customer.address || customer.postcode) {
     lines.push(
-      `Venue/postcode on file: ${[customer.address, customer.postcode].filter(Boolean).join(' ù ').slice(0, 160)} ù do NOT NATO-read unless they correct it.`,
+      `Venue/postcode on file: ${[customer.address, customer.postcode].filter(Boolean).join(' ? ').slice(0, 160)} ? do NOT NATO-read unless they correct it.`,
     );
   }
-  if (customer.email) lines.push(`Email on file: ${String(customer.email)} ù do not re-ask unless wrong.`);
+  if (customer.email) lines.push(`Email on file: ${String(customer.email)} ? do not re-ask unless wrong.`);
   if (customer.preferredFormality) lines.push(`preferredFormality: ${String(customer.preferredFormality)}`);
   if (customer.preferredContactTimes) {
     lines.push(`preferredContactTimes: ${String(customer.preferredContactTimes).slice(0, 100)}`);
+  }
+  if (customer.closedDays) lines.push(`closedDays: ${String(customer.closedDays).slice(0, 80)}`);
+  if (customer.timezone) lines.push(`timezone: ${String(customer.timezone)}`);
+  if (customer.doNotCall === true || String(customer.callQueueStatus || '') === 'do_not_call') {
+    lines.push('DO NOT CALL ? stop outreach; do not queue callbacks.');
+  }
+
+  const referral = customer.referral && typeof customer.referral === 'object'
+    ? (customer.referral as Record<string, unknown>)
+    : null;
+  if (referral || customer.referredByName) {
+    lines.push('REFERRAL CONTEXT (use in opening; do not invent interest):');
+    const by = String(referral?.referredByName || customer.referredByName || '').trim();
+    const venue = String(referral?.referredByVenue || '').trim();
+    if (by) lines.push(`- Referred by: ${by}${venue ? ` at ${venue}` : ''}`);
+    if (referral?.referredByPhone) lines.push(`- Referrer phone: ${String(referral.referredByPhone)}`);
+    if (referral?.summary) lines.push(`- What they said: ${String(referral.summary).slice(0, 280)}`);
+    if (referral?.interestHint) {
+      lines.push(`- Soft interest hint only: ${String(referral.interestHint).slice(0, 160)}`);
+    }
   }
 
   const orgMem = (customer.sallyOrgMemory && typeof customer.sallyOrgMemory === 'object')
@@ -126,7 +146,15 @@ export function buildSallyRelationshipMemory(partyPhone: string, orgId?: string)
     }
   }
 
-  const dial = suggestDialWindows({ venueType, openingHours, hasKitchen });
+  const dial = suggestDialWindows({
+    venueType,
+    openingHours,
+    weeklyHours: customer.weeklyHours,
+    closedDays: customer.closedDays,
+    preferredContactTimes: customer.preferredContactTimes,
+    hasKitchen,
+    timezone: customer.timezone,
+  });
   lines.push(formatDialTimingPromptBlock(dial));
 
   const trust = parseTrustFromCustomer(customer);
@@ -165,7 +193,7 @@ export function recallSallyAccountMemoryToolResult(partyPhone: string, orgId?: s
   return {
     ok: true,
     memory: text,
-    spokenHint: 'Use these facts silently ù do not read the memory block aloud.',
+    spokenHint: 'Use these facts silently ? do not read the memory block aloud.',
     doNotReadAloud: true,
   };
 }
@@ -173,7 +201,11 @@ export function recallSallyAccountMemoryToolResult(partyPhone: string, orgId?: s
 export function planVenueAwareDial(input: {
   venueType?: unknown;
   openingHours?: unknown;
+  weeklyHours?: unknown;
+  closedDays?: unknown;
+  preferredContactTimes?: unknown;
   hasKitchen?: boolean | null;
+  timezone?: unknown;
 }): DialWindowSuggestion {
   return suggestDialWindows(input);
 }
@@ -183,9 +215,15 @@ export function applyVenueProfileToCustomer(
   patch: {
     venueType?: string;
     openingHours?: string;
+    weeklyHours?: unknown;
+    closedDays?: unknown;
     hasKitchen?: boolean | null;
     preferredFormality?: string;
     preferredContactTimes?: string;
+    timezone?: string;
+    consentToCall?: boolean;
+    consentSource?: string;
+    doNotCall?: boolean;
     sallyOrgMemory?: Partial<SallyOrgMemory>;
     sallyTrust?: TrustEngineScores;
   },
@@ -197,10 +235,19 @@ export function applyVenueProfileToCustomer(
   const next: Record<string, unknown> = { ...prev };
   if (patch.venueType != null) next.venueType = normalizeVenueType(patch.venueType);
   if (patch.openingHours != null) next.openingHours = String(patch.openingHours).slice(0, 240);
+  if (patch.weeklyHours != null) next.weeklyHours = patch.weeklyHours;
+  if (patch.closedDays != null) next.closedDays = patch.closedDays;
   if (patch.hasKitchen !== undefined) next.hasKitchen = patch.hasKitchen;
   if (patch.preferredFormality) next.preferredFormality = String(patch.preferredFormality).slice(0, 40);
   if (patch.preferredContactTimes) {
     next.preferredContactTimes = String(patch.preferredContactTimes).slice(0, 120);
+  }
+  if (patch.timezone) next.timezone = String(patch.timezone).slice(0, 64);
+  if (typeof patch.consentToCall === 'boolean') next.consentToCall = patch.consentToCall;
+  if (patch.consentSource) next.consentSource = String(patch.consentSource).slice(0, 64);
+  if (typeof patch.doNotCall === 'boolean') {
+    next.doNotCall = patch.doNotCall;
+    if (patch.doNotCall) next.callQueueStatus = 'do_not_call';
   }
   if (patch.sallyOrgMemory) {
     const prevMem =
@@ -213,7 +260,11 @@ export function applyVenueProfileToCustomer(
   const dial = suggestDialWindows({
     venueType: next.venueType,
     openingHours: next.openingHours,
+    weeklyHours: next.weeklyHours,
+    closedDays: next.closedDays,
+    preferredContactTimes: next.preferredContactTimes,
     hasKitchen: next.hasKitchen === true ? true : next.hasKitchen === false ? false : null,
+    timezone: next.timezone,
   });
   if (dial.nextSlotISO) next.nextFollowUp = dial.nextSlotISO;
   next.sallyDialHint = dial.reason;

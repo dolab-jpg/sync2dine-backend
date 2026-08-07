@@ -1232,48 +1232,5 @@ export async function executeSallyTool(
 }
 
 /** Re-queue CRM leads marked needs_retry whose nextFollowUp/retry window has elapsed. */
-export function enqueueSallyRetryLeads(): number {
-  const settings = getAgentSettings();
-  const maxAttempts = settings.callQueueMaxAttempts ?? 3;
-  const retryMin = settings.callQueueRetryMinutes ?? 60;
-  const store = getDataStore();
-  const customers = (store.customers as Array<Record<string, unknown>>) || [];
-  let queued = 0;
-  const now = Date.now();
-  for (const c of customers) {
-    if (String(c.callQueueStatus || '') !== 'needs_retry') continue;
-    const attempts = Number(c.callAttemptCount ?? 0);
-    if (attempts >= maxAttempts) continue;
-    const phone = String(c.phone || '').trim();
-    if (!phone) continue;
-    const lastAt = c.lastCallAt ? Date.parse(String(c.lastCallAt)) : NaN;
-    const nextAt = c.nextFollowUp ? Date.parse(String(c.nextFollowUp)) : NaN;
-    const readyAt = Number.isFinite(nextAt)
-      ? nextAt
-      : (Number.isFinite(lastAt) ? lastAt + retryMin * 60_000 : now);
-    if (readyAt > now) continue;
-    const already = (store.outboundQueue || []).some((j) =>
-      String(j.status) === 'queued'
-      && String((j.context as Record<string, unknown> | undefined)?.customerId || '') === String(c.id)
-    );
-    if (already) continue;
-    enqueueOutboundCall({
-      to: phone,
-      template: 'lead_callback',
-      status: 'queued',
-      context: {
-        customerId: String(c.id),
-        company: String(c.name || ''),
-        aim: 'sales_outreach',
-        agentPersona: SALLY_PERSONA,
-        brief: `Auto-retry (${attempts + 1}/${maxAttempts}) for ${c.name || phone}`,
-        source: 'sally_needs_retry',
-      },
-    });
-    saveCustomerRecord({ ...c, callQueueStatus: 'queued' });
-    queued += 1;
-  }
-  if (queued) syncData({ customers: store.customers });
-  return queued;
-}
+export { enqueueSallyRetryLeads } from './schedule-outbound';
 

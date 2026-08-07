@@ -58,7 +58,18 @@ export function isSallySalesCall(
   if (persona === SALLY_PERSONA) return true;
   const aim = String(m.aim || '').toLowerCase();
   if (aim === 'sales_outreach' || aim === 'demo_book' || aim === 'meeting_confirm') return true;
-  if (String(m.source || '').toLowerCase() === 'sales_csv_dial') return true;
+  const source = String(m.source || '').toLowerCase();
+  if (
+    source === 'sales_csv_dial'
+    || source === 'csv_campaign'
+    || source === 'gatekeeper_referral'
+    || source === 'sally_needs_retry'
+    || source === 'book_callback'
+  ) {
+    return true;
+  }
+  const template = String(opts?.campaignTemplate || m.campaignTemplate || '').toLowerCase();
+  if (template === 'sally_sales') return true;
   return false;
 }
 
@@ -350,7 +361,36 @@ const UPDATE_VENUE_PROFILE_TOOL = {
         blockers: { type: 'string' },
         preferredFormality: { type: 'string' },
         preferredContactTimes: { type: 'string' },
+        closedDays: { type: 'string', description: 'e.g. mon,tue or Closed Mon' },
+        timezone: { type: 'string', description: 'IANA timezone, default Europe/London' },
       },
+    },
+  },
+};
+
+const CAPTURE_REFERRAL_AND_QUEUE_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'captureReferralAndQueue',
+    description:
+      'When the current caller gives another person\'s number (boss/owner/manager), save that contact and queue a Sally outbound call that opens with who referred us. Prefer this over bookCallback for third-party referrals.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Name of the person to call' },
+        phone: { type: 'string', description: 'Their UK phone e.g. 07576442345 or +447576442345' },
+        role: { type: 'string', description: 'owner | manager | chef | etc.' },
+        referredByName: { type: 'string', description: 'Name of the person currently on the line who gave the number' },
+        referredByVenue: { type: 'string', description: 'Restaurant / venue name' },
+        summary: { type: 'string', description: 'What was discussed on the main line (facts only)' },
+        interestHint: { type: 'string', description: 'Soft interest hint if they said the boss might be interested — do not invent' },
+        venueType: { type: 'string' },
+        openingHours: { type: 'string' },
+        preferredContactTimes: { type: 'string' },
+        preferredTime: { type: 'string', description: 'Optional explicit callback time' },
+        notes: { type: 'string' },
+      },
+      required: ['name', 'phone'],
     },
   },
 };
@@ -366,6 +406,7 @@ export function getSallyPhoneSessionChatTools() {
     RESEARCH_RESTAURANT_TOOL,
     SCHEDULE_VENUE_CALLBACK_TOOL,
     UPDATE_VENUE_PROFILE_TOOL,
+    CAPTURE_REFERRAL_AND_QUEUE_TOOL,
     ...pickPhoneTools(
       'bookCallback',
       'captureLead',
@@ -418,6 +459,7 @@ export function buildSallyBrainPrompt(input: {
     formatOfferFactsBlock(),
     formatObjectionPlaybook(),
     'PHONE OBJECTION STYLE: acknowledge → explore real concern → evidence → ask next; short Cockney. This call is the demo — do not push a separate demo as the primary CTA.',
+    'REFERRALS: If they say speak to the boss/owner and give a number, call captureReferralAndQueue with that phone + who referred + a factual summary. Do not invent interest. Do not use Judie tools.',
     SALLY_PHONE_CLOSE_SCRIPT,
     relationshipMemory,
     approvedBrain,
@@ -551,6 +593,8 @@ export async function executeSallySalesPhoneTool(
       preferredFormality: input.preferredFormality != null ? String(input.preferredFormality) : undefined,
       preferredContactTimes:
         input.preferredContactTimes != null ? String(input.preferredContactTimes) : undefined,
+      closedDays: input.closedDays != null ? String(input.closedDays) : undefined,
+      timezone: input.timezone != null ? String(input.timezone) : undefined,
       sallyOrgMemory: {
         champions: input.champions != null ? String(input.champions) : undefined,
         blockers: input.blockers != null ? String(input.blockers) : undefined,
@@ -560,6 +604,9 @@ export async function executeSallySalesPhoneTool(
       venueType: input.venueType,
       openingHours: input.openingHours,
       hasKitchen: typeof input.hasKitchen === 'boolean' ? input.hasKitchen : null,
+      closedDays: input.closedDays,
+      preferredContactTimes: input.preferredContactTimes,
+      timezone: input.timezone,
     });
     return {
       ok: true,
@@ -567,6 +614,37 @@ export async function executeSallySalesPhoneTool(
       spokenHint: 'Venue profile saved for smarter dials — do not read the dial plan aloud.',
       doNotReadAloud: true,
     };
+  }
+
+  if (name === 'captureReferralAndQueue') {
+    const { captureReferralAndQueue } = await import('../sally/schedule-outbound');
+    const referrerResolved = ctx.partyPhone
+      ? resolveContactByPhone(String(ctx.partyPhone))
+      : { customerId: undefined as string | undefined, customerName: undefined as string | undefined };
+    const preferredRaw = String(input.preferredTime || '').trim();
+    const scheduledAt = preferredRaw
+      ? (resolveCallbackIso(preferredRaw) || preferredRaw)
+      : undefined;
+    const result = captureReferralAndQueue({
+      name: String(input.name || '').trim(),
+      phone: String(input.phone || '').trim(),
+      role: input.role != null ? String(input.role) : undefined,
+      referredByName:
+        String(input.referredByName || referrerResolved.customerName || '').trim() || undefined,
+      referredByPhone: ctx.partyPhone,
+      referredByVenue: input.referredByVenue != null ? String(input.referredByVenue) : undefined,
+      referredByCustomerId: referrerResolved.customerId,
+      summary: input.summary != null ? String(input.summary) : undefined,
+      interestHint: input.interestHint != null ? String(input.interestHint) : undefined,
+      venueType: input.venueType != null ? String(input.venueType) : undefined,
+      openingHours: input.openingHours != null ? String(input.openingHours) : undefined,
+      preferredContactTimes:
+        input.preferredContactTimes != null ? String(input.preferredContactTimes) : undefined,
+      callId: ctx.callId,
+      scheduledAt,
+      notes: input.notes != null ? String(input.notes) : undefined,
+    });
+    return result;
   }
 
   if (name === 'scheduleVenueCallback') {

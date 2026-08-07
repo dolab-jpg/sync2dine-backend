@@ -26,6 +26,10 @@ const META_STRING_KEYS = [
   'customerId',
   'customerName',
   'projectId',
+  'referredByName',
+  'referredByPhone',
+  'referredByVenue',
+  'sourceCallId',
 ] as const;
 
 /** Flatten outbound context + nested metadata for call row + Vapi metadata. */

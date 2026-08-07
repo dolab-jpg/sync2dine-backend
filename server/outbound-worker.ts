@@ -1,9 +1,9 @@
 import {
   getDataStore,
-  updateOutboundJob,
   getOutboundQueueState,
   isWithinCallQueueQuietHours,
   getAgentCapacitySnapshot,
+  updateOutboundJob,
 } from './data-store';
 
 const POLL_MS = Number(process.env.OUTBOUND_POLL_MS ?? 15000);
@@ -24,6 +24,14 @@ export function startOutboundWorker(): void {
 }
 
 async function processOutboundQueue(): Promise<void> {
+  // Re-queue needs_retry Sally leads into venue-aware windows (best-effort)
+  try {
+    const { enqueueSallyRetryLeads } = await import('./sally/schedule-outbound');
+    enqueueSallyRetryLeads();
+  } catch {
+    /* optional */
+  }
+
   const queueState = getOutboundQueueState();
   if (queueState !== 'running') return;
 
@@ -60,6 +68,23 @@ async function processOutboundQueue(): Promise<void> {
     if (inQuietHours && !bypassQuiet) return false;
     const scheduled = j.scheduledAt ? Date.parse(String(j.scheduledAt)) : NaN;
     if (Number.isFinite(scheduled) && scheduled > Date.now()) return false;
+
+    // Backend DNC gate at dial time
+    const customerId = String(ctx.customerId || j.customerId || '');
+    if (customerId) {
+      const cust = (store.customers as Array<Record<string, unknown>>).find((c) => String(c.id) === customerId);
+      if (cust) {
+        const status = String(cust.callQueueStatus || '').toLowerCase();
+        if (status === 'do_not_call' || cust.doNotCall === true || cust.dnc === true) {
+          updateOutboundJob(String(j.id ?? ''), {
+            status: 'cancelled',
+            error: 'do_not_call',
+            cancelledAt: new Date().toISOString(),
+          });
+          return false;
+        }
+      }
+    }
     return true;
   });
   if (!queue.length) return;
@@ -84,6 +109,7 @@ async function processOutboundQueue(): Promise<void> {
             customerId: ctx.customerId ?? job.customerId,
             aim: ctx.aim ?? ctx.reason,
             brief: ctx.brief ?? ctx.aim ?? ctx.reason,
+            agentPersona: ctx.agentPersona || (String(ctx.aim || '') === 'sales_outreach' ? 'sally' : undefined),
             source: ctx.source ?? 'outbound_queue',
           },
         }),
