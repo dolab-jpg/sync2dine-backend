@@ -1,5 +1,5 @@
 /**
- * Central Sally outbound scheduling ù venue windows + eligibility + Sally brain routing.
+ * Central Sally outbound scheduling ? venue windows + eligibility + Sally brain routing.
  */
 import {
   enqueueOutboundCall,
@@ -101,6 +101,19 @@ export function scheduleSallyOutboundDial(input: ScheduleSallyDialInput): Schedu
     ? String(input.scheduledAt).trim()
     : null;
   const venueAware = input.venueAware !== false;
+
+  // Takeaway / venue-aware dials require real hours ? never invent 20:00?22:00 defaults.
+  if (venueAware && !explicit && !dial.hoursKnown) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: 'needs_hours',
+      dial,
+      eligibility,
+      scheduledAt: null,
+    };
+  }
+
   const scheduledAt = explicit || (venueAware ? dial.nextSlotISO : null);
   const bypassQuiet =
     input.bypassQuietHours === true
@@ -118,6 +131,7 @@ export function scheduleSallyOutboundDial(input: ScheduleSallyDialInput): Schedu
     venueAwareSchedule: venueAware && !explicit,
     dialReason: dial.reason,
     timezone: dial.timezone,
+    hoursKnown: dial.hoursKnown,
   };
 
   if (input.dryRun) {
@@ -155,6 +169,127 @@ export function scheduleSallyOutboundDial(input: ScheduleSallyDialInput): Schedu
   }
 
   return { ok: true, job, scheduledAt, dial, eligibility };
+}
+
+function draftBriefSnippet(draft: {
+  businessName?: string;
+  address?: string;
+  openingHours?: string;
+  website?: string;
+  rawSummary?: string;
+}): string {
+  const bits = [
+    draft.businessName ? `Name: ${draft.businessName}` : '',
+    draft.address ? `Address: ${draft.address}` : '',
+    draft.openingHours ? `Hours: ${draft.openingHours}` : '',
+    draft.website ? `Web: ${draft.website}` : '',
+    draft.rawSummary ? draft.rawSummary.slice(0, 280) : '',
+  ].filter(Boolean);
+  return bits.join('. ');
+}
+
+/**
+ * Research (DeepSeek) when hours missing, then schedule ? or hold as needs_hours.
+ */
+export async function scheduleSallyOutboundDialWithResearch(
+  input: ScheduleSallyDialInput & { addressHint?: string; orgId?: string },
+): Promise<ScheduleSallyDialResult & { held?: boolean; researchDraft?: unknown }> {
+  const mergedProfile: VenueDialProfile = {
+    ...profileFromCustomer(input.customer ?? customerFromId(input.customerId)),
+    ...(input.venueProfile || {}),
+  };
+  let openingHours = String(mergedProfile.openingHours || '').trim();
+  let researchDraft: unknown;
+  let briefExtra = '';
+
+  const company = String(input.company || input.customerName || '').trim();
+  if (company) {
+    try {
+      const { researchRestaurantProfile, draftToAboutUs } = await import('../restaurant-research');
+      const result = await researchRestaurantProfile({
+        businessName: company,
+        phone: input.to,
+        addressHint: input.addressHint,
+        orgId: input.orgId,
+      });
+      if (result.ok) {
+        researchDraft = result.draft;
+        briefExtra = draftBriefSnippet(result.draft);
+        if (!openingHours && result.draft.openingHours) {
+          openingHours = String(result.draft.openingHours).trim();
+        }
+        if (input.customerId) {
+          try {
+            saveCustomerRecord({
+              id: String(input.customerId),
+              openingHours: openingHours || undefined,
+              address: result.draft.address,
+              researchDraft: result.draft,
+              aboutUs: draftToAboutUs(result.draft),
+            });
+          } catch {
+            /* best-effort */
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(
+        '[sally-schedule] research failed:',
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  const venueProfile: VenueDialProfile = {
+    ...mergedProfile,
+    openingHours: openingHours || mergedProfile.openingHours,
+  };
+  const brief = [input.brief, briefExtra ? `Research: ${briefExtra}` : '']
+    .filter(Boolean)
+    .join(' ');
+
+  const result = scheduleSallyOutboundDial({
+    ...input,
+    brief: brief || input.brief,
+    venueProfile,
+    context: {
+      ...(input.context || {}),
+      researchDraft,
+      researchBrief: briefExtra || undefined,
+    },
+  });
+
+  if (result.reason === 'needs_hours') {
+    const phone = normalizePhoneExport(String(input.to || '').trim());
+    const held = enqueueOutboundCall({
+      to: phone.startsWith('+') ? phone : `+${phone}`,
+      template: input.template || 'sally_sales',
+      status: 'needs_hours',
+      customerId: input.customerId,
+      bypassQuietHours: true,
+      context: {
+        ...(input.context || {}),
+        agentPersona: SALLY_PERSONA,
+        company: input.company || input.customerName,
+        aim: input.aim || 'sales_outreach',
+        brief: brief || input.brief,
+        source: input.source || 'sally_schedule',
+        researchDraft,
+        holdReason: 'needs_hours',
+      },
+    });
+    return {
+      ...result,
+      ok: true,
+      skipped: false,
+      held: true,
+      job: held,
+      researchDraft,
+      reason: 'needs_hours',
+    };
+  }
+
+  return { ...result, researchDraft };
 }
 
 export type CaptureReferralInput = {
@@ -317,8 +452,8 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
       isNewLead: lead.isNewLead,
       spokenHint:
         scheduled.reason === 'do_not_call'
-          ? 'That number is marked do-not-call ù I will not dial it.'
-          : 'Saved the contact but could not queue the call ù ask staff to follow up.',
+          ? 'That number is marked do-not-call ? I will not dial it.'
+          : 'Saved the contact but could not queue the call ? ask staff to follow up.',
     };
   }
 
@@ -330,8 +465,8 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
     scheduledAt: scheduled.scheduledAt,
     brief,
     spokenHint: scheduled.scheduledAt
-      ? `Got it ù I'll call ${input.name} in a sensible window and mention ${input.referredByName || 'your colleague'} referred us.`
-      : `Got it ù I'll call ${input.name} and mention ${input.referredByName || 'your colleague'} referred us.`,
+      ? `Got it ? I'll call ${input.name} in a sensible window and mention ${input.referredByName || 'your colleague'} referred us.`
+      : `Got it ? I'll call ${input.name} and mention ${input.referredByName || 'your colleague'} referred us.`,
   };
 }
 

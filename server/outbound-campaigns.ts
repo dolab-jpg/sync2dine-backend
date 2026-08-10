@@ -161,7 +161,7 @@ export type CsvCampaignRow = {
   consentToCall?: string;
 };
 
-/** Parse CSV with headers name,phone[,notes][,customerId][,venueType][,openingHours][,closedDays][,preferredContactTimes][,timezone]. */
+/** Parse CSV with headers name|company_name,phone[,notes][,opening_hours][,hours_mon…]. */
 export function parseCampaignCsv(text: string): CsvCampaignRow[] {
   const lines = String(text || '')
     .split(/\r?\n/)
@@ -169,36 +169,76 @@ export function parseCampaignCsv(text: string): CsvCampaignRow[] {
     .filter(Boolean);
   if (!lines.length) return [];
   const header = lines[0].toLowerCase();
-  const hasHeader = /name/.test(header) && /phone/.test(header);
+  const hasHeader =
+    /phone/.test(header)
+    && (/company_name/.test(header) || /\bname\b/.test(header) || /company/.test(header));
   const start = hasHeader ? 1 : 0;
   const cols = hasHeader
-    ? lines[0].split(',').map((c) => c.trim().toLowerCase().replace(/^"|"$/g, ''))
+    ? lines[0].split(',').map((c) => c.trim().toLowerCase().replace(/^"|"$/g, '').replace(/\s+/g, '_'))
     : ['name', 'phone', 'notes', 'customerId'];
-  const idx = (key: string) => cols.findIndex((c) => c === key || c.includes(key));
-  const nameI = idx('name');
-  const phoneI = idx('phone');
-  const notesI = idx('note');
-  const idI = idx('customer');
-  const venueI = cols.findIndex((c) => c === 'venuetype' || c === 'venue_type' || c === 'venue');
-  const hoursI = cols.findIndex((c) => c === 'openinghours' || c === 'opening_hours' || c === 'hours');
-  const closedI = cols.findIndex((c) => c === 'closeddays' || c === 'closed_days' || c === 'closed');
+
+  const exact = (...keys: string[]) => cols.findIndex((c) => keys.includes(c));
+  const nameI = (() => {
+    const preferred = exact('company_name', 'company', 'business_name', 'name');
+    if (preferred >= 0) return preferred;
+    return cols.findIndex((c) => c !== 'lead_id' && c.includes('name'));
+  })();
+  const phoneI = exact('phone', 'telephone', 'tel', 'mobile');
+  const notesI = cols.findIndex((c) => c === 'notes' || c === 'note');
+  const idI = exact('customer_id', 'customerid', 'lead_id', 'id');
+  const venueI = exact('venuetype', 'venue_type', 'venue', 'category');
+  const hoursI = exact('openinghours', 'opening_hours', 'hours');
+  const closedI = exact('closeddays', 'closed_days', 'closed');
   const prefI = cols.findIndex((c) => c.includes('preferred') || c === 'best_time' || c === 'call_window');
-  const tzI = cols.findIndex((c) => c === 'timezone' || c === 'tz' || c === 'time_zone');
+  const tzI = exact('timezone', 'tz', 'time_zone');
   const consentI = cols.findIndex((c) => c.includes('consent') || c === 'dnc');
+  const dayCols = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => ({
+    d,
+    i: exact(`hours_${d}`, `${d}_hours`, d),
+  }));
+
   const rows: CsvCampaignRow[] = [];
   for (let i = start; i < lines.length; i++) {
     const parts = lines[i].match(/("([^"]|"")*"|[^,]*)/g)?.map((p) => p.replace(/^"|"$/g, '').replace(/""/g, '"').trim())
       ?? lines[i].split(',').map((p) => p.trim());
     const phone = parts[phoneI >= 0 ? phoneI : 1] ?? '';
-    const name = parts[nameI >= 0 ? nameI : 0] ?? 'Guest';
+    let name = parts[nameI >= 0 ? nameI : 0] ?? 'Guest';
+    if (/^\d+$/.test(name) || (idI >= 0 && name === parts[idI])) {
+      const companyAlt = exact('company_name', 'company', 'business_name');
+      if (companyAlt >= 0) name = parts[companyAlt] || name;
+    }
     if (!phone) continue;
+
+    let openingHours = hoursI >= 0 ? parts[hoursI] : undefined;
+    if (!openingHours?.trim()) {
+      const dayParts: string[] = [];
+      for (const { d, i: di } of dayCols) {
+        if (di < 0) continue;
+        const v = (parts[di] || '').trim();
+        if (!v || /^closed$/i.test(v)) continue;
+        dayParts.push(`${d[0].toUpperCase()}${d.slice(1)}: ${v}`);
+      }
+      if (dayParts.length) openingHours = dayParts.join('; ');
+    }
+
+    const category = venueI >= 0 ? parts[venueI] : undefined;
+    const addressBits = [
+      exact('address') >= 0 ? parts[exact('address')] : '',
+      exact('city') >= 0 ? parts[exact('city')] : '',
+      exact('postcode', 'postal_code') >= 0 ? parts[exact('postcode', 'postal_code')] : '',
+    ].filter(Boolean);
+    const extraNotes = [
+      notesI >= 0 ? parts[notesI] : '',
+      addressBits.length ? `Address: ${addressBits.join(', ')}` : '',
+    ].filter(Boolean).join(' | ');
+
     rows.push({
       name: name || 'Guest',
       phone,
-      notes: notesI >= 0 ? parts[notesI] : undefined,
+      notes: extraNotes || undefined,
       customerId: idI >= 0 ? parts[idI] : undefined,
-      venueType: venueI >= 0 ? parts[venueI] : undefined,
-      openingHours: hoursI >= 0 ? parts[hoursI] : undefined,
+      venueType: category || 'takeaway',
+      openingHours: openingHours || undefined,
       closedDays: closedI >= 0 ? parts[closedI] : undefined,
       preferredContactTimes: prefI >= 0 ? parts[prefI] : undefined,
       timezone: tzI >= 0 ? parts[tzI] : undefined,
@@ -297,7 +337,7 @@ export function queueCsvCampaign(input: {
         brief: row.notes ? `${brief} Notes: ${row.notes}` : brief,
         venueAware: true,
         venueProfile: {
-          venueType: row.venueType,
+          venueType: row.venueType || 'takeaway',
           openingHours: row.openingHours,
           closedDays: row.closedDays,
           preferredContactTimes: row.preferredContactTimes,
@@ -311,6 +351,23 @@ export function queueCsvCampaign(input: {
       });
       if (result.ok && result.job) {
         jobs.push(result.job);
+      } else if (result.reason === 'needs_hours') {
+        jobs.push(enqueueOutboundCall({
+          to: phone.startsWith('+') ? phone : `+${phone}`,
+          template,
+          status: 'needs_hours',
+          customerId,
+          context: {
+            campaignId,
+            rowIndex: i,
+            holdReason: 'needs_hours',
+            company: row.name,
+            agentPersona: 'sally',
+            aim: 'sales_outreach',
+            source: 'csv_campaign',
+            brief: row.notes ? `${brief} Notes: ${row.notes}` : brief,
+          },
+        }));
       } else {
         skipped += 1;
       }

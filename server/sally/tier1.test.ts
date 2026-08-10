@@ -54,7 +54,22 @@ describe('dial-windows', () => {
     assert.equal(d.venueType, 'takeaway');
     assert.equal(d.bypassGlobalQuiet, true);
     assert.equal(d.pitchAngle, 'judie_phone');
+    assert.equal(d.hoursKnown, true);
     assert.ok(d.nextSlotISO);
+  });
+
+  it('does not invent dial windows when hours unknown', () => {
+    const d = suggestDialWindows({ venueType: 'takeaway' });
+    assert.equal(d.hoursKnown, false);
+    assert.equal(d.nextSlotISO, null);
+    assert.match(d.reason, /needs_hours/);
+  });
+
+  it('parses overnight close past midnight', () => {
+    const h = parseOpeningHoursHint('16:00-02:00');
+    assert.ok(h);
+    assert.equal(h!.openHour, 16);
+    assert.equal(h!.closeHour, 26);
   });
 
   it('no kitchen sets revenue angle', () => {

@@ -1,6 +1,7 @@
 /**
- * OpenAI-only restaurant business research for Sally (platform sales).
- * Uses Company AI Brain (Settings → Integrations → OpenAI) via resolveCompanyAiBrainOpenAIKey.
+ * DeepSeek-first restaurant business research for Sally (platform sales).
+ * Live web browse via DeepSeek web_search; JSON extract via Company AI Brain DeepSeek.
+ * OpenAI Responses web_search is optional last-resort fallback only.
  */
 import {
   mapOpenAIError,
@@ -8,6 +9,11 @@ import {
   OpenAIConnectionError,
 } from './openai-connection';
 import { getHomeOrgId } from './home-org';
+import {
+  ensureOrgAIBrainLoaded,
+  getOrgDeepSeekApiKey,
+  listOrganizations,
+} from './organizations';
 
 export type RestaurantProfileField =
   | 'businessName'
@@ -145,6 +151,71 @@ function normalizeDraft(raw: Record<string, unknown>, fallback: ResearchRestaura
   };
 }
 
+async function resolveCompanyAiBrainDeepSeekKey(preferredOrgId?: string | null): Promise<{
+  apiKey: string;
+  orgId: string | null;
+} | null> {
+  const candidates = [
+    preferredOrgId?.trim(),
+    getHomeOrgId(),
+    ...listOrganizations().map((o) => o.id),
+  ].filter((id): id is string => Boolean(id && id !== 'default'));
+
+  const seen = new Set<string>();
+  for (const orgId of candidates) {
+    if (seen.has(orgId)) continue;
+    seen.add(orgId);
+    await ensureOrgAIBrainLoaded(orgId);
+    const key = getOrgDeepSeekApiKey(orgId);
+    if (key) return { apiKey: key, orgId };
+  }
+  const envKey = (process.env.DEEPSEEK_API_KEY || '').trim();
+  if (envKey) {
+    return { apiKey: envKey, orgId: preferredOrgId?.trim() || getHomeOrgId() || null };
+  }
+  return null;
+}
+
+/** DeepSeek Responses API web_search (deepseek-v4-flash). */
+async function deepseekResponsesSearch(apiKey: string, query: string): Promise<string> {
+  const res = await fetch('https://api.deepseek.com/responses', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: process.env.DEEPSEEK_RESEARCH_MODEL?.trim() || 'deepseek-v4-flash',
+      tools: [{ type: 'web_search' }],
+      tool_choice: { type: 'web_search' },
+      input: query,
+    }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const msg = String(
+      data.error && typeof data.error === 'object'
+        ? (data.error as { message?: string }).message
+        : data.error || res.statusText || `HTTP ${res.status}`,
+    );
+    throw new Error(msg);
+  }
+  const text = extractOutputText(data);
+  if (text) return text;
+  throw new Error('Empty DeepSeek Responses output');
+}
+
+/** Anthropic-compatible DeepSeek web_search (same path as price research). */
+async function deepseekAnthropicWebSearch(apiKey: string, query: string): Promise<string> {
+  const { deepseekWebSearch } = await import('./price-research-deepseek-web');
+  const hits = await deepseekWebSearch(query, apiKey, { model: 'deepseek-v4-flash' });
+  if (!hits.length) throw new Error('DeepSeek web_search returned no hits');
+  return hits
+    .map((h) => [h.title, h.url, h.snippet].filter(Boolean).join('\n'))
+    .join('\n\n')
+    .slice(0, 12000);
+}
+
 async function openaiResponsesSearch(apiKey: string, query: string): Promise<string> {
   const models = [
     process.env.OPENAI_RESEARCH_MODEL?.trim() || '',
@@ -191,11 +262,35 @@ async function openaiResponsesSearch(apiKey: string, query: string): Promise<str
   throw new Error(lastError);
 }
 
-async function openaiJsonExtract(
+async function liveWebResearch(query: string, orgId: string | null, deepseekKey?: string): Promise<string> {
+  const errors: string[] = [];
+  if (deepseekKey) {
+    try {
+      return await deepseekResponsesSearch(deepseekKey, query);
+    } catch (err) {
+      errors.push(`responses: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    try {
+      return await deepseekAnthropicWebSearch(deepseekKey, query);
+    } catch (err) {
+      errors.push(`anthropic: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  // Optional OpenAI fallback only
+  try {
+    const { apiKey } = await resolveCompanyAiBrainOpenAIKey(orgId);
+    return await openaiResponsesSearch(apiKey, query);
+  } catch (err) {
+    errors.push(`openai: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  throw new Error(errors.join('; ') || 'Web research failed');
+}
+
+async function jsonExtractDraft(
   orgId: string | null,
-  apiKey: string,
   researchText: string,
   input: ResearchRestaurantInput,
+  deepseekKey?: string,
 ): Promise<RestaurantProfileDraft> {
   const system = [
     'You extract UK restaurant / takeaway business profile fields from research notes.',
@@ -204,6 +299,7 @@ async function openaiJsonExtract(
     'deliveryAreas, menuUrl, paymentMethods, reservations, website, socialMedia, contactEmail,',
     'sources (object field→url), confidence (object field→high|medium|low), rawSummary.',
     'Use null for unknown booleans. Prefer public sources. Do not invent precise hours if unsure — leave empty.',
+    'openingHours must be concrete when present on Google/website (e.g. Mon-Sun 16:00-23:00).',
   ].join(' ');
 
   const user = [
@@ -212,16 +308,21 @@ async function openaiJsonExtract(
     researchText.slice(0, 12000),
   ].join('\n');
 
-  // Metered LLM client — Company AI Brain (DeepSeek or OpenAI text extract).
   const { createLLMClientForOrg, defaultChatModelForProvider } = await import('./llm-connection');
+  const preferredProvider = deepseekKey ? 'deepseek' : undefined;
   const { client: openai, provider } = await createLLMClientForOrg(
     orgId,
     '/api/ai/restaurant-research',
-    { bodyOpenAIApiKey: apiKey },
+    {
+      bodyDeepSeekApiKey: deepseekKey,
+      provider: preferredProvider,
+    },
   );
   const model = defaultChatModelForProvider(
     provider,
-    process.env.OPENAI_RESEARCH_MODEL?.trim(),
+    provider === 'deepseek'
+      ? (process.env.DEEPSEEK_RESEARCH_MODEL?.trim() || 'deepseek-chat')
+      : process.env.OPENAI_RESEARCH_MODEL?.trim(),
   );
 
   try {
@@ -246,14 +347,23 @@ async function openaiJsonExtract(
 }
 
 /**
- * Research a restaurant from public web via Company AI Brain OpenAI key.
+ * Research a restaurant from public web — DeepSeek-first Company AI Brain.
  */
 export async function researchRestaurantProfile(
   input: ResearchRestaurantInput,
 ): Promise<{ ok: true; draft: RestaurantProfileDraft; spokenHint: string } | { ok: false; error: string; spokenHint: string }> {
   try {
     const preferredOrgId = input.orgId || getHomeOrgId();
-    const { apiKey, orgId } = await resolveCompanyAiBrainOpenAIKey(preferredOrgId);
+    const deepseek = await resolveCompanyAiBrainDeepSeekKey(preferredOrgId);
+    if (!deepseek) {
+      return {
+        ok: false,
+        error: 'DeepSeek API key not configured',
+        spokenHint:
+          'DeepSeek is not connected — ask the platform owner to add the Company AI Brain DeepSeek key in Settings, Integrations, then try again.',
+      };
+    }
+    const { apiKey: deepseekKey, orgId } = deepseek;
 
     const query = [
       'Find public business details for this UK restaurant or takeaway for onboarding.',
@@ -262,24 +372,23 @@ export async function researchRestaurantProfile(
       input.website ? `Website: ${input.website}.` : '',
       input.addressHint ? `Area/address hint: ${input.addressHint}.` : '',
       'Prefer official website and Google Business / Maps listings.',
-      'Collect: business name, address, phone, opening hours, delivery/collection, delivery areas,',
+      'Collect: business name, address, phone, opening hours (required if published), delivery/collection, delivery areas,',
       'menu page or PDF link, payment methods, whether they take reservations, website, social media.',
-      'Cite URLs where possible. Keep the answer factual and compact.',
+      'Cite URLs where possible. Keep the answer factual and compact. Do not invent opening hours.',
     ].filter(Boolean).join(' ');
 
     let researchText = '';
     try {
-      researchText = await openaiResponsesSearch(apiKey, query);
+      researchText = await liveWebResearch(query, orgId, deepseekKey);
     } catch (searchErr) {
-      // Fallback: model-only extract from hints (no live browse) — still structured.
       researchText = [
-        'Live web search unavailable; use hints only and mark confidence low.',
+        'Live web search unavailable; use hints only and mark confidence low. Leave openingHours empty if unknown.',
         `Error: ${searchErr instanceof Error ? searchErr.message : String(searchErr)}`,
         `Hints: ${JSON.stringify(input)}`,
       ].join('\n');
     }
 
-    const draft = await openaiJsonExtract(orgId, apiKey, researchText, input);
+    const draft = await jsonExtractDraft(orgId, researchText, input, deepseekKey);
     const name = draft.businessName || input.businessName || 'the restaurant';
     const hoursBit = draft.openingHours
       ? `We've found these opening hours: ${draft.openingHours}. Are they correct?`
@@ -297,7 +406,7 @@ export async function researchRestaurantProfile(
       ok: false,
       error: mapped.message,
       spokenHint: missing
-        ? 'OpenAI is not connected — ask the platform owner to add the Company AI Brain key in Settings, Integrations, then try again.'
+        ? 'DeepSeek is not connected — ask the platform owner to add the Company AI Brain DeepSeek key in Settings, Integrations, then try again.'
         : 'I could not look them up online just now — ask for the website or opening hours and I will note them.',
     };
   }

@@ -1,7 +1,7 @@
 /**
  * Venue-aware dial windows (Europe/London by default).
  * Supports crude range hints and structured per-day opening hours / closed days.
- * Facts only ó outbound scheduler uses nextSlot; Sally gets compact angle facts.
+ * Facts only ù outbound scheduler uses nextSlot; Sally gets compact angle facts.
  */
 
 export type VenueType = 'takeaway' | 'pub' | 'restaurant' | 'cafe' | 'bar' | 'multi_site' | 'unknown';
@@ -18,7 +18,7 @@ export type Weekday =
 export type DayOpeningInterval = {
   openHour: number;
   closeHour: number;
-  /** Optional minute offsets 0ñ59 */
+  /** Optional minute offsets 0ù59 */
   openMinute?: number;
   closeMinute?: number;
 };
@@ -35,6 +35,8 @@ export type DialWindowSuggestion = {
   pitchAngle: 'judie_phone' | 'atmosphere_room' | 'no_kitchen_revenue' | 'complete_both' | 'unknown';
   timezone: string;
   closedDays?: Weekday[];
+  /** False when no sheet/research hours ù do not invent default dial times. */
+  hoursKnown: boolean;
 };
 
 export type VenueDialProfile = {
@@ -58,7 +60,7 @@ export function normalizeVenueType(raw: unknown): VenueType {
   if (/multi.?site|franchise|group|chain/.test(s)) return 'multi_site';
   if (/\bpub\b|public house|gastropub/.test(s)) return 'pub';
   if (/\bbar\b|cocktail|wine bar/.test(s)) return 'bar';
-  if (/caf[eÈ]|coffee|bakery/.test(s)) return 'cafe';
+  if (/caf[eù]|coffee|bakery/.test(s)) return 'cafe';
   if (/restaurant|diner|bistro|brasserie|eatery/.test(s)) return 'restaurant';
   return 'unknown';
 }
@@ -91,19 +93,19 @@ export function normalizeWeekday(raw: unknown): Weekday | null {
   return full[String(raw || '').toLowerCase().trim()] || null;
 }
 
-/** Parse crude "MonñSun 12ñ23" / "12:00-23:00" into open/close hours (local). */
+/** Parse crude "MonùSun 12ù23" / "12:00-23:00" into open/close hours (local). */
 export function parseOpeningHoursHint(hours: unknown): { openHour: number; closeHour: number } | null {
   const s = String(hours || '');
-  const m = s.match(/(\d{1,2})(?::(\d{2}))?\s*[-ñto]+\s*(\d{1,2})(?::(\d{2}))?/i);
+  const m = s.match(/(\d{1,2})(?::(\d{2}))?\s*(?:-|\u2013|\u2014|to)+\s*(\d{1,2})(?::(\d{2}))?/i);
   if (!m) return null;
   const openHour = Math.max(0, Math.min(23, Number(m[1])));
   let closeHour = Math.max(0, Math.min(23, Number(m[3])));
   if (closeHour === 0 && openHour > 0) closeHour = 24;
-  if (closeHour <= openHour) closeHour += 12;
-  return { openHour, closeHour: Math.min(closeHour, 27) };
+  else if (closeHour < openHour) closeHour += 24;
+  else if (closeHour <= openHour) closeHour += 12;
+  return { openHour, closeHour: Math.min(closeHour, 36) };
 }
 
-/** Detect closed-day tokens in free text e.g. "Closed Mon" / "Mon closed". */
 export function parseClosedDaysHint(hours: unknown): Weekday[] {
   const s = String(hours || '');
   const closed: Weekday[] = [];
@@ -175,15 +177,18 @@ function windowsForVenue(
   venueType: VenueType,
   hours: { openHour: number; closeHour: number } | null,
 ): DialWindowSuggestion['windows'] {
-  const open = hours?.openHour ?? 9;
-  const close = hours?.closeHour ?? 22;
+  // Never invent open/close when hours unknown ù caller must research first.
+  if (!hours) return [];
+
+  const open = hours.openHour;
+  const close = hours.closeHour;
 
   switch (venueType) {
     case 'takeaway':
       return [
         {
           startHour: Math.max(open, 20),
-          endHour: Math.max(close, 22),
+          endHour: close,
           label: 'late while open (takeaway)',
         },
         {
@@ -191,7 +196,7 @@ function windowsForVenue(
           endHour: Math.min(close, 17),
           label: 'mid-afternoon lull',
         },
-      ];
+      ].filter((w) => w.endHour > w.startHour);
     case 'pub':
     case 'bar':
       return [
@@ -235,9 +240,9 @@ function windowsForVenue(
       ];
     default:
       return [
-        { startHour: 10, endHour: 12, label: 'default morning' },
-        { startHour: 14, endHour: 16, label: 'default afternoon' },
-      ];
+        { startHour: Math.max(open, 10), endHour: Math.min(12, close), label: 'morning while open' },
+        { startHour: Math.max(open, 14), endHour: Math.min(16, close), label: 'afternoon while open' },
+      ].filter((w) => w.endHour > w.startHour);
   }
 }
 
@@ -248,7 +253,7 @@ export function parsePreferredContactWindows(
   const s = String(raw || '').trim();
   if (!s) return [];
   const out: Array<{ startHour: number; endHour: number; label: string }> = [];
-  const rangeRe = /(\d{1,2})(?::(\d{2}))?\s*[-ñto]+\s*(\d{1,2})(?::(\d{2}))?/gi;
+  const rangeRe = /(\d{1,2})(?::(\d{2}))?\s*[-ùto]+\s*(\d{1,2})(?::(\d{2}))?/gi;
   let m: RegExpExecArray | null;
   while ((m = rangeRe.exec(s))) {
     const startHour = Math.max(0, Math.min(23, Number(m[1])));
@@ -315,8 +320,9 @@ function dayIntervals(
     const intervals = weekly[weekday] || [];
     return intervals.length ? intervals : null;
   }
-  const open = fallbackHours?.openHour ?? 9;
-  const close = fallbackHours?.closeHour ?? 22;
+  const open = fallbackHours?.openHour;
+  const close = fallbackHours?.closeHour;
+  if (open == null || close == null) return null;
   return [{ openHour: open, closeHour: close }];
 }
 
@@ -388,8 +394,23 @@ export function suggestPitchAngle(opts: {
 export function suggestDialWindows(input: VenueDialProfile): DialWindowSuggestion {
   const venueType = normalizeVenueType(input.venueType);
   const timeZone = normalizeTimezone(input.timezone);
-  const hours = parseOpeningHoursHint(input.openingHours);
+  const hoursHint = parseOpeningHoursHint(input.openingHours);
   const weekly = normalizeWeeklyHours(input.weeklyHours);
+  const hoursFromWeekly = (() => {
+    if (!weekly || hoursHint) return null;
+    let open = 24;
+    let close = 0;
+    for (const day of Object.values(weekly)) {
+      for (const iv of day || []) {
+        open = Math.min(open, iv.openHour);
+        close = Math.max(close, iv.closeHour);
+      }
+    }
+    if (open >= 24 || close <= 0) return null;
+    return { openHour: open, closeHour: close };
+  })();
+  const hours = hoursHint || hoursFromWeekly;
+  const hoursKnown = Boolean(hours) || Boolean(weekly) || Boolean(String(input.preferredContactTimes || '').trim());
   const closedDays = [
     ...parseClosedDaysList(input.closedDays),
     ...parseClosedDaysHint(input.openingHours),
@@ -397,21 +418,24 @@ export function suggestDialWindows(input: VenueDialProfile): DialWindowSuggestio
   const preferred = parsePreferredContactWindows(input.preferredContactTimes);
   const venueWindows = windowsForVenue(venueType, hours);
   const windows = preferred.length ? preferred : venueWindows;
-  const nextSlotISO = nextSlotInWindows(windows, {
-    from: input.from || new Date(),
-    timeZone,
-    weekly,
-    closedDays,
-    fallbackHours: hours,
-  });
+  const nextSlotISO = hoursKnown
+    ? nextSlotInWindows(windows, {
+        from: input.from || new Date(),
+        timeZone,
+        weekly,
+        closedDays,
+        fallbackHours: hours,
+      })
+    : null;
   const bypassGlobalQuiet =
-    venueType === 'takeaway' || (hours != null && (hours.closeHour > 20 || hours.closeHour < 6));
+    venueType === 'takeaway' || (hours != null && (hours.closeHour > 20 || hours.closeHour < 6 || hours.closeHour >= 24));
   const pitchAngle = suggestPitchAngle({ venueType, hasKitchen: input.hasKitchen });
   const reason = [
     `venue=${venueType}`,
     hours ? `hours=${hours.openHour}-${hours.closeHour}` : weekly ? 'hours=weekly' : 'hours=unknown',
     closedDays.length ? `closed=${closedDays.join('+')}` : null,
     preferred.length ? 'preferred_contact' : null,
+    hoursKnown ? null : 'needs_hours',
     `tz=${timeZone}`,
     `angle=${pitchAngle}`,
     bypassGlobalQuiet ? 'may_bypass_global_quiet' : 'respect_global_quiet',
@@ -428,10 +452,11 @@ export function suggestDialWindows(input: VenueDialProfile): DialWindowSuggestio
     pitchAngle,
     timezone: timeZone,
     closedDays: closedDays.length ? closedDays : undefined,
+    hoursKnown,
   };
 }
 
-/** Next eligible call time ó alias used by schedulers. */
+/** Next eligible call time ù alias used by schedulers. */
 export function nextEligibleCallAt(input: VenueDialProfile): string | null {
   return suggestDialWindows(input).nextSlotISO;
 }
@@ -444,13 +469,13 @@ export function formatDialTimingPromptBlock(s: DialWindowSuggestion): string {
     s.closedDays?.length ? `closedDays=${s.closedDays.join(',')}` : '',
     s.nextSlotISO ? `nextEligibleSlot=${s.nextSlotISO}` : '',
     s.pitchAngle === 'no_kitchen_revenue'
-      ? 'No kitchen on file ó do not pretend they take food orders today. Soft opportunity: collection/takeaway revenue if they enable it; Judie captures those phone orders; Atmosphere if they have room/bar trade.'
+      ? 'No kitchen on file ù do not pretend they take food orders today. Soft opportunity: collection/takeaway revenue if they enable it; Judie captures those phone orders; Atmosphere if they have room/bar trade.'
       : s.pitchAngle === 'judie_phone'
         ? 'Lean Judie (missed calls / orders) unless they name room/audio pain.'
         : s.pitchAngle === 'atmosphere_room'
           ? 'Lean Atmosphere (exclusive soundtrack, seating vs kitchen mood, announcements, multi-week training, proven sales-lift track record) unless they name missed-call pain; Judie for bookings soft. Diagnose footfall vs spend vs service vs staff training first.'
           : s.pitchAngle === 'complete_both'
-            ? 'Multi-site / both pains ó aim senior meeting; Complete as guest outcomes.'
+            ? 'Multi-site / both pains ù aim senior meeting; Complete as guest outcomes.'
             : '',
   ]
     .filter(Boolean)

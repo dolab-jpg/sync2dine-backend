@@ -561,6 +561,7 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
       preferredContactTimes?: string;
       timezone?: string;
       notes?: string;
+      address?: string;
     }>;
     template?: string;
     batchId?: string;
@@ -580,21 +581,26 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
   const aim = String(body.aim ?? 'sales_outreach').trim() || 'sales_outreach';
   const agentPersona = String(body.agentPersona ?? '').trim().toLowerCase() || 'sally';
   const venueAware = body.venueAware !== false && agentPersona === 'sally';
-  const { scheduleSallyOutboundDial } = await import('../sally/schedule-outbound');
+  const { scheduleSallyOutboundDialWithResearch } = await import('../sally/schedule-outbound');
   const { saveCustomerRecord, normalizePhoneExport } = await import('../data-store');
   const { normalizeVenueType } = await import('../sally/dial-windows');
   const jobs: Array<Record<string, unknown>> = [];
   const skipped: string[] = [];
+  let held = 0;
 
-  for (const row of rows) {
+  const CONCURRENCY = 3;
+  async function processRow(row: (typeof rows)[number]) {
     const phoneRaw = String(row.phone ?? '').trim();
     const company = String(row.company ?? row.name ?? '').trim();
     if (!phoneRaw) {
       skipped.push('missing phone');
-      continue;
+      return;
     }
     const phoneNorm = normalizePhoneExport(phoneRaw);
     let customerId = row.customerId ? String(row.customerId) : undefined;
+    const venueType = row.venueType
+      ? normalizeVenueType(row.venueType)
+      : normalizeVenueType('takeaway');
     try {
       const saved = saveCustomerRecord({
         id: customerId,
@@ -604,12 +610,13 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
         source: 'sales_csv_dial',
         consentSource: 'sales_csv_dial',
         consentToCall: true,
-        venueType: row.venueType ? normalizeVenueType(row.venueType) : undefined,
+        venueType,
         openingHours: row.openingHours,
         closedDays: row.closedDays,
         preferredContactTimes: row.preferredContactTimes,
         timezone: row.timezone || 'Europe/London',
         notes: row.notes,
+        address: row.address,
         rawUpload: { ...row },
       });
       customerId = String(saved.id);
@@ -618,7 +625,7 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
     }
 
     if (venueAware) {
-      const result = scheduleSallyOutboundDial({
+      const result = await scheduleSallyOutboundDialWithResearch({
         to: phoneNorm.startsWith('+') ? phoneNorm : `+${phoneNorm}`,
         customerId,
         customerName: company,
@@ -628,8 +635,9 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
         source: 'sales_csv_dial',
         brief: company ? `${defaultBrief} Company: ${company}.` : defaultBrief,
         venueAware: true,
+        addressHint: row.address || row.notes,
         venueProfile: {
-          venueType: row.venueType,
+          venueType,
           openingHours: row.openingHours,
           closedDays: row.closedDays,
           preferredContactTimes: row.preferredContactTimes,
@@ -640,9 +648,14 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
           batchId,
         },
       });
+      if (result.held) {
+        held += 1;
+        if (result.job) jobs.push(result.job);
+        return;
+      }
       if (result.ok && result.job) jobs.push(result.job);
       else skipped.push(result.reason || 'skipped');
-      continue;
+      return;
     }
 
     const { enqueueOutboundCall } = await import('../data-store');
@@ -663,9 +676,15 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
     jobs.push(job);
   }
 
+  for (let i = 0; i < rows.length; i += CONCURRENCY) {
+    const chunk = rows.slice(i, i + CONCURRENCY);
+    await Promise.all(chunk.map((row) => processRow(row)));
+  }
+
   sendJson(res, 200, {
     success: true,
-    queued: jobs.length,
+    queued: jobs.filter((j) => String(j.status) !== 'needs_hours').length,
+    held,
     skipped: skipped.length,
     batchId,
     venueAware,
