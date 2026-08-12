@@ -80,12 +80,15 @@ async function ensureDeepSeekCredential(apiKey: string): Promise<string | undefi
 /**
  * Build the Vapi `model` object for an assistant.
  * Prefer DeepSeek when org AI brain provider is deepseek (or DEEPSEEK_API_KEY / VAPI_LLM_PROVIDER=deepseek).
+ * Judie diner overrides to OpenAI for lower voice turn latency (DeepSeek + huge tool schemas was 5–8s gaps).
  */
 export async function buildVapiModelBlock(opts: {
   orgId?: string | null;
   instructions: string;
   tools: Array<Record<string, unknown>>;
   temperature?: number;
+  /** When true (Judie diner), prefer OpenAI gpt-4.1 + lower temp + maxTokens for phone latency. */
+  preferFastVoice?: boolean;
 }): Promise<Record<string, unknown>> {
   const orgId = opts.orgId || getHomeOrgId() || DEFAULT_ORG_ID;
   try {
@@ -95,20 +98,32 @@ export async function buildVapiModelBlock(opts: {
   }
 
   const envForce = String(process.env.VAPI_LLM_PROVIDER || '').trim().toLowerCase();
+  const preferFastVoice = Boolean(opts.preferFastVoice);
+  // Judie: OpenAI unless env explicitly forces deepseek for all Vapi.
   const provider =
-    envForce === 'deepseek' || envForce === 'deep-seek'
-      ? 'deepseek'
-      : envForce === 'openai'
-        ? 'openai'
-        : resolveBrainProvider(undefined, orgId);
+    preferFastVoice && envForce !== 'deepseek' && envForce !== 'deep-seek'
+      ? 'openai'
+      : envForce === 'deepseek' || envForce === 'deep-seek'
+        ? 'deepseek'
+        : envForce === 'openai'
+          ? 'openai'
+          : preferFastVoice
+            ? 'openai'
+            : resolveBrainProvider(undefined, orgId);
 
-  const preferredModel = process.env.VAPI_LLM_MODEL?.trim();
-  const temperature = opts.temperature ?? 0.7;
-  const base = {
+  const preferredModel = preferFastVoice
+    ? (process.env.VAPI_JUDIE_LLM_MODEL?.trim() || process.env.VAPI_LLM_MODEL?.trim() || 'gpt-4.1')
+    : process.env.VAPI_LLM_MODEL?.trim();
+  const temperature = opts.temperature ?? (preferFastVoice ? 0.45 : 0.7);
+  const base: Record<string, unknown> = {
     temperature,
     messages: [{ role: 'system', content: opts.instructions }],
     tools: opts.tools,
   };
+  if (preferFastVoice) {
+    // Phone replies should stay short; caps completion latency.
+    base.maxTokens = Number(process.env.VAPI_JUDIE_MAX_TOKENS || 220);
+  }
 
   if (provider === 'deepseek') {
     const apiKey = await resolveDeepSeekApiKeyAsync(undefined, orgId);

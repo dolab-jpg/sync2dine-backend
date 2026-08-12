@@ -1,7 +1,7 @@
 import type { BrainBuildInput, BrainPackage, BrainSession, ChatFunctionTool } from '../types';
 import {
   buildPhoneBrainPrompt,
-  getPhoneSessionChatTools,
+  getJudieDinerChatTools,
 } from '../../phone/phone-brain';
 import { getDataStore, withOrgContext } from '../../data-store';
 import { getOrganizationById } from '../../organizations';
@@ -12,7 +12,7 @@ import { getOrganizationById } from '../../organizations';
  * Staff / platform CRM tools live on Sally (PIN), not here.
  */
 
-/** Inbound open: short brand line only. sayToday is for soft upsell later — not firstMessage. */
+/** Inbound open: short brand line only. sayToday is for soft upsell later  not firstMessage. */
 function buildJudieInboundGreeting(restaurantName: string, _sayToday: string, aboutUs: string): string {
   const venue = restaurantName.trim() || 'Sync2Dine';
   // TTS often mumbles "Sync2Dine" - speak as "Sync to Dine".
@@ -78,7 +78,8 @@ export const judieBrain: BrainPackage = {
       firstMessage = buildJudieInboundGreeting(restaurantName, sayToday, aboutUs);
     }
 
-    const tools = getPhoneSessionChatTools(dinerIdentity, false) as ChatFunctionTool[];
+    // Diner-only tool pack (not the full customer+CRM catalog) — keeps Vapi turn latency low.
+    const tools = getJudieDinerChatTools() as ChatFunctionTool[];
     const chatTools = tools.filter((t) => t.function.name !== 'endCall');
 
     return {

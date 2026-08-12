@@ -214,17 +214,18 @@ contact=sip:%(vapi)s@%(host)s:%(aiport)s\\;transport=%(aitrans)s
 def ext_block(l):
     s = slug(l["user"])
     target = "PJSIP/ai-%s/sip:%s@%s" % (s, l["vapi_user"], l["ai_host"])
+    # Short Wait (not Playback silence/1) — RTP kickstart without a fixed ~1s answer tax.
     return """
 [from-%(s)s]
 ; %(label)s (%(user)s) inbound -> Vapi %(vapi)s
 exten => _X.,1,NoOp(Soho66 %(user)s inbound: ${CALLERID(num)} -> ${EXTEN})
  same => n,Answer()
- same => n,Playback(silence/1)
+ same => n,Wait(0.3)
  same => n,Dial(%(target)s,120)
  same => n,Hangup()
 exten => s,1,NoOp(Soho66 %(user)s inbound s: ${CALLERID(num)})
  same => n,Answer()
- same => n,Playback(silence/1)
+ same => n,Wait(0.3)
  same => n,Dial(%(target)s,120)
  same => n,Hangup()
 """ % {"s": s, "label": l["label"], "user": l["user"], "vapi": l["vapi_user"], "target": target}

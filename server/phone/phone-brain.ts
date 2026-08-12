@@ -620,6 +620,36 @@ export const SET_CALL_LANGUAGE_TOOL = {
   },
 };
 
+/**
+ * Judie diner line — order/table tools only.
+ * Never attach CRM / quotes / recruitment / outbound schemas on this path:
+ * every extra tool inflates per-turn LLM latency on Vapi.
+ */
+export const JUDIE_DINER_TOOL_NAMES = [
+  'getMenu',
+  'checkDeliveryArea',
+  'getDeliveryAreas',
+  'lookupCallerOrders',
+  'placeFoodOrder',
+  'checkTableAvailability',
+  'bookTable',
+  'updateReservation',
+  'cancelReservation',
+  'listReservations',
+  'transferToHuman',
+  'captureMessage',
+  'captureLead',
+  'setCallLanguage',
+] as const;
+
+export function getJudieDinerChatTools() {
+  const allow = new Set<string>(JUDIE_DINER_TOOL_NAMES);
+  return [
+    ...PHONE_TOOLS.filter((t) => allow.has(t.function.name)),
+    SET_CALL_LANGUAGE_TOOL,
+  ];
+}
+
 export function getPhoneSessionChatTools(identity: PhoneCallerIdentity, verified: boolean) {
   const base = identity.kind === 'customer'
     ? [...PHONE_CUSTOMER_TOOLS, ...PHONE_TOOLS, END_CALL_FUNCTION_TOOL, SET_CALL_LANGUAGE_TOOL]

@@ -198,6 +198,8 @@ export async function buildVapiAssistantForParty(opts: {
     orgId: sally ? (getHomeOrgId() || orgId) : orgId,
     instructions,
     tools: [...nativeTools, ...functionTools],
+    // Judie diner: OpenAI + capped tokens — DeepSeek + full CRM tool pack caused 5–8s turn gaps.
+    preferFastVoice: !sally,
   });
 
   const isMeetingConfirm = String(callMeta.aim || '').toLowerCase() === 'meeting_confirm';
@@ -256,7 +258,29 @@ export async function buildVapiAssistantForParty(opts: {
             beepMaxAwaitSeconds: 30,
           },
         }
-      : {}),
+      : {
+          // Faster turn-taking for diner Judie (was relying on Vapi defaults → multi-second dead air).
+          // LiveKit smart endpointing is recommended for English; waitSeconds is a floor after EOT.
+          startSpeakingPlan: {
+            waitSeconds: Number(process.env.VAPI_JUDIE_WAIT_SECONDS || 0.35),
+            smartEndpointingPlan: {
+              provider: 'livekit',
+              // Slightly snappier than default waitFunction for takeaway turns.
+              waitFunction: process.env.VAPI_JUDIE_EOT_WAIT_FUNCTION?.trim()
+                || '20 + 400 * sqrt(x) + 1800 * x^3',
+            },
+            transcriptionEndpointingPlan: {
+              onPunctuationSeconds: 0.2,
+              onNoPunctuationSeconds: 0.9,
+              onNumberSeconds: 0.4,
+            },
+          },
+          stopSpeakingPlan: {
+            numWords: 2,
+            voiceSeconds: 0.2,
+            backoffSeconds: 0.8,
+          },
+        }),
     // PIN via spoken digits → verifyStaffPhonePin. Do NOT send keypadInputEnabled (Vapi 400).
     serverUrl: toolServer,
     ...(webhookSecret ? { serverUrlSecret: webhookSecret } : {}),
