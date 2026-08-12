@@ -98,18 +98,24 @@ export async function buildVapiModelBlock(opts: {
   }
 
   const envForce = String(process.env.VAPI_LLM_PROVIDER || '').trim().toLowerCase();
+  const judieForce = String(process.env.VAPI_JUDIE_LLM_PROVIDER || '').trim().toLowerCase();
   const preferFastVoice = Boolean(opts.preferFastVoice);
-  // Judie: OpenAI unless env explicitly forces deepseek for all Vapi.
-  const provider =
-    preferFastVoice && envForce !== 'deepseek' && envForce !== 'deep-seek'
-      ? 'openai'
-      : envForce === 'deepseek' || envForce === 'deep-seek'
+  // Judie diner defaults to OpenAI for voice latency. Only VAPI_JUDIE_LLM_PROVIDER=deepseek
+  // (not the global VAPI_LLM_PROVIDER) can keep Judie on DeepSeek — global DeepSeek was
+  // causing 5–8s turn gaps on the diner line.
+  const provider = preferFastVoice
+    ? (
+      judieForce === 'deepseek' || judieForce === 'deep-seek'
         ? 'deepseek'
-        : envForce === 'openai'
+        : judieForce === 'openai'
           ? 'openai'
-          : preferFastVoice
-            ? 'openai'
-            : resolveBrainProvider(undefined, orgId);
+          : 'openai'
+    )
+    : envForce === 'deepseek' || envForce === 'deep-seek'
+      ? 'deepseek'
+      : envForce === 'openai'
+        ? 'openai'
+        : resolveBrainProvider(undefined, orgId);
 
   const preferredModel = preferFastVoice
     ? (process.env.VAPI_JUDIE_LLM_MODEL?.trim() || process.env.VAPI_LLM_MODEL?.trim() || 'gpt-4.1')
