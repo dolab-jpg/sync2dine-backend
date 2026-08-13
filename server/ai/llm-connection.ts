@@ -20,7 +20,12 @@ import {
 export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 
 export const OPENAI_CHAT_MODELS = ['gpt-4o', 'gpt-4o-mini'] as const;
-export const DEEPSEEK_CHAT_MODELS = ['deepseek-chat', 'deepseek-reasoner'] as const;
+export const DEEPSEEK_CHAT_MODELS = [
+  'deepseek-v4-flash',
+  'deepseek-v4-pro',
+  'deepseek-chat',
+  'deepseek-reasoner',
+] as const;
 
 export type { AIBrainProvider };
 
@@ -53,13 +58,17 @@ export async function resolveDeepSeekApiKeyAsync(
   return resolveDeepSeekApiKey(bodyApiKey, orgId);
 }
 
+const DEEPSEEK_PRO_ALIASES = new Set(['deepseek-v4-pro', 'gpt-4o', 'deepseek-reasoner']);
+
+/** Map a stored/requested model id onto one the active provider will accept. */
 export function defaultChatModelForProvider(provider: AIBrainProvider, preferred?: string): string {
   if (provider === 'deepseek') {
-    if (preferred && (DEEPSEEK_CHAT_MODELS as readonly string[]).includes(preferred)) return preferred;
-    return 'deepseek-chat';
+    // Live DeepSeek chat only accepts v4-pro / v4-flash — remap OpenAI + legacy ids.
+    if (preferred && DEEPSEEK_PRO_ALIASES.has(preferred)) return 'deepseek-v4-pro';
+    return 'deepseek-v4-flash';
   }
   if (preferred && (OPENAI_CHAT_MODELS as readonly string[]).includes(preferred)) return preferred;
-  // Map DeepSeek model ids back if provider is OpenAI
+  if (preferred === 'deepseek-v4-pro' || preferred === 'deepseek-reasoner') return 'gpt-4o';
   if (preferred?.startsWith('deepseek')) return 'gpt-4o-mini';
   return preferred || 'gpt-4o-mini';
 }

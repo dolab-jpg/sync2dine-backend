@@ -8,6 +8,8 @@ interface BCMessage {
 
 export interface BuildingControlRequest {
   apiKey?: string;
+  deepseekApiKey?: string;
+  provider?: string;
   model?: string;
   messages: BCMessage[];
   tradeId?: string | null;
@@ -253,21 +255,33 @@ async function analyzePhotos(
 
 export async function handleBuildingControl(body: BuildingControlRequest): Promise<BuildingControlResult> {
   const messages = Array.isArray(body.messages) ? body.messages : [];
-  const { resolveOpenAIApiKey, createOpenAIClientForOrg } = await import('./openai-connection');
+  const { resolveOpenAIApiKey } = await import('./openai-connection');
+  const { createLLMClientForOrg, defaultChatModelForProvider, OpenAIConnectionError } = await import('./llm-connection');
   const { resolveOrgIdFromBody } = await import('../org-context');
   const orgId = resolveOrgIdFromBody(body as { orgId?: string });
-  const apiKey = resolveOpenAIApiKey(body.apiKey, orgId);
 
-  if (!apiKey) {
-    return buildMockResult(body);
+  let openai;
+  let provider: 'openai' | 'deepseek';
+  try {
+    const llm = await createLLMClientForOrg(orgId, '/api/ai/building-control', {
+      bodyOpenAIApiKey: body.apiKey,
+      bodyDeepSeekApiKey: body.deepseekApiKey,
+      provider: body.provider,
+    });
+    openai = llm.client;
+    provider = llm.provider;
+  } catch (err) {
+    if (err instanceof OpenAIConnectionError) return buildMockResult(body);
+    throw err;
   }
 
-  const openai = await createOpenAIClientForOrg(orgId, '/api/ai/building-control', body.apiKey);
+  const model = defaultChatModelForProvider(provider, body.model ?? 'gpt-4o-mini');
+  const visionKey = resolveOpenAIApiKey(body.apiKey, orgId);
 
   let photoAnalysis: string | undefined;
-  if (body.images?.length) {
+  if (body.images?.length && visionKey) {
     try {
-      photoAnalysis = await analyzePhotos(orgId, apiKey, body.images.slice(0, 3), body.tradeId);
+      photoAnalysis = await analyzePhotos(orgId, visionKey, body.images.slice(0, 3), body.tradeId);
     } catch {
       photoAnalysis = 'Photo analysis unavailable.';
     }
@@ -287,7 +301,7 @@ export async function handleBuildingControl(body: BuildingControlRequest): Promi
   }
 
   const completion = await openai.chat.completions.create({
-    model: body.model ?? 'gpt-4o-mini',
+    model,
     messages: [
       { role: 'system', content: systemPrompt },
       ...userMessages,
@@ -342,7 +356,7 @@ export async function handleBuildingControl(body: BuildingControlRequest): Promi
     }
 
     const secondPass = await openai.chat.completions.create({
-      model: body.model ?? 'gpt-4o-mini',
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         ...userMessages,

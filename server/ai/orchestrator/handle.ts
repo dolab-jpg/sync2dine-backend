@@ -272,7 +272,7 @@ export async function handleOrchestrator(body: OrchestratorRequest): Promise<Orc
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const lastMessage = messages[messages.length - 1]?.content ?? '';
   const { mapOpenAIError } = await import('../openai-connection');
-  const { createLLMClientForOrg } = await import('../llm-connection');
+  const { createLLMClientForOrg, defaultChatModelForProvider } = await import('../llm-connection');
   const { resolveOrgIdFromBody } = await import('../../org-context');
   const orgId = resolveOrgIdFromBody(body as { orgId?: string });
   const mode = resolveMode(body);
@@ -287,21 +287,25 @@ export async function handleOrchestrator(body: OrchestratorRequest): Promise<Orc
   }
 
   try {
-    const { client: openai } = await createLLMClientForOrg(orgId, '/api/ai/orchestrate', {
+    const { client: openai, provider } = await createLLMClientForOrg(orgId, '/api/ai/orchestrate', {
       bodyOpenAIApiKey: body.apiKey,
       bodyDeepSeekApiKey: (body as { deepseekApiKey?: string }).deepseekApiKey,
       provider: (body as { provider?: string }).provider,
     });
+    const remappedBody = {
+      ...body,
+      model: defaultChatModelForProvider(provider, body.model ?? 'gpt-4o-mini'),
+    };
 
     if (mode === 'customer' || mode === 'cyrus') {
-      return await runCustomerOrchestrator(openai as unknown as Parameters<typeof runCustomerOrchestrator>[0], body, messages);
+      return await runCustomerOrchestrator(openai as unknown as Parameters<typeof runCustomerOrchestrator>[0], remappedBody, messages);
     }
 
     if (mode === 'phone') {
-      return await runPhoneOrchestrator(openai as unknown as Parameters<typeof runCustomerOrchestrator>[0], body, messages);
+      return await runPhoneOrchestrator(openai as unknown as Parameters<typeof runCustomerOrchestrator>[0], remappedBody, messages);
     }
 
-    return await runStaffOrchestrator(openai as unknown as Parameters<typeof runStaffOrchestrator>[0], body, messages);
+    return await runStaffOrchestrator(openai as unknown as Parameters<typeof runStaffOrchestrator>[0], remappedBody, messages);
   } catch (err) {
     throw mapOpenAIError(err);
   }
