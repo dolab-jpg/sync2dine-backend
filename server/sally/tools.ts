@@ -23,7 +23,7 @@ import {
   type RestaurantProfileField,
 } from '../restaurant-research';
 import { END_CALL_FUNCTION_TOOL, SET_CALL_LANGUAGE_TOOL } from '../phone-brain';
-import { PHONE_TOOLS } from '../phone-tools';
+import { PHONE_TOOLS, SALES_CAPTURE_LEAD_TOOL } from '../phone-tools';
 import { getSallyOfferStored, resolveStoredProductPrices, isLaunchOfferActive, allPackageSnapshots } from '../sally-offer-store';
 import {
   SAAS_PRODUCTS,
@@ -235,6 +235,11 @@ export const SALLY_EXTENDED_TOOLS = [
           weeklyPriceGbp: { type: 'number' },
           monthlyPriceGbp: { type: 'number', description: 'Legacy — prefer weeklyPriceGbp' },
           setupFeeGbp: { type: 'number' },
+          salesIntent: {
+            type: 'string',
+            enum: ['full_time', 'temporary_cover', 'sickness_cover', 'peak_overflow', 'after_hours'],
+            description: 'CRM label only — why they bought (e.g. staff cover). Does not change price.',
+          },
           notes: { type: 'string' },
         },
         required: ['confirmed'],
@@ -484,9 +489,9 @@ export function getSallyPhoneSessionChatTools() {
   return [
     ...SALLY_PHONE_TOOLS,
     ...SALLY_EXTENDED_TOOLS,
+    SALES_CAPTURE_LEAD_TOOL,
     ...pickPhoneTools(
       'bookCallback',
-      'captureLead',
       'transferToHuman',
       'captureMessage',
       'classifyCallIntent',
@@ -506,9 +511,9 @@ export function getSallyOrchestratorTools() {
   return [
     ...SALLY_PHONE_TOOLS,
     ...SALLY_EXTENDED_TOOLS,
+    SALES_CAPTURE_LEAD_TOOL,
     ...pickPhoneTools(
       'bookCallback',
-      'captureLead',
       'sendCustomerMessage',
       'placeOutboundCall',
       'enqueueOutboundCall',

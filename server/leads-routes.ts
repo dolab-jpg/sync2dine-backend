@@ -76,13 +76,14 @@ async function handleCreateLeadFromCall(req: IncomingMessage, res: ServerRespons
   }
 
   const callContactName = firstNonEmpty(call?.contactName as string | undefined);
-  const fallbackName = callContactName && callContactName !== 'Guest' ? callContactName : undefined;
-  const name = firstNonEmpty(body.name) ?? fallbackName;
+  const fallbackContact = callContactName && callContactName !== 'Guest' ? callContactName : undefined;
+  // Restaurant name is never inferred from the caller — that produced person-named venues.
+  const name = firstNonEmpty(body.name);
   if (!name) {
     sendJson(res, 400, { error: 'restaurant name is required' });
     return;
   }
-  const contactName = firstNonEmpty(body.contactName) ?? fallbackName;
+  const contactName = firstNonEmpty(body.contactName) ?? fallbackContact;
   if (!contactName) {
     sendJson(res, 400, { error: 'point of contact is required' });
     return;

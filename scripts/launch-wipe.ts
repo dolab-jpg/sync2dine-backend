@@ -6,7 +6,13 @@
  *
  * Apply:
  *   APPLY=1 npx tsx --env-file=.env scripts/launch-wipe.ts
+ *
+ * Also empties CRM keys in local/VPS `server/data/synced-data*.json` when that
+ * directory exists (Supabase wipe alone used to resurrect leads from disk).
  */
+import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 
 const HOME_ORG_ID = '4fc49703-d1b0-4ac7-892d-9c32d31e9661';
@@ -25,6 +31,58 @@ const SMOKE_TABLES = [
   'quotes',
   'builders',
 ] as const;
+
+/** Disk CRM keys that rematerialize into Supabase via preferNonEmpty / sync. */
+const DISK_CRM_KEYS = ['customers', 'contacts', 'quotes', 'calls', 'orders', 'builders'] as const;
+
+function resolveDataDir(): string | null {
+  const fromEnv = process.env.DATA_DIR?.trim();
+  if (fromEnv && existsSync(fromEnv)) return fromEnv;
+  const local = join(dirname(fileURLToPath(import.meta.url)), '..', 'server', 'data');
+  if (existsSync(local)) return local;
+  return null;
+}
+
+function planDiskCrmWipe(dataDir: string): { empty: string[]; remove: string[]; extra: string[] } {
+  const empty: string[] = [];
+  const remove: string[] = [];
+  const extra: string[] = [];
+  for (const name of readdirSync(dataDir)) {
+    if (/^lead-inbox\.json$/i.test(name)) extra.push(name);
+    if (!/^synced-data.*\.json$/i.test(name)) continue;
+    const orgMatch = /^synced-data-(.+)\.json$/i.exec(name);
+    const orgId = orgMatch?.[1];
+    if (orgId && !KEEP_ORG_IDS.has(orgId)) remove.push(name);
+    else empty.push(name);
+  }
+  return { empty, remove, extra };
+}
+
+function wipeDiskCrm(dataDir: string, plan: ReturnType<typeof planDiskCrmWipe>): void {
+  for (const name of plan.remove) {
+    unlinkSync(join(dataDir, name));
+    console.log(`  deleted disk ${name}`);
+  }
+  for (const name of plan.empty) {
+    const path = join(dataDir, name);
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    } catch (err) {
+      console.warn(`  skip unreadable ${name}: ${err instanceof Error ? err.message : err}`);
+      continue;
+    }
+    for (const key of DISK_CRM_KEYS) data[key] = [];
+    writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
+    console.log(`  emptied CRM keys in ${name}`);
+  }
+  for (const name of plan.extra) {
+    if (/^lead-inbox\.json$/i.test(name)) {
+      writeFileSync(join(dataDir, name), '[]\n');
+      console.log(`  emptied ${name}`);
+    }
+  }
+}
 
 function admin() {
   const url = process.env.SUPABASE_URL?.trim();
@@ -112,12 +170,27 @@ async function main() {
     console.log(`WIPE auth ${u.email}`);
   }
 
+  const dataDir = resolveDataDir();
+  const diskPlan = dataDir ? planDiskCrmWipe(dataDir) : null;
+  console.log('\n--- VPS/local disk CRM ---');
+  if (!dataDir) {
+    console.log('  no DATA_DIR / server/data ù disk wipe skipped (run this on the API host to clear synced-data-*.json)');
+  } else {
+    console.log(`  dataDir=${dataDir}`);
+    for (const name of diskPlan?.empty ?? []) console.log(`  EMPTY CRM keys ${name}`);
+    for (const name of diskPlan?.remove ?? []) console.log(`  DELETE extra org file ${name}`);
+    for (const name of diskPlan?.extra ?? []) console.log(`  EMPTY ${name}`);
+    if (!diskPlan?.empty.length && !diskPlan?.remove.length && !diskPlan?.extra.length) {
+      console.log('  no synced-data*.json or lead-inbox.json found');
+    }
+  }
+
   if (!APPLY) {
     console.log('\nDry-run complete. Re-run with APPLY=1 to delete.');
     return;
   }
 
-  console.log('\nApplying wipeÖ');
+  console.log('\nApplying wipeù');
 
   for (const orgId of KEEP_ORG_IDS) {
     for (const table of SMOKE_TABLES) {
@@ -152,6 +225,11 @@ async function main() {
     if (error && !String(error.message).includes('0 rows')) {
       console.warn(`  delete profile ${p.email}: ${error.message}`);
     }
+  }
+
+  if (dataDir && diskPlan) {
+    console.log('\nWiping disk CRMÖ');
+    wipeDiskCrm(dataDir, diskPlan);
   }
 
   console.log('\nApply complete. Keep phone_lines, products, dining_tables, integrations, sally knowledge.');

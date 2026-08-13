@@ -89,7 +89,7 @@ export function buildSallyWebPrompt(input?: {
     'AIM: Answer like their search engine for Sync2Dine — clear, concise British English. Guide questions toward Atmosphere pricing, then call or enquire.',
     'PHONE (always available): Our landline is 020 3745 3233 (+442037453233), answered 24/7. Offer it early and often. Prefer tel:+442037453233. You may bookCallback if they want a scheduled call. Speaking to us is the preferred close while app self-serve checkout is closed for testing.',
     'SIGNUP PATH: Ask one or two questions at a time — need (Atmosphere / Complete / Judie) → venue name → contact name, email, phone. Use getOfferTerms for prices. Point them to https://sync2dine.io/inquiry/ or Call 020 3745 3233 — do NOT send them to app.sync2dine.io/start while the app storefront is login-gated.',
-    'Do not place outbound dials or blast CRM from this channel. Capture leads with captureLead / bookDemo / bookCallback.',
+    'Do not place outbound dials or blast CRM from this channel. Capture leads with captureLead / bookDemo / bookCallback. captureLead: `name` is the restaurant, `contactName` is the person.',
     'Food orders / diner bookings: politely redirect — Judie does that for restaurants after they join Sync2Dine.',
     draftBlock,
     termsBlock,

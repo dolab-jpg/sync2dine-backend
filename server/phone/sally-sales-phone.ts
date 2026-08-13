@@ -14,7 +14,7 @@ import {
 } from '../data-store';
 import { buildSallyPhoneVoiceOverlay } from './british-voice';
 import { END_CALL_FUNCTION_TOOL, SET_CALL_LANGUAGE_TOOL } from './phone-brain';
-import { PHONE_TOOLS, captureOrUpdateLead } from './phone-tools';
+import { PHONE_TOOLS, SALES_CAPTURE_LEAD_TOOL, captureOrUpdateLead } from './phone-tools';
 import { getSallyOfferStored } from '../sally-offer-store';
 import {
   PRIMARY_PITCH_IDS,
@@ -188,7 +188,7 @@ const SALLY_PHONE_SALES_OS = [
   '- Compliance: DNC/opt-out = stop. Truthful claims only. Do not imply an in-app Atmosphere control dashboard exists in Sync2Dine staff UI.',
   'COMMERCIAL: Route phone pain → Judie; room/audio/spend/reviews/training → Atmosphere; both/growth → Complete. No kitchen → soft takeaway/collection revenue opportunity (Judie as the phone for those orders) + Atmosphere if they have room — do not pretend they already take food orders.',
   'IDS: Never re-speak phone or postcode unless newly collected, corrected, or they ask. Prefer CRM values. Try-later demo phone only if asked.',
-  'TOOLS: recallAccountMemory / researchRestaurantProfile when you need facts. setCallObjective when the best outcome changes. scheduleVenueCallback to book a dial in their sensible window.',
+  'TOOLS: recallAccountMemory / researchRestaurantProfile when you need facts. setCallObjective when the best outcome changes. scheduleVenueCallback to book a dial in their sensible window. captureLead: `name` = restaurant, `contactName` = person — never put the caller’s name in `name`.',
   'REVENUE: Judie↔Atmosphere→Complete after value lands — not while handling refusal. Multi-site → senior meeting. You cannot transfer.',
   'VOICE: Match their energy. Humour OK until they don’t. Dial jokes down if angry/legal/safety/formal senior. One or two spoken sentences per turn.',
 ].join('\n');
@@ -407,9 +407,9 @@ export function getSallyPhoneSessionChatTools() {
     SCHEDULE_VENUE_CALLBACK_TOOL,
     UPDATE_VENUE_PROFILE_TOOL,
     CAPTURE_REFERRAL_AND_QUEUE_TOOL,
+    SALES_CAPTURE_LEAD_TOOL,
     ...pickPhoneTools(
       'bookCallback',
-      'captureLead',
       'captureMessage',
       'classifyCallIntent',
       'scheduleAppointment',

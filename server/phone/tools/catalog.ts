@@ -32,6 +32,49 @@ import {
 import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from '../../restaurant-ai-tools';
 import { resolveCallbackIso } from '../callback-time';
 
+const CAPTURE_LEAD_PROPERTIES = {
+  name: {
+    type: 'string',
+    description: 'Restaurant or venue trading name — never the person on the line',
+  },
+  contactName: {
+    type: 'string',
+    description: 'Point of contact — owner, manager, or person spoken to',
+  },
+  phone: { type: 'string' },
+  email: { type: 'string' },
+  address: { type: 'string' },
+  postcode: { type: 'string' },
+  venueType: { type: 'string', description: 'takeaway | pub | restaurant | cafe | bar | multi_site' },
+  openingHours: { type: 'string' },
+  hasKitchen: { type: 'boolean' },
+  interestedTrades: { type: 'array', items: { type: 'string' } },
+  scope: { type: 'string' },
+  budget: { type: 'number' },
+  notes: { type: 'string' },
+} as const;
+
+function captureLeadTool(required: readonly string[]) {
+  const sales = required.includes('contactName');
+  return {
+    type: 'function' as const,
+    function: {
+      name: 'captureLead',
+      description: sales
+        ? 'Save a CRM sales lead. `name` is the restaurant/venue trading name (never the person). `contactName` is the point of contact. Always pass both.'
+        : 'Capture a CRM lead. `name` is the restaurant/venue trading name (not the person). `contactName` is the point of contact when known. For diner bag-name, pass the guest as `name`.',
+      parameters: {
+        type: 'object',
+        properties: CAPTURE_LEAD_PROPERTIES,
+        required: [...required],
+      },
+    },
+  };
+}
+
+/** Sally sales overlay — restaurant + point of contact both required. */
+export const SALES_CAPTURE_LEAD_TOOL = captureLeadTool(['name', 'contactName']);
+
 export const PHONE_TOOLS = [
   {
     type: 'function' as const,
@@ -52,31 +95,7 @@ export const PHONE_TOOLS = [
       },
     },
   },
-  {
-    type: 'function' as const,
-    function: {
-      name: 'captureLead',
-      description: 'Capture new sales lead details and create a customer record with status lead',
-      parameters: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          phone: { type: 'string' },
-          email: { type: 'string' },
-          address: { type: 'string' },
-          postcode: { type: 'string' },
-          venueType: { type: 'string', description: 'takeaway | pub | restaurant | cafe | bar | multi_site' },
-          openingHours: { type: 'string' },
-          hasKitchen: { type: 'boolean' },
-          interestedTrades: { type: 'array', items: { type: 'string' } },
-          scope: { type: 'string' },
-          budget: { type: 'number' },
-          notes: { type: 'string' },
-        },
-        required: ['name'],
-      },
-    },
-  },
+  captureLeadTool(['name']),
   {
     type: 'function' as const,
     function: {
