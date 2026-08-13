@@ -77,7 +77,7 @@ export function isSilentOutboundCall(opts: {
   const reason = `${opts.endedReason || ''} ${opts.disposition || ''}`.toLowerCase();
   const speech = assistantSpeechTurns(opts.transcript);
   if (speech > 0) return false;
-  if (/no-answer|no_answer|busy|voicemail|machine|customer-did-not-answer/.test(reason)
+  if (/no-answer|no_answer|busy|voicemail|machine|customer-did-not-answer|customer-ended|caller-ended|customer-hangup|\bhangup\b/.test(reason)
     && !/silence-timed-out/.test(reason)) {
     return false;
   }

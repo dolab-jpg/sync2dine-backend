@@ -42,14 +42,29 @@ describe('outbound voice health', () => {
       direction: 'outbound',
       endedReason: 'silence-timed-out',
       durationSec: 40,
-      transcript: [{ role: 'caller', content: '…' }],
+      transcript: [{ role: 'caller', content: '' }],
     }), true);
+  });
+
+  it('does not treat customer hangup as silent agent failure', () => {
+    assert.equal(isSilentOutboundCall({
+      direction: 'outbound',
+      endedReason: 'customer-ended-call',
+      durationSec: 12,
+      transcript: [],
+    }), false);
+    assert.equal(isSilentOutboundCall({
+      direction: 'outbound',
+      endedReason: 'hangup',
+      durationSec: 9,
+      transcript: [],
+    }), false);
   });
 
   it('flags long outbound with zero agent turns', () => {
     assert.equal(isSilentOutboundCall({
       direction: 'outbound',
-      endedReason: 'hangup',
+      endedReason: 'pipeline-error',
       durationSec: 12,
       transcript: [],
     }), true);
@@ -129,6 +144,31 @@ describe('campaign progress assembler', () => {
     assert.match(spoken, /2 leads/);
     const recent = report.recentSaid as Array<{ snippet: string }>;
     assert.ok(recent.some((r) => /Sally from Sync2Dine/i.test(r.snippet)));
+  });
+
+  it('does not count a held-hours job as queued on the same lead', () => {
+    const report = buildCampaignProgress({ batchId: 'hold-batch' }, {
+      customers: [{
+        id: 'H1',
+        name: 'Held Chippy',
+        phone: '+447700900010',
+        source: 'csv_upload',
+        leadBatchId: 'hold-batch',
+        callQueueStatus: 'queued',
+      }],
+      outboundQueue: [{
+        id: 'hj',
+        status: 'needs_hours',
+        context: { batchId: 'hold-batch' },
+        to: '+447700900010',
+      }],
+      calls: [],
+    });
+    const leads = report.leads as { statuses: Record<string, number> };
+    assert.equal(leads.statuses.queued || 0, 0);
+    assert.equal(leads.statuses.needs_hours, 1);
+    const jobs = report.jobs as { heldForHours: number };
+    assert.equal(jobs.heldForHours, 1);
   });
 });
 

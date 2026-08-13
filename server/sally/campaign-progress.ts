@@ -36,21 +36,27 @@ function customerBatch(c: Record<string, unknown>): string {
 }
 
 function pickLatestBatch(store: ProgressStore): string {
-  const stamps: Array<{ id: string; at: number }> = [];
+  const fromCustomers: Array<{ id: string; at: number }> = [];
   for (const c of store.customers) {
     const id = customerBatch(c);
     if (!id) continue;
     const at = Date.parse(String(c.updatedAt || c.createdAt || '')) || 0;
-    stamps.push({ id, at });
+    fromCustomers.push({ id, at });
   }
+  fromCustomers.sort((a, b) => b.at - a.at);
+  if (fromCustomers[0]?.id) return fromCustomers[0].id;
+
+  const activeJob = new Set(['queued', 'dialling', 'needs_hours']);
+  const fromJobs: Array<{ id: string; at: number }> = [];
   for (const j of store.outboundQueue) {
     const id = jobBatch(j);
     if (!id) continue;
+    if (!activeJob.has(String(j.status || '').toLowerCase())) continue;
     const at = Date.parse(String(j.createdAt || j.startedAt || '')) || 0;
-    stamps.push({ id, at });
+    fromJobs.push({ id, at });
   }
-  stamps.sort((a, b) => b.at - a.at);
-  return stamps[0]?.id || '';
+  fromJobs.sort((a, b) => b.at - a.at);
+  return fromJobs[0]?.id || '';
 }
 
 function isCampaignCustomer(c: Record<string, unknown>, batch: string): boolean {
@@ -128,17 +134,26 @@ export function buildCampaignProgress(
     return false;
   });
 
+  const heldPhones = new Set(
+    queueJobs
+      .filter((j) => String(j.status || '').toLowerCase() === 'needs_hours')
+      .map((j) => normalizePhoneExport(String(j.to || '')))
+      .filter((p) => p.length >= 7),
+  );
   const statusCounts: Record<string, number> = {
     not_called: 0,
     queued: 0,
     dialling: 0,
     called: 0,
     needs_retry: 0,
+    needs_hours: 0,
     do_not_call: 0,
   };
   const dispositionCounts: Record<string, number> = {};
   for (const c of leads) {
-    const qs = String(c.callQueueStatus || 'not_called').toLowerCase();
+    let qs = String(c.callQueueStatus || 'not_called').toLowerCase();
+    const phone = normalizePhoneExport(String(c.phone || ''));
+    if (qs === 'queued' && phone && heldPhones.has(phone)) qs = 'needs_hours';
     statusCounts[qs] = (statusCounts[qs] || 0) + 1;
     const disp = String(c.lastCallDisposition || '').trim();
     if (disp) dispositionCounts[disp] = (dispositionCounts[disp] || 0) + 1;

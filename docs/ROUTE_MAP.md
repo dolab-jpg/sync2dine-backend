@@ -23,8 +23,10 @@ Exact auth enforcement varies by handler ù prefer reading the route file. Many `
 | `/webhooks/voice/*`, `/api/calls/*` | phone/phone-webhook | webhook / auth | softphone + call APIs |
 | `/webhooks/vapi`, `/api/vapi/*` | phone/vapi-routes | webhook / auth | **live phone AI** |
 | `/api/agent/*` | ai/agent-routes | staff | lines, voices, TTS |
-| `/api/campaigns/upload` | ai/agent-routes | staff | CSV ? outbound queue (Sally research) |
-| `/api/campaigns/progress` | ai/agent-routes | staff | Cynthia campaign progress (CRM + queue + calls) |
+| `/api/campaigns/upload` | ai/agent-routes | staff bearer (always) | CSV ? outbound queue (Sally research) |
+| `/api/campaigns/progress` | ai/agent-routes | staff bearer (always) | Cynthia campaign progress (CRM + queue + calls) |
+| `/api/campaigns/queue-lapsed` | ai/agent-routes | staff bearer (always) | Queue lapsed-customer outbound |
+| `/api/customers/upsert` | ai/agent-routes | staff bearer (always) | CRM upsert; won ? platform provision |
 | `/api/projects`, `/api/portal`, `/api/data/sync`, files | project-routes | auth/org | |
 | `/api/building-control` | building-control-routes | staff | |
 | `/api/ai/studio` | ai/ai-studio-routes | staff | config |

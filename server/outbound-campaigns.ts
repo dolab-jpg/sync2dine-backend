@@ -10,6 +10,7 @@ import type { OutboundCampaignTemplate } from './telephony/types';
 import { scheduleSallyOutboundDialWithResearch } from './sally/schedule-outbound';
 import { assessContactEligibility } from './sally/call-eligibility';
 import { normalizeVenueType } from './sally/dial-windows';
+import { toUkE164 } from './phone/vapi-client';
 
 export type LapseCampaignTemplate = 'customer_review' | 'customer_reorder' | 'lapse_winback';
 
@@ -289,7 +290,7 @@ export async function queueCsvCampaign(input: {
   const store = getDataStore();
   const alreadyQueued = new Set(
     store.outboundQueue
-      .filter((j) => ['queued', 'dialling'].includes(String(j.status ?? '')))
+      .filter((j) => ['queued', 'dialling', 'needs_hours'].includes(String(j.status ?? '')))
       .map((j) => normalizePhoneExport(String(j.to ?? ''))),
   );
   const jobs: Array<Record<string, unknown>> = [];
@@ -319,7 +320,7 @@ export async function queueCsvCampaign(input: {
   await mapPool(work, CSV_RESEARCH_CONCURRENCY, async ({ row, phone, index }) => {
     let customerId = row.customerId;
     const consentDeclined = /^(0|false|no|n|dnc|do_not_call)$/i.test(String(row.consentToCall || '').trim());
-    const e164 = phone.startsWith('+') ? phone : `+${phone}`;
+    const e164 = toUkE164(row.phone);
     const customerPatch: Record<string, unknown> = {
       id: customerId,
       name: row.name,
@@ -363,6 +364,14 @@ export async function queueCsvCampaign(input: {
     const eligibility = assessContactEligibility(customer || customerPatch);
     if (!eligibility.eligible) {
       skipped += 1;
+      if (customerId) {
+        try {
+          saveCustomerRecord({
+            id: customerId,
+            callQueueStatus: consentDeclined ? 'do_not_call' : 'not_called',
+          });
+        } catch { /* keep skip count even if CRM stamp fails */ }
+      }
       return;
     }
 
@@ -398,6 +407,9 @@ export async function queueCsvCampaign(input: {
       if (result.held) {
         held += 1;
         if (result.job) jobs.push(result.job);
+        if (customerId) {
+          try { saveCustomerRecord({ id: customerId, callQueueStatus: 'needs_hours' }); } catch { /* ignore */ }
+        }
         return;
       }
       if (result.ok && result.job) {
@@ -405,6 +417,9 @@ export async function queueCsvCampaign(input: {
         return;
       }
       skipped += 1;
+      if (customerId) {
+        try { saveCustomerRecord({ id: customerId, callQueueStatus: 'not_called' }); } catch { /* ignore */ }
+      }
       return;
     }
 

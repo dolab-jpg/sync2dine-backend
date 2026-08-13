@@ -28,7 +28,9 @@ import {
   testLineConnection,
   unregisterLine,
 } from '../telephony/lineRegistry';
-import { authenticateRequest, resolveOrgIdForRequest } from '../auth';
+import { authenticateRequest, requireAuth, resolveOrgIdForRequest } from '../auth';
+import { getProfileByBearer } from '../account-auth';
+import { canExecuteActionForRole, type ServerAgentRole } from '../role-permissions';
 import { handleRealtimeRoutes } from '../realtime-routes';
 
 function resolveUserIdFromRequest(req: IncomingMessage): string | null {
@@ -70,6 +72,41 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(body));
+}
+
+const STAFF_ROLES: ServerAgentRole[] = [
+  'platform_owner', 'super_admin', 'manager', 'staff', 'recruitment',
+];
+
+/** Always require a logged-in sales/staff identity (legacy JWT or Supabase). Not gated on AUTH_ENFORCED. */
+async function requireCampaignStaff(
+  req: IncomingMessage,
+  res: ServerResponse,
+  action: string,
+): Promise<boolean> {
+  const legacy = requireAuth(req);
+  let role: string = legacy?.role || '';
+  if (!legacy) {
+    let profile: Awaited<ReturnType<typeof getProfileByBearer>> = null;
+    try {
+      profile = await getProfileByBearer(req);
+    } catch {
+      profile = null;
+    }
+    if (!profile) {
+      sendJson(res, 401, { error: 'Unauthorized', hint: 'Sign in at /login' });
+      return false;
+    }
+    role = String(profile.role ?? '');
+  }
+  const normalized: ServerAgentRole = STAFF_ROLES.includes(role as ServerAgentRole)
+    ? role as ServerAgentRole
+    : 'unknown';
+  if (!canExecuteActionForRole(normalized, action)) {
+    sendJson(res, 403, { error: 'Forbidden' });
+    return false;
+  }
+  return true;
 }
 
 async function fetchChatterboxVoices(): Promise<Array<{ id: string; name: string; provider: string }>> {
@@ -601,6 +638,7 @@ export async function handleAgentRoutes(
   }
 
   if (pathname === '/api/customers/upsert' && req.method === 'POST') {
+    if (!(await requireCampaignStaff(req, res, 'saveCustomer'))) return true;
     const body = JSON.parse(await readBody(req)) as Record<string, unknown>;
     const customer = (body.customer && typeof body.customer === 'object')
       ? (body.customer as Record<string, unknown>)
@@ -636,12 +674,14 @@ export async function handleAgentRoutes(
     return true;
   }
   if (pathname === '/api/campaigns/lapsed-customers' && req.method === 'GET') {
+    if (!(await requireCampaignStaff(req, res, 'getCampaignProgress'))) return true;
     const days = Math.max(1, Number(url.searchParams.get('days') ?? 30) || 30);
     const { listCustomersWithLastOrderOlderThan } = await import('../outbound-campaigns');
     sendJson(res, 200, { days, customers: await listCustomersWithLastOrderOlderThan(days) });
     return true;
   }
   if (pathname === '/api/campaigns/queue-lapsed' && req.method === 'POST') {
+    if (!(await requireCampaignStaff(req, res, 'getCampaignProgress'))) return true;
     const body = JSON.parse(await readBody(req)) as {
       template?: string;
       daysOlderThan?: number;
@@ -669,6 +709,7 @@ export async function handleAgentRoutes(
   }
 
   if (pathname === '/api/campaigns/progress' && req.method === 'GET') {
+    if (!(await requireCampaignStaff(req, res, 'getCampaignProgress'))) return true;
     const { buildCampaignProgress } = await import('../sally/campaign-progress');
     const batchId = url.searchParams.get('batchId') || url.searchParams.get('campaign') || undefined;
     sendJson(res, 200, buildCampaignProgress({ batchId: batchId || undefined }));
@@ -676,6 +717,7 @@ export async function handleAgentRoutes(
   }
 
   if (pathname === '/api/campaigns/upload' && req.method === 'POST') {
+    if (!(await requireCampaignStaff(req, res, 'getCampaignProgress'))) return true;
     const body = JSON.parse(await readBody(req)) as {
       csv?: string;
       rows?: Array<{ name?: string; phone?: string; notes?: string; customerId?: string }>;
