@@ -2,6 +2,7 @@
  * Sally relationship + org memory ? compact facts for live prompt / recall tool.
  */
 import { getDataStore, resolveContactByPhone, syncData } from '../data-store';
+import { formatPeopleMemoryLines } from './remember-person';
 import { getSalesBrainStore } from '../sales-brain/store';
 import { getHomeOrgId } from '../home-org';
 import {
@@ -86,6 +87,9 @@ export function buildSallyRelationshipMemory(partyPhone: string, orgId?: string)
     );
   }
   const customer = resolved.customerId ? customerByPhone(partyPhone) : null;
+  if (resolved.customerId) {
+    lines.push(...formatPeopleMemoryLines(String(resolved.customerId), customer));
+  }
   if (!customer) {
     lines.push('No CRM row yet ? discover gently; captureLead when appropriate.');
     return lines.join('\n');

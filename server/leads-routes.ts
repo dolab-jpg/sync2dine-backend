@@ -7,7 +7,7 @@ import {
   markInboxHandled,
 } from './leads/leadInboxStore';
 import { DEFAULT_ORG_ID, getCallById, setRequestOrgId } from './data-store';
-import { resolveOrgIdForRequest } from './auth';
+import { requireAuth, resolveOrgIdForRequest } from './auth';
 import { captureOrUpdateLead } from './phone-tools';
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -158,6 +158,51 @@ export async function handleLeadsRoutes(
     }
     sendJson(res, 200, { item });
     return true;
+  }
+
+  if (pathname === '/api/leads/normalize-csv' && req.method === 'POST') {
+    const legacy = requireAuth(req);
+    if (!legacy) {
+      let profile: { role?: string } | null = null;
+      try {
+        const { getProfileByBearer } = await import('./account-auth');
+        profile = await getProfileByBearer(req);
+      } catch {
+        profile = null;
+      }
+      if (!profile) {
+        sendJson(res, 401, { error: 'Unauthorized', hint: 'Sign in at /login' });
+        return true;
+      }
+    }
+    let body: {
+      headers?: string[];
+      sampleRows?: string[][];
+      rows?: string[][];
+      orgId?: string;
+    } = {};
+    try {
+      body = JSON.parse((await readBody(req)) || '{}');
+    } catch {
+      sendJson(res, 400, { error: 'Invalid JSON body' });
+      return true;
+    }
+    if (!Array.isArray(body.headers) || !body.headers.length) {
+      sendJson(res, 400, { error: 'headers is required' });
+      return true;
+    }
+    const orgId = resolveOrgIdForRequest(req, body) || parseOrgId(req) || DEFAULT_ORG_ID;
+    setRequestOrgId(orgId);
+    try {
+      const { normalizeLeadsCsv } = await import('./ai/normalize-csv');
+      const result = await normalizeLeadsCsv(body, orgId);
+      sendJson(res, 200, { rows: result.rows, columnMap: result.columnMap });
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'normalize failed';
+      sendJson(res, 400, { error: message });
+      return true;
+    }
   }
 
   sendJson(res, 404, { error: 'Not found' });

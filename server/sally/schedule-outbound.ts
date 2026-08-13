@@ -16,6 +16,8 @@ import {
   type ConsentSource,
 } from './call-eligibility';
 import { captureOrUpdateLead, normalizeDialableE164 } from '../phone/tools/leads';
+import { rememberPerson, resolveSameVenueCustomer } from './remember-person';
+import { isPlausibleUkE164, toUkE164 } from '../phone/vapi-client';
 
 export const SALLY_PERSONA = 'sally';
 
@@ -35,6 +37,8 @@ export type ScheduleSallyDialInput = {
   venueProfile?: VenueDialProfile;
   bypassQuietHours?: boolean;
   context?: Record<string, unknown>;
+  /** Public website if already known (passed into pre-call research). */
+  website?: string;
   /** Customer record for eligibility (or look up by customerId) */
   customer?: Record<string, unknown> | null;
   requireExplicitConsent?: boolean;
@@ -139,7 +143,7 @@ export function scheduleSallyOutboundDial(input: ScheduleSallyDialInput): Schedu
   }
 
   const job = enqueueOutboundCall({
-    to: phone.startsWith('+') ? phone : `+${phone}`,
+    to: toUkE164(phone),
     template: input.template || 'sally_sales',
     status: 'queued',
     customerId: context.customerId != null ? String(context.customerId) : undefined,
@@ -189,20 +193,59 @@ function draftBriefSnippet(draft: {
 }
 
 /**
- * Research (DeepSeek) when hours missing, then schedule ? or hold as needs_hours.
+ * Pick the number to dial after comparing the sheet phone with a public listing.
+ * Both sides go through toUkE164 first so missing-zero / +1296… sheet values
+ * can still match a listed 01296 / +441296 number.
+ */
+export function chooseResearchedDialPhone(
+  sheetPhone: string,
+  researchedPhone?: string | null,
+): {
+  dialTo: string;
+  usedResearch: boolean;
+  sheetE164: string;
+  researchE164: string;
+} {
+  const sheetE164 = toUkE164(String(sheetPhone || '').trim());
+  const researchE164 = toUkE164(String(researchedPhone || '').trim());
+  const sheetOk = isPlausibleUkE164(sheetE164);
+  const researchOk = isPlausibleUkE164(researchE164);
+
+  if (researchOk && (!sheetOk || sheetE164 !== researchE164)) {
+    return { dialTo: researchE164, usedResearch: true, sheetE164, researchE164 };
+  }
+  return {
+    dialTo: sheetOk ? sheetE164 : sheetE164 || String(sheetPhone || '').trim(),
+    usedResearch: false,
+    sheetE164,
+    researchE164,
+  };
+}
+
+/**
+ * Research (DeepSeek) for hours + public phone, then schedule — or hold as needs_hours.
+ * If the sheet number is undialable or disagrees with the listing, dial the public E.164.
  */
 export async function scheduleSallyOutboundDialWithResearch(
   input: ScheduleSallyDialInput & { addressHint?: string; orgId?: string },
 ): Promise<ScheduleSallyDialResult & { held?: boolean; researchDraft?: unknown }> {
+  const customer = input.customer ?? customerFromId(input.customerId);
   const mergedProfile: VenueDialProfile = {
-    ...profileFromCustomer(input.customer ?? customerFromId(input.customerId)),
+    ...profileFromCustomer(customer),
     ...(input.venueProfile || {}),
   };
   let openingHours = String(mergedProfile.openingHours || '').trim();
   let researchDraft: unknown;
   let briefExtra = '';
+  let chosen = chooseResearchedDialPhone(input.to);
 
-  const company = String(input.company || input.customerName || '').trim();
+  const company = String(input.company || input.customerName || customer?.name || '').trim();
+  const addressHint = String(
+    input.addressHint || customer?.address || '',
+  ).trim();
+  const website = String(
+    input.website || customer?.website || customer?.web || '',
+  ).trim();
   const skipResearch = process.env.SALLY_SKIP_PRECALL_RESEARCH === '1';
   if (company && !skipResearch) {
     try {
@@ -210,7 +253,8 @@ export async function scheduleSallyOutboundDialWithResearch(
       const result = await researchRestaurantProfile({
         businessName: company,
         phone: input.to,
-        addressHint: input.addressHint,
+        addressHint: addressHint || undefined,
+        website: website || undefined,
         orgId: input.orgId,
       });
       if (result.ok) {
@@ -219,6 +263,7 @@ export async function scheduleSallyOutboundDialWithResearch(
         if (!openingHours && result.draft.openingHours) {
           openingHours = String(result.draft.openingHours).trim();
         }
+        chosen = chooseResearchedDialPhone(input.to, result.draft.phone);
         if (input.customerId) {
           try {
             saveCustomerRecord({
@@ -227,6 +272,11 @@ export async function scheduleSallyOutboundDialWithResearch(
               address: result.draft.address,
               researchDraft: result.draft,
               aboutUs: draftToAboutUs(result.draft),
+              // Only overwrite the venue line when the sheet number is undialable.
+              // A disagreeing Google listing still dials for this job, but must not clobber CRM.
+              ...(!isPlausibleUkE164(chosen.sheetE164) && chosen.usedResearch
+                ? { phone: chosen.dialTo }
+                : {}),
             });
           } catch {
             /* best-effort */
@@ -241,6 +291,8 @@ export async function scheduleSallyOutboundDialWithResearch(
     }
   }
 
+  const dialTo = chosen.dialTo || input.to;
+
   const venueProfile: VenueDialProfile = {
     ...mergedProfile,
     openingHours: openingHours || mergedProfile.openingHours,
@@ -251,19 +303,22 @@ export async function scheduleSallyOutboundDialWithResearch(
 
   const result = scheduleSallyOutboundDial({
     ...input,
+    to: dialTo,
     brief: brief || input.brief,
     venueProfile,
     context: {
       ...(input.context || {}),
       researchDraft,
       researchBrief: briefExtra || undefined,
+      sheetPhone: input.to,
+      dialPhone: dialTo,
+      usedResearchedPhone: chosen.usedResearch || undefined,
     },
   });
 
   if (result.reason === 'needs_hours') {
-    const phone = normalizePhoneExport(String(input.to || '').trim());
     const held = enqueueOutboundCall({
-      to: phone.startsWith('+') ? phone : `+${phone}`,
+      to: toUkE164(dialTo),
       template: input.template || 'sally_sales',
       status: 'needs_hours',
       customerId: input.customerId,
@@ -277,6 +332,9 @@ export async function scheduleSallyOutboundDialWithResearch(
         source: input.source || 'sally_schedule',
         researchDraft,
         holdReason: 'needs_hours',
+        sheetPhone: input.to,
+        dialPhone: dialTo,
+        usedResearchedPhone: chosen.usedResearch || undefined,
       },
     });
     return {
@@ -314,6 +372,7 @@ export type CaptureReferralInput = {
 
 /**
  * Atomic: create/link referred contact + queue Sally follow-up with structured referral brief.
+ * Same venue + new mobile stays on THIS restaurant (no second customers row).
  */
 export function captureReferralAndQueue(input: CaptureReferralInput): {
   ok: boolean;
@@ -342,6 +401,104 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
     interestHint: input.interestHint,
   });
 
+  const sameVenue = resolveSameVenueCustomer({
+    referredByCustomerId: input.referredByCustomerId,
+    referredByVenue: input.referredByVenue,
+    name: input.name,
+    phone: dialTo,
+  });
+
+  if (sameVenue?.id) {
+    const customerId = String(sameVenue.id);
+    const venueName = String(sameVenue.name || input.referredByVenue || '').trim();
+    if (input.referredByName) {
+      rememberPerson({
+        customerId,
+        name: input.referredByName,
+        phone: input.referredByPhone,
+        howKnown: 'spoke',
+      });
+    }
+    rememberPerson({
+      customerId,
+      name: input.name,
+      role: input.role,
+      phone: dialTo,
+      howKnown: 'referred',
+      note: input.summary || input.notes,
+    });
+
+    const already = (getDataStore().outboundQueue || []).some((j) => {
+      if (!['queued', 'dialling'].includes(String(j.status ?? ''))) return false;
+      const to = normalizePhoneExport(String(j.to ?? ''));
+      return to === normalizePhoneExport(dialTo);
+    });
+    if (already) {
+      return {
+        ok: true,
+        customer: sameVenue,
+        isNewLead: false,
+        brief,
+        spokenHint: `I've already got a call queued to ${input.name} at ${venueName || 'this restaurant'}. I'll mention ${input.referredByName || 'your colleague'} referred us.`,
+      };
+    }
+
+    const scheduled = scheduleSallyOutboundDial({
+      to: dialTo,
+      customerId,
+      customerName: venueName || String(sameVenue.name || ''),
+      company: venueName,
+      template: 'sally_sales',
+      aim: 'sales_outreach',
+      source: 'gatekeeper_referral',
+      brief,
+      scheduledAt: input.scheduledAt || undefined,
+      venueAware: true,
+      venueProfile: {
+        venueType: input.venueType || sameVenue.venueType,
+        openingHours: input.openingHours || sameVenue.openingHours,
+        preferredContactTimes: input.preferredContactTimes,
+        timezone: input.timezone || sameVenue.timezone || 'Europe/London',
+      },
+      customer: getDataStore().customers.find((c) => String(c.id) === customerId) as Record<string, unknown>,
+      context: {
+        referral: true,
+        sameVenue: true,
+        referredPersonName: input.name,
+        referredByName: input.referredByName,
+        referredByPhone: input.referredByPhone,
+        referredByVenue: input.referredByVenue || venueName,
+        referredByCustomerId: customerId,
+        sourceCallId: input.callId,
+      },
+    });
+
+    if (!scheduled.ok) {
+      return {
+        ok: false,
+        error: scheduled.reason || 'queue_failed',
+        customer: sameVenue,
+        isNewLead: false,
+        spokenHint:
+          scheduled.reason === 'do_not_call'
+            ? 'That number is marked do-not-call ? I will not dial it.'
+            : `Saved ${input.name} on ${venueName || 'this restaurant'} but could not queue the call ? ask staff to follow up.`,
+      };
+    }
+
+    return {
+      ok: true,
+      customer: sameVenue,
+      isNewLead: false,
+      job: scheduled.job,
+      scheduledAt: scheduled.scheduledAt,
+      brief,
+      spokenHint: scheduled.scheduledAt
+        ? `Got it ? I'll call ${input.name} at ${venueName || 'this restaurant'} in a sensible window and mention ${input.referredByName || 'your colleague'} referred us.`
+        : `Got it ? I'll call ${input.name} at ${venueName || 'this restaurant'} and mention ${input.referredByName || 'your colleague'} referred us.`,
+    };
+  }
+
   const notes = [
     input.notes,
     input.summary ? `Referral summary: ${input.summary}` : '',
@@ -369,6 +526,19 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
       error: lead.error,
       spokenHint: lead.spokenHint || 'Could not save that contact.',
     };
+  }
+
+  if (input.referredByCustomerId && input.referredByName) {
+    try {
+      rememberPerson({
+        customerId: String(input.referredByCustomerId),
+        name: input.referredByName,
+        phone: input.referredByPhone,
+        howKnown: 'spoke',
+      });
+    } catch {
+      /* referrer memory is best-effort */
+    }
   }
 
   const customerId = String(lead.customer.id);

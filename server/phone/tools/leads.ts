@@ -5,7 +5,6 @@ import {
   getDataStore,
   getRequestOrgId,
   lookupContactByPhone,
-  normalizePhoneExport,
   saveCall,
   saveCustomerRecord,
   saveQuoteRecord,
@@ -23,6 +22,7 @@ import { ensureEnglishForCustomerSend } from '../../outbound-english-guard';
 import { resolveTransferDestination, resolveTransferNumber } from '../transfer-numbers';
 import { listMenuItemsForOrg } from '../../menu-catalog';
 import { applyVenueProfileToCustomer } from '../../sally/relationship-memory';
+import { rememberPerson } from '../../sally/remember-person';
 import {
   cancelReservation,
   checkTableAvailability,
@@ -33,6 +33,7 @@ import {
 import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from '../../restaurant-ai-tools';
 import { resolveCallbackIso } from '../callback-time';
 import { firstString } from './util';
+import { toUkE164 } from '../vapi-client';
 
 export function normalizeDialableE164(raw: unknown): string | null {
   if (raw == null) return null;
@@ -40,9 +41,10 @@ export function normalizeDialableE164(raw: unknown): string | null {
   if (!s) return null;
   if (/[a-zA-Z]/.test(s)) return null;
   if (/^c\d+$/i.test(s)) return null;
-  const digits = normalizePhoneExport(s.replace(/\s+/g, ''));
+  const e164 = toUkE164(s.replace(/\s+/g, ''));
+  const digits = e164.replace(/\D/g, '');
   if (!digits || digits.length < 10 || digits.length > 15) return null;
-  return digits.startsWith('+') ? digits : `+${digits}`;
+  return e164.startsWith('+') ? e164 : `+${digits}`;
 }
 
 export function isStaffPartyPhone(phone: string | undefined | null): boolean {
@@ -143,6 +145,20 @@ export function captureOrUpdateLead(
         ? fields.hasKitchen
         : existing?.hasKitchen,
   });
+
+  if (contactName && customer.id) {
+    try {
+      rememberPerson({
+        customerId: String(customer.id),
+        name: contactName,
+        howKnown: 'spoke',
+        setPrimary: true,
+        phone: phone ?? undefined,
+      });
+    } catch {
+      /* people memory is best-effort */
+    }
+  }
 
   if (customer.id && (fields.venueType != null || fields.openingHours != null || typeof fields.hasKitchen === 'boolean')) {
     try {

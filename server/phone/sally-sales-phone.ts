@@ -188,7 +188,7 @@ const SALLY_PHONE_SALES_OS = [
   '- Compliance: DNC/opt-out = stop. Truthful claims only. Do not imply an in-app Atmosphere control dashboard exists in Sync2Dine staff UI.',
   'COMMERCIAL: Route phone pain → Judie; room/audio/spend/reviews/training → Atmosphere; both/growth → Complete. No kitchen → soft takeaway/collection revenue opportunity (Judie as the phone for those orders) + Atmosphere if they have room — do not pretend they already take food orders.',
   'IDS: Never re-speak phone or postcode unless newly collected, corrected, or they ask. Prefer CRM values. Try-later demo phone only if asked.',
-  'TOOLS: recallAccountMemory / researchRestaurantProfile when you need facts. setCallObjective when the best outcome changes. scheduleVenueCallback to book a dial in their sensible window. captureLead: `name` = restaurant, `contactName` = person — never put the caller’s name in `name`.',
+  'TOOLS: recallAccountMemory / researchRestaurantProfile when you need facts. setCallObjective when the best outcome changes. scheduleVenueCallback to book a dial in their sensible window. captureLead: `name` = restaurant, `contactName` = person — never put the caller’s name in `name`. When they give their name or refer someone, call rememberPerson immediately. Same venue + new mobile = this restaurant, not a new lead.',
   'REVENUE: Judie↔Atmosphere→Complete after value lands — not while handling refusal. Multi-site → senior meeting. You cannot transfer.',
   'VOICE: Match their energy. Humour OK until they don’t. Dial jokes down if angry/legal/safety/formal senior. One or two spoken sentences per turn.',
 ].join('\n');
@@ -373,15 +373,15 @@ const CAPTURE_REFERRAL_AND_QUEUE_TOOL = {
   function: {
     name: 'captureReferralAndQueue',
     description:
-      'When the current caller gives another person\'s number (boss/owner/manager), save that contact and queue a Sally outbound call that opens with who referred us. Prefer this over bookCallback for third-party referrals.',
+      'When the current caller gives another person\'s number (boss/owner/manager), save that contact and queue a Sally outbound call that opens with who referred us. Same venue + new mobile stays on THIS restaurant (does not create a second lead). Use for a different restaurant name as a new lead. Prefer this over bookCallback for third-party referrals.',
     parameters: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Name of the person to call' },
+        name: { type: 'string', description: 'Name of the person to call (same venue) or the other restaurant if it is a different venue' },
         phone: { type: 'string', description: 'Their UK phone e.g. 07576442345 or +447576442345' },
         role: { type: 'string', description: 'owner | manager | chef | etc.' },
         referredByName: { type: 'string', description: 'Name of the person currently on the line who gave the number' },
-        referredByVenue: { type: 'string', description: 'Restaurant / venue name' },
+        referredByVenue: { type: 'string', description: 'Restaurant they work at — current venue if same restaurant; the other restaurant name if different' },
         summary: { type: 'string', description: 'What was discussed on the main line (facts only)' },
         interestHint: { type: 'string', description: 'Soft interest hint if they said the boss might be interested — do not invent' },
         venueType: { type: 'string' },
@@ -391,6 +391,30 @@ const CAPTURE_REFERRAL_AND_QUEUE_TOOL = {
         notes: { type: 'string' },
       },
       required: ['name', 'phone'],
+    },
+  },
+};
+
+const REMEMBER_PERSON_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'rememberPerson',
+    description:
+      'Save a person against THIS restaurant (owner, manager, chef, etc.). Call immediately when they give a name or refer someone at the same venue. Same venue + new mobile = this restaurant, NOT a new lead.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Person’s name' },
+        role: { type: 'string', description: 'owner | manager | chef | etc.' },
+        phone: { type: 'string', description: 'Their mobile if different from the venue line' },
+        howKnown: { type: 'string', enum: ['spoke', 'referred'] },
+        note: { type: 'string' },
+        setPrimary: {
+          type: 'boolean',
+          description: 'True when this is the person on the line / main contact',
+        },
+      },
+      required: ['name'],
     },
   },
 };
@@ -406,6 +430,7 @@ export function getSallyPhoneSessionChatTools() {
     RESEARCH_RESTAURANT_TOOL,
     SCHEDULE_VENUE_CALLBACK_TOOL,
     UPDATE_VENUE_PROFILE_TOOL,
+    REMEMBER_PERSON_TOOL,
     CAPTURE_REFERRAL_AND_QUEUE_TOOL,
     SALES_CAPTURE_LEAD_TOOL,
     ...pickPhoneTools(
@@ -459,7 +484,7 @@ export function buildSallyBrainPrompt(input: {
     formatOfferFactsBlock(),
     formatObjectionPlaybook(),
     'PHONE OBJECTION STYLE: acknowledge → explore real concern → evidence → ask next; short Cockney. This call is the demo — do not push a separate demo as the primary CTA.',
-    'REFERRALS: If they say speak to the boss/owner and give a number, call captureReferralAndQueue with that phone + who referred + a factual summary. Do not invent interest. Do not use Judie tools.',
+    'REFERRALS: If they give a name or a new mobile at THIS restaurant, call rememberPerson immediately — do not spawn a new lead. If they say speak to the boss/owner and give a number, call captureReferralAndQueue (same venue stays on this restaurant; a different restaurant name creates a new lead). Do not invent interest. Do not use Judie tools.',
     SALLY_PHONE_CLOSE_SCRIPT,
     relationshipMemory,
     approvedBrain,
@@ -616,11 +641,50 @@ export async function executeSallySalesPhoneTool(
     };
   }
 
+  if (name === 'rememberPerson') {
+    const { rememberPerson } = await import('../sally/remember-person');
+    const phone = String(ctx.partyPhone || input.phone || '').trim();
+    const resolved = phone ? resolveContactByPhone(phone) : { customerId: undefined as string | undefined };
+    const customerId = String(input.customerId || resolved.customerId || '').trim();
+    const personName = String(input.name || '').trim();
+    if (!personName) {
+      return { ok: false, error: 'name_required', spokenHint: 'I need a name to remember them.' };
+    }
+    if (!customerId) {
+      return {
+        ok: false,
+        error: 'no_customer',
+        spokenHint: 'Capture the restaurant first, then I can remember people on that account.',
+      };
+    }
+    const personPhone = String(input.phone || '').trim();
+    const result = rememberPerson({
+      customerId,
+      name: personName,
+      role: input.role != null ? String(input.role) : undefined,
+      // Only store a number the model actually gave for this person — never the gatekeeper line.
+      phone: personPhone || undefined,
+      howKnown: input.howKnown === 'referred' ? 'referred' : 'spoke',
+      note: input.note != null ? String(input.note) : undefined,
+      setPrimary: input.setPrimary === true,
+    });
+    return {
+      ...result,
+      spokenHint: result.ok
+        ? `Remembered ${personName} on this restaurant — do not announce the memory write.`
+        : 'Could not save that person against the restaurant.',
+      doNotReadAloud: true,
+    };
+  }
+
   if (name === 'captureReferralAndQueue') {
     const { captureReferralAndQueue } = await import('../sally/schedule-outbound');
     const referrerResolved = ctx.partyPhone
       ? resolveContactByPhone(String(ctx.partyPhone))
       : { customerId: undefined as string | undefined, customerName: undefined as string | undefined };
+    const referrerCustomer = referrerResolved.customerId
+      ? getDataStore().customers.find((c) => String(c.id) === String(referrerResolved.customerId))
+      : undefined;
     const preferredRaw = String(input.preferredTime || '').trim();
     const scheduledAt = preferredRaw
       ? (resolveCallbackIso(preferredRaw) || preferredRaw)
@@ -632,7 +696,10 @@ export async function executeSallySalesPhoneTool(
       referredByName:
         String(input.referredByName || referrerResolved.customerName || '').trim() || undefined,
       referredByPhone: ctx.partyPhone,
-      referredByVenue: input.referredByVenue != null ? String(input.referredByVenue) : undefined,
+      referredByVenue:
+        input.referredByVenue != null
+          ? String(input.referredByVenue)
+          : (referrerCustomer?.name != null ? String(referrerCustomer.name) : undefined),
       referredByCustomerId: referrerResolved.customerId,
       summary: input.summary != null ? String(input.summary) : undefined,
       interestHint: input.interestHint != null ? String(input.interestHint) : undefined,

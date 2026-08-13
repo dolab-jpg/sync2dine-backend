@@ -607,6 +607,8 @@ function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');
   if (digits.startsWith('44')) return digits;
   if (digits.startsWith('0')) return `44${digits.slice(1)}`;
+  // UK missing-zero: 10-digit NSN (geographic 1… or mobile 7…) without the leading 0.
+  if (digits.length === 10 && (digits.startsWith('1') || digits.startsWith('7'))) return `44${digits}`;
   return digits;
 }
 
@@ -1376,6 +1378,47 @@ export function saveRecruitmentInterview(interview: Record<string, unknown>): Re
   store.recruitmentInterviews.unshift(record);
   syncData(store);
   return record;
+}
+
+/** Upsert a person on a venue (store.contacts → Supabase contacts JSON table via syncData). */
+export function saveContactRecord(contact: Record<string, unknown>): Record<string, unknown> {
+  const store = getDataStore();
+  const customerId = String(contact.customerId ?? '');
+  const name = String(contact.name ?? '').trim();
+  const phone = String(contact.phone ?? '');
+  const phoneNorm = phone ? normalizePhone(phone) : '';
+
+  let id = contact.id ? String(contact.id) : '';
+  let existingIdx = id ? store.contacts.findIndex((c) => String(c.id) === id) : -1;
+
+  if (existingIdx < 0 && customerId && (name || phoneNorm.length >= 10)) {
+    existingIdx = store.contacts.findIndex((c) => {
+      if (String(c.customerId) !== customerId) return false;
+      const existingPhone = String(c.phone ?? '') ? normalizePhone(String(c.phone ?? '')) : '';
+      if (phoneNorm.length >= 10 && existingPhone.length >= 10 && existingPhone === phoneNorm) return true;
+      if (name && String(c.name ?? '').trim().toLowerCase() === name.toLowerCase()) return true;
+      return false;
+    });
+    if (existingIdx >= 0) id = String(store.contacts[existingIdx].id ?? '');
+  }
+
+  if (!id) id = `CT${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+  const record = {
+    ...contact,
+    id,
+    customerId,
+    name: name || String(contact.name ?? ''),
+    createdAt: contact.createdAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  if (existingIdx >= 0) {
+    store.contacts[existingIdx] = { ...store.contacts[existingIdx], ...record };
+  } else {
+    store.contacts.unshift(record);
+  }
+  syncData(store);
+  return store.contacts.find((c) => String(c.id) === id) ?? record;
 }
 
 export function saveCustomerRecord(customer: Record<string, unknown>): Record<string, unknown> {

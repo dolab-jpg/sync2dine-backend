@@ -1155,6 +1155,7 @@ async function executeTool(
     || name === 'researchRestaurantProfile'
     || name === 'scheduleVenueCallback'
     || name === 'updateVenueProfile'
+    || name === 'rememberPerson'
     || name === 'captureReferralAndQueue'
   )) {
     const route = resolveOrgRouteForVapiCall(call);

@@ -47,6 +47,7 @@ Exact auth enforcement varies by handler ù prefer reading the route file. Many `
 | org phone billing / weekly billing | billing/* | admin | |
 | `/api/platform` | platform-routes | admin | includes `POST /organizations/sync-from-crm` (won CRM ? tenants) |
 | `/api/leads` | leads-routes | staff | |
+| `POST /api/leads/normalize-csv` | leads-routes | staff | DeepSeek column map + local UK E.164 (heuristic fallback); staff auth required |
 | `/api/orders` | orders/orders-routes | auth/org | restaurant |
 | `/api/menu` | orders/menu-routes | auth/org | |
 | `/api/reservations`, `/api/dining-tables` | orders/reservations-routes | auth/org | |

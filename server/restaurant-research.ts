@@ -133,7 +133,7 @@ function normalizeDraft(raw: Record<string, unknown>, fallback: ResearchRestaura
   return {
     businessName: String(raw.businessName ?? fallback.businessName ?? '').trim() || undefined,
     address: String(raw.address ?? fallback.addressHint ?? '').trim() || undefined,
-    phone: String(raw.phone ?? fallback.phone ?? '').trim() || undefined,
+    phone: String(raw.phone ?? '').trim() || undefined,
     openingHours: String(raw.openingHours ?? '').trim() || undefined,
     deliveryAvailable: asBool(raw.deliveryAvailable),
     collectionAvailable: asBool(raw.collectionAvailable),
@@ -300,6 +300,8 @@ async function jsonExtractDraft(
     'sources (object field→url), confidence (object field→high|medium|low), rawSummary.',
     'Use null for unknown booleans. Prefer public sources. Do not invent precise hours if unsure — leave empty.',
     'openingHours must be concrete when present on Google/website (e.g. Mon-Sun 16:00-23:00).',
+    'phone must be the public booking / landline from Google or the venue website, in UK form (prefer +44…).',
+    'Do not copy a spreadsheet number that is missing digits or has the wrong country code (e.g. +1296715055). Prefer the listed 01296 / +441296 form.',
   ].join(' ');
 
   const user = [
@@ -375,6 +377,7 @@ export async function researchRestaurantProfile(
       'Collect: business name, address, phone, opening hours (required if published), delivery/collection, delivery areas,',
       'menu page or PDF link, payment methods, whether they take reservations, website, social media.',
       'Cite URLs where possible. Keep the answer factual and compact. Do not invent opening hours.',
+      'Return the public booking or landline from Google/website. Do not copy a sheet number with missing digits or a wrong country code.',
     ].filter(Boolean).join(' ');
 
     let researchText = '';

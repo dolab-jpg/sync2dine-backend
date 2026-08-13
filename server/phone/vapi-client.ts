@@ -60,14 +60,31 @@ export function getVapiPublicKey(): string | null {
   return process.env.VAPI_PUBLIC_KEY?.trim() || null;
 }
 
-export function toE164Uk(input: string): string {
+/**
+ * UK E.164. Geographic numbers often arrive without the leading 0
+ * (e.g. Winslow 1296715055 → +441296715055). Do not blindly prefix `+`.
+ */
+export function toUkE164(input: string): string {
   const raw = String(input || '').trim();
   if (!raw) return raw;
-  if (raw.startsWith('+')) return raw.replace(/\s+/g, '');
   const digits = raw.replace(/\D/g, '');
-  if (digits.startsWith('44')) return `+${digits}`;
-  if (digits.startsWith('0')) return `+44${digits.slice(1)}`;
+  if (!digits) return raw.replace(/\s+/g, '');
+  if (digits.startsWith('44') && digits.length >= 11) return `+${digits}`;
+  if (digits.startsWith('0') && digits.length >= 10) return `+44${digits.slice(1)}`;
+  // Missing leading 0: 10-digit NSN (geographic 1… or mobile 7…), including a wrong +1/+7 prefix.
+  if (digits.length === 10 && (digits.startsWith('1') || digits.startsWith('7'))) return `+44${digits}`;
+  if (raw.startsWith('+')) return `+${digits}`;
   return `+${digits}`;
+}
+
+export function toE164Uk(input: string): string {
+  return toUkE164(input);
+}
+
+/** True for a plausible UK E.164 (+44 + 9–10-digit NSN, not starting with 0). */
+export function isPlausibleUkE164(phone: string | null | undefined): boolean {
+  const e164 = toUkE164(String(phone || '').trim());
+  return /^\+44[1-9]\d{8,9}$/.test(e164);
 }
 
 export function getSoho66AriaLine() {
