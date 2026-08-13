@@ -53,8 +53,12 @@ export async function handleOrchestrateStream(
       content: result.content,
       proposedActions: result.proposedActions,
       autoActions: result.autoActions,
+      detectedTrades: result.detectedTrades,
       executedSummaries,
       phase: result.phase,
+      clarifyingQuestions: result.clarifyingQuestions,
+      taskSummary: result.taskSummary,
+      pendingTaskId: result.pendingTaskId,
     });
     res.end();
   } catch (err) {
