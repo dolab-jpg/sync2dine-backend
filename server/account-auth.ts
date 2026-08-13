@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { sanitizeOrgId } from './home-org';
+import { getHomeOrgId, sanitizeOrgId } from './home-org';
 
 export type UserRole =
   | 'platform_owner'
@@ -189,12 +189,14 @@ export async function handleAccountAuthRoutes(
         username?: string;
         email?: string;
         password?: string;
+        phone?: string;
       };
       const companyName = String(body.companyName ?? '').trim();
       const name = String(body.name ?? '').trim();
       const username = normalizeUsername(String(body.username ?? ''));
       const email = String(body.email ?? '').trim().toLowerCase();
       const password = String(body.password ?? '');
+      const phone = String(body.phone ?? '').trim();
 
       if (!companyName || !name || !email) {
         sendJson(res, 400, { error: 'Company name, your name, and email are required' });
@@ -231,7 +233,7 @@ export async function handleAccountAuthRoutes(
           name: companyName,
           contact_name: name,
           contact_email: email,
-          contact_phone: '',
+          contact_phone: phone,
           plan: 'starter',
           status: 'trial',
           monthly_token_cap: 500_000,
@@ -255,6 +257,27 @@ export async function handleAccountAuthRoutes(
           role: 'super_admin',
           orgId: org.id as string,
         });
+        try {
+          const { saveCustomerRecord, withOrgContext } = await import('./data-store');
+          const { mirrorCustomerToSupabaseAsync } = await import('./supabase-crm');
+          const homeId = getHomeOrgId();
+          withOrgContext(homeId, () => {
+            const saved = saveCustomerRecord({
+              name,
+              email,
+              phone,
+              status: 'lead',
+              source: 'website',
+              tags: ['signup'],
+              notes: `New company signup: ${companyName} (org ${org.id})`,
+              leadScore: 50,
+              callQueueStatus: 'not_called',
+            });
+            mirrorCustomerToSupabaseAsync(saved, homeId);
+          });
+        } catch (crmErr) {
+          console.warn('[register-org] CRM lead capture failed:', crmErr);
+        }
         sendJson(res, 201, {
           organization: { id: org.id, name: org.name },
           user: { id: user.id, email, name, username, role: 'super_admin', org_id: org.id },

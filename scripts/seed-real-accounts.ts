@@ -1,6 +1,7 @@
 /**
- * Idempotent seed of real Supabase Auth users + org.
- * Preserves existing openai_api_key_encrypted and integrations — never deletes keys.
+ * Idempotent seed of the platform owner only.
+ * Do not re-seed demo restaurant staff on live. Menu/Judie live on Demo Kitchen
+ * separately (`populate-demo-restaurant.ts` / `import-dishoom-menu.ts`).
  *
  * Usage (from sync2dine-backend):
  *   npx tsx --env-file=.env scripts/seed-real-accounts.ts
@@ -27,11 +28,6 @@ const USERS: Array<{
   attachOrg: boolean;
 }> = [
   { username: 'owner', email: 'owner@sync2dine.io', name: 'Platform Owner', role: 'platform_owner', attachOrg: false },
-  { username: 'maya.nguyen', email: 'maya@demo.sync2dine.io', name: 'Maya Nguyen', role: 'super_admin', attachOrg: true },
-  { username: 'leo.martinez', email: 'leo@demo.sync2dine.io', name: 'Leo Martinez', role: 'manager', attachOrg: true },
-  { username: 'priya.patel', email: 'priya@demo.sync2dine.io', name: 'Priya Patel', role: 'staff', attachOrg: true },
-  { username: 'kai.brooks', email: 'kai@demo.sync2dine.io', name: 'Kai Brooks', role: 'builder', attachOrg: true },
-  { username: 'nina.ross', email: 'nina@demo.sync2dine.io', name: 'Nina Ross', role: 'recruitment', attachOrg: true },
 ];
 
 function admin() {
