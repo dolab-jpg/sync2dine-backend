@@ -155,6 +155,7 @@ async function main() {
   }
 
   console.log('\nApply complete. Keep phone_lines, products, dining_tables, integrations, sally knowledge.');
+  console.log('Browser notifications are localStorage (tradepro_notifications) — SPA one-shot s2d.notificationsLaunchCleared.v1 clears them on next load.');
 }
 
 main().catch((err) => {
