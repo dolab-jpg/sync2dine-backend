@@ -46,6 +46,7 @@ async function handleCreateLeadFromCall(req: IncomingMessage, res: ServerRespons
     callId?: string;
     phone?: string;
     name?: string;
+    contactName?: string;
     email?: string;
     address?: string;
     notes?: string;
@@ -78,12 +79,17 @@ async function handleCreateLeadFromCall(req: IncomingMessage, res: ServerRespons
   const fallbackName = callContactName && callContactName !== 'Guest' ? callContactName : undefined;
   const name = firstNonEmpty(body.name) ?? fallbackName;
   if (!name) {
-    sendJson(res, 400, { error: 'name is required' });
+    sendJson(res, 400, { error: 'restaurant name is required' });
+    return;
+  }
+  const contactName = firstNonEmpty(body.contactName) ?? fallbackName;
+  if (!contactName) {
+    sendJson(res, 400, { error: 'point of contact is required' });
     return;
   }
 
   const { customer, isNewLead, error, spokenHint } = captureOrUpdateLead(
-    { name, phone, email: body.email, address: body.address, notes: body.notes },
+    { name, contactName, phone, email: body.email, address: body.address, notes: body.notes },
     { callId: body.callId, fallbackPhone: phone },
   );
 

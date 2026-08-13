@@ -263,7 +263,8 @@ export async function handleAccountAuthRoutes(
           const homeId = getHomeOrgId();
           withOrgContext(homeId, () => {
             const saved = saveCustomerRecord({
-              name,
+              name: companyName,
+              contactName: name,
               email,
               phone,
               status: 'lead',

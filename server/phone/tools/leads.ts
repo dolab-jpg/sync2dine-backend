@@ -53,6 +53,8 @@ export function isStaffPartyPhone(phone: string | undefined | null): boolean {
 
 export interface CaptureLeadFields {
   name?: unknown;
+  /** Person to speak to — restaurant name stays on `name` */
+  contactName?: unknown;
   phone?: unknown;
   email?: unknown;
   address?: unknown;
@@ -112,7 +114,9 @@ export function captureOrUpdateLead(
     ? store.customers.find((c) => String(c.id) === existingLookup.customerId)
     : undefined;
 
-  const name = firstString(fields.name) ?? (existing?.name as string | undefined) ?? 'Unknown caller';
+  const name = firstString(fields.name) ?? (existing?.name as string | undefined) ?? 'Unknown restaurant';
+  const contactName =
+    firstString(fields.contactName) ?? (existing?.contactName as string | undefined);
   const scopeNote = [fields.scope, fields.notes].filter(Boolean).join(' — ');
   const combinedNotes = [existing?.notes, scopeNote].filter(Boolean).join(' | ');
   const newTrades = Array.isArray(fields.interestedTrades) ? fields.interestedTrades : [];
@@ -122,6 +126,7 @@ export function captureOrUpdateLead(
   const customer = saveCustomerRecord({
     id: existing?.id,
     name,
+    ...(contactName ? { contactName } : {}),
     phone: phone ?? existing?.phone ?? '',
     email: firstString(fields.email) ?? existing?.email ?? '',
     address: firstString(fields.address, fields.postcode) ?? existing?.address ?? '',
