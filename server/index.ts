@@ -11,6 +11,7 @@ import { handleAgentRoutes } from './agent-routes';
 import { handleProjectRoutes } from './project-routes';
 import { handleBuildingControlRoutes } from './building-control-routes';
 import { handleConversationAudit } from './conversation-audit';
+import { handlePhoneIncidents } from './phone-incidents';
 import { handleAIStudioRoutes } from './ai-studio-routes';
 import { handleBankingRoutes } from './banking-routes';
 import { handleMessageRoutes } from './messages-routes';
@@ -99,6 +100,8 @@ const server = createServer(async (req, res) => {
     if (await handleSallyKnowledgeRoutes(req, res, pathname)) return;
 
     if (await handleConversationAudit(req, res, pathname)) return;
+
+    if (await handlePhoneIncidents(req, res, pathname)) return;
 
     if (await handleBankingRoutes(req, res, pathname, url)) return;
 

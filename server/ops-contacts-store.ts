@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { toE164Uk } from './phone/vapi-client';
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
 const CONTACTS_FILE = join(DATA_DIR, 'ops-contacts.json');
@@ -33,10 +34,16 @@ function fromEnv(): Partial<OpsContacts> {
   };
 }
 
+function normalizeAlertPhone(raw: string): string {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return '';
+  return toE164Uk(trimmed);
+}
+
 function normalize(raw: Partial<OpsContacts> | null | undefined): OpsContacts {
   const env = fromEnv();
   const email = String(raw?.alertEmail ?? env.alertEmail ?? DEFAULT_EMAIL).trim() || DEFAULT_EMAIL;
-  const phone = String(raw?.alertPhone ?? env.alertPhone ?? '').trim();
+  const phone = normalizeAlertPhone(String(raw?.alertPhone ?? env.alertPhone ?? ''));
   const trae = String(raw?.traeWebhookUrl ?? env.traeWebhookUrl ?? '').trim();
   return {
     alertEmail: email,

@@ -129,10 +129,66 @@ send_email() {
   log "email_skip no_mailer to=$to"
 }
 
+sms_kind_for_event() {
+  local event="$1" title="$2"
+  case "$event" in
+    api_down) echo "api_down" ;;
+    test) echo "test" ;;
+    api_recovered)
+      if [[ "$title" == *[Aa]uto*restart* ]] || [[ "$title" == *[Rr]estart* ]]; then
+        echo "api_restarted"
+      else
+        echo "api_recovered"
+      fi
+      ;;
+    *) echo "ops_alert" ;;
+  esac
+}
+
 send_sms() {
-  local to="$1" text="$2"
+  local to="$1" kind="$2" title="${3:-}" message="${4:-}"
   [[ -z "$to" ]] && return 0
   load_env
+
+  local node_bin=""
+  if [[ -x /opt/plesk/node/24/bin/node ]]; then
+    node_bin=/opt/plesk/node/24/bin/node
+  elif command -v node >/dev/null 2>&1; then
+    node_bin=$(command -v node)
+  fi
+  local tsx_cli="$BE/node_modules/tsx/dist/cli.mjs"
+  if [[ -n "$node_bin" && -f "$BE/scripts/ops-send-alert-sms.ts" && -f "$tsx_cli" ]]; then
+    if (
+      cd "$BE"
+      "$node_bin" "$tsx_cli" --env-file=.env scripts/ops-send-alert-sms.ts \
+        --to "$to" --kind "$kind" --title "$title" --message "$message"
+    ) >>"$LOG_FILE" 2>&1; then
+      log "sms_ok via=cli to=$to kind=$kind"
+      return 0
+    fi
+    log "sms_fail cli to=$to kind=$kind"
+    return 0
+  fi
+
+  local text=""
+  case "$kind" in
+    api_down)
+      text="Sync2Dine is down. The app and phone lines may not answer. We are restarting now."
+      ;;
+    api_recovered)
+      text="Sync2Dine is back up. App and phones should work again."
+      ;;
+    api_restarted)
+      text="Sync2Dine had a blip. We restarted it and it is working again."
+      ;;
+    test)
+      text="This is a Sync2Dine test alert. If you got this, SMS is working."
+      ;;
+    *)
+      text="Sync2Dine needs attention. Please check the app when you can."
+      ;;
+  esac
+
   local sid="${TWILIO_ACCOUNT_SID:-}" token="${TWILIO_AUTH_TOKEN:-}" from="${TWILIO_FROM_NUMBER:-${TWILIO_PHONE_NUMBER:-}}"
   if [[ -z "$sid" || -z "$token" || -z "$from" ]]; then
     log "sms_skip twilio_not_configured"
@@ -180,8 +236,10 @@ notify_all() {
   phone=$(printf '%s' "$json" | extract_field alertPhone)
   hook=$(printf '%s' "$json" | extract_field traeWebhookUrl)
   [[ -z "$email" ]] && email="$DEFAULT_EMAIL"
+  local sms_kind
+  sms_kind=$(sms_kind_for_event "$event" "$title")
   send_email "$title" "$message"$'\n'"Event: $event"$'\n'"Health: $PUBLIC_HEALTH" "$email"
-  send_sms "$phone" "Sync2Dine: $title — $message"
+  send_sms "$phone" "$sms_kind" "$title" "$message"
   send_webhook "$hook" "$event" "$title" "$message"
 }
 

@@ -2,6 +2,7 @@
  * Fan-out ops notifications to email, SMS, and Trae webhook.
  */
 import { getOpsContacts } from './ops-contacts-store';
+import { formatOpsSms, resolveOpsSmsKind } from './ops-sms';
 
 export type OpsNotifyEvent = 'api_down' | 'api_recovered' | 'ops_alert' | 'test';
 
@@ -114,9 +115,22 @@ export async function sendOpsNotify(input: {
   if (want.sms && contacts.alertPhone) {
     try {
       const { sendTwilioSms } = await import('./telephony/twilioAdapter');
-      const body = `Sync2Dine ${payload.severity}: ${payload.title} — ${payload.message}`.slice(0, 300);
+      const smsKind = resolveOpsSmsKind({
+        event: input.event,
+        title: input.title,
+        message: input.message,
+        code: input.code,
+      });
+      const body = formatOpsSms(smsKind, {
+        title: input.title,
+        message: input.message,
+      });
       const r = await sendTwilioSms(contacts.alertPhone, body);
-      results.sms = { ok: true, stub: Boolean(r.stub) };
+      if (r.stub) {
+        results.sms = { ok: false, error: 'twilio_not_configured', stub: true };
+      } else {
+        results.sms = { ok: true };
+      }
     } catch (err) {
       results.sms = { ok: false, error: err instanceof Error ? err.message : 'sms_failed' };
     }

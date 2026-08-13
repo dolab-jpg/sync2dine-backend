@@ -1420,6 +1420,14 @@ async function handleVapiMessage(
       return;
     } catch (err) {
       console.error('[vapi] assistant-request failed', err instanceof Error ? err.message : err);
+      void import('../ai/phone-incidents').then(({ recordPhoneIncident }) => {
+        recordPhoneIncident({
+          severity: 'call_fail',
+          error: err instanceof Error ? err.message : 'assistant_request_failed',
+          route: '/webhooks/vapi',
+          details: { type: 'assistant-request' },
+        });
+      }).catch(() => {});
       try {
         const { assistant } = await buildVapiAssistantForParty({
           partyPhone: '',
