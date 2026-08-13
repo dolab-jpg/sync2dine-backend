@@ -272,7 +272,7 @@ export async function handleOrchestrator(body: OrchestratorRequest): Promise<Orc
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const lastMessage = messages[messages.length - 1]?.content ?? '';
   const { mapOpenAIError } = await import('../openai-connection');
-  const { createLLMClientForOrg, defaultChatModelForProvider } = await import('../llm-connection');
+  const { createLLMClientForOrg, createOpenAISpecialistClientForOrg, defaultChatModelForProvider } = await import('../llm-connection');
   const { resolveOrgIdFromBody } = await import('../../org-context');
   const orgId = resolveOrgIdFromBody(body as { orgId?: string });
   const mode = resolveMode(body);
@@ -292,20 +292,33 @@ export async function handleOrchestrator(body: OrchestratorRequest): Promise<Orc
       bodyDeepSeekApiKey: (body as { deepseekApiKey?: string }).deepseekApiKey,
       provider: (body as { provider?: string }).provider,
     });
-    const remappedBody = {
+    let chatClient = openai;
+    let remappedBody: OrchestratorRequest = {
       ...body,
       model: defaultChatModelForProvider(provider, body.model ?? 'gpt-4o-mini'),
     };
+    const hasImages = Array.isArray(body.images)
+      && body.images.some((u) => typeof u === 'string' && u.length > 0);
+
+    // DeepSeek chat rejects image_url — vision stays on the OpenAI specialist client.
+    if (hasImages && provider === 'deepseek') {
+      try {
+        chatClient = await createOpenAISpecialistClientForOrg(orgId, '/api/ai/orchestrate', body.apiKey);
+        remappedBody = { ...body, model: 'gpt-4o' };
+      } catch {
+        remappedBody = { ...remappedBody, images: [] };
+      }
+    }
 
     if (mode === 'customer' || mode === 'cyrus') {
-      return await runCustomerOrchestrator(openai as unknown as Parameters<typeof runCustomerOrchestrator>[0], remappedBody, messages);
+      return await runCustomerOrchestrator(chatClient as unknown as Parameters<typeof runCustomerOrchestrator>[0], remappedBody, messages);
     }
 
     if (mode === 'phone') {
-      return await runPhoneOrchestrator(openai as unknown as Parameters<typeof runCustomerOrchestrator>[0], remappedBody, messages);
+      return await runPhoneOrchestrator(chatClient as unknown as Parameters<typeof runCustomerOrchestrator>[0], remappedBody, messages);
     }
 
-    return await runStaffOrchestrator(openai as unknown as Parameters<typeof runStaffOrchestrator>[0], remappedBody, messages);
+    return await runStaffOrchestrator(chatClient as unknown as Parameters<typeof runStaffOrchestrator>[0], remappedBody, messages);
   } catch (err) {
     throw mapOpenAIError(err);
   }
