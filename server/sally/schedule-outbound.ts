@@ -203,7 +203,8 @@ export async function scheduleSallyOutboundDialWithResearch(
   let briefExtra = '';
 
   const company = String(input.company || input.customerName || '').trim();
-  if (company) {
+  const skipResearch = process.env.SALLY_SKIP_PRECALL_RESEARCH === '1';
+  if (company && !skipResearch) {
     try {
       const { researchRestaurantProfile, draftToAboutUs } = await import('../restaurant-research');
       const result = await researchRestaurantProfile({

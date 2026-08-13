@@ -210,6 +210,15 @@ export interface AgentSettings {
   callQueueMaxConcurrent?: number;
   /** Outbound worker state */
   outboundQueueState?: 'running' | 'paused' | 'stopped';
+  /** Last Vapi/voice health check for outbound autodial */
+  outboundVoiceHealth?: {
+    ok: boolean;
+    error?: string;
+    checkedAt: string;
+    consecutiveSilentOutbound?: number;
+    lastSilentCallId?: string;
+    pausedForSilent?: boolean;
+  };
   /** Total AI agent slots (inbound + outbound). Default 5. */
   maxAgentSlots?: number;
   /** Reserved inbound AI slots. Default 4. */
@@ -1794,7 +1803,7 @@ export function expireStaleOpenCalls(nowMs: number = Date.now()): number {
   return closed;
 }
 
-function isOpenCallStatus(status: unknown): boolean {
+export function isOpenCallStatus(status: unknown): boolean {
   const s = String(status ?? '');
   return s === 'ringing' || s === 'in_progress';
 }

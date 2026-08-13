@@ -142,6 +142,21 @@ export const LEAD_CYCLE_TOOLS = [
   {
     type: 'function' as const,
     function: {
+      name: 'getCampaignProgress',
+      description:
+        'Campaign / CSV outbound progress: how many leads contacted, queued, dialling, called, dispositions, what was said, voice health. Use when staff ask how the campaign is going, how many calls were made, or what Sally said. Do not invent counts.',
+      parameters: {
+        type: 'object',
+        properties: {
+          batchId: { type: 'string', description: 'Optional leadBatchId / campaign id (e.g. sales-2026-08-13 or camp-…)' },
+          campaign: { type: 'string', description: 'Alias for batchId' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'searchLeads',
       description: 'Search CRM leads by name, status, source, or notes',
       parameters: {

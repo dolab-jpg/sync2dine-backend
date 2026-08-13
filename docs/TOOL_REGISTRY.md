@@ -92,6 +92,7 @@ Full unique name list: `_generated/tools-discovered.json` ? `uniqueNames`.
 - Phone org isolation: **runtime** DID ? `orgId` (not prompt-only) for Judie orders.
 - Staff phone tools: **runtime** PIN + identity (`phone-auth.ts`).
 - Web orchestrator: session auth + role gating in handler; treat **prompt-only** role hints as insufficient for money/destructive tools — prefer BE checks in executors.
+- `getCampaignProgress` (orch_staff `LEAD_CYCLE_TOOLS`): Cynthia chat read of CRM + `outbound_queue` + calls via `executeServerReadTool` / `GET /api/campaigns/progress`. Role-gated (`SALES_QUOTING`). Do not invent campaign counts.
 - Public Sally Web: blocked tool set must stay enforced in code (`SALLY_WEB_BLOCKED_TOOLS`), not prompt alone.
 - Flag any new tool that relies only on system-prompt “do not call X” as **security concern**.
 

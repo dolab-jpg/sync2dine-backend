@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-08-07T14:04:51.091Z",
+  "generatedAt": "2026-08-13T14:22:40.936Z",
   "beRoot": "sync2dine-backend",
   "counts": {
-    "uniqueTools": 186,
-    "toolOccurrences": 218,
-    "routePrefixes": 223,
+    "uniqueTools": 187,
+    "toolOccurrences": 219,
+    "routePrefixes": 224,
     "bootWorkers": 10,
     "quarantineFiles": 8,
-    "dynamicImports": 292,
+    "dynamicImports": 308,
     "envGates": 55,
     "phoneBrains": 3
   },
@@ -18,8 +18,8 @@
     "server/_quarantine/vapi-routes.vps.ts"
   ],
   "fingerprints": {
-    "tools": "fa39f522dbd33e4a",
-    "routes": "ac700192d90babdc",
+    "tools": "4138d2e62e484c8c",
+    "routes": "712af8e7b71a63ae",
     "bootWorkers": "25829c6bc285a94b",
     "brains": "ed32ef02a42ca423"
   }

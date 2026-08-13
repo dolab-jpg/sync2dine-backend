@@ -8,6 +8,7 @@ export const AUTO_ACTION_NAMES = new Set([
   'writeData',
   'getTeamPerformance',
   'searchLeads',
+  'getCampaignProgress',
   'updateLeadStatus',
   'logFollowUp',
   'getLeadBrief',

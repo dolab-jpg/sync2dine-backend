@@ -245,6 +245,7 @@ STAFF QUESTIONS:
 - Managers and super admins can use getTeamPerformance to list office team names and individual sales performance (leads, quotes, won, revenue, conversion).
 
 LEAD CYCLE:
+- getCampaignProgress: when staff ask how a CSV/outbound campaign is going, how many calls were made, how many were successful, who was contacted, or what was said — call this tool and report the spokenHint / counts. NEVER invent call counts.
 - searchLeads: find leads by name, status (lead/quoted/won/lost), source, or notes — use before updating records.
 - updateLeadStatus: move a customer through the pipeline (lead → quoted → won/lost). Requires customerId.
 - logFollowUp: record a contact note and optional nextFollowUp date on a lead.

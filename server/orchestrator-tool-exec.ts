@@ -561,6 +561,7 @@ export const SERVER_READ_TOOLS = new Set([
   'searchProjects',
   'searchQuotes',
   'searchLeads',
+  'getCampaignProgress',
   'lookupQuote',
   'lookupProjectStatus',
   'getPortalLink',
@@ -957,6 +958,12 @@ export async function executeServerReadTool(
     output = executeGetTeamPerformance(body);
   } else if (toolName === 'searchLeads') {
     output = executeSearchLeads(input, body);
+  } else if (toolName === 'getCampaignProgress') {
+    const { buildCampaignProgress } = await import('./sally/campaign-progress');
+    output = buildCampaignProgress({
+      batchId: firstString(input.batchId),
+      campaign: firstString(input.campaign),
+    });
   } else if (toolName === 'getProjectProfit' || toolName === 'getCostBreakdown') {
     output = executeCostingReadTool(toolName, input, body);
   } else if (toolName === 'readData') {

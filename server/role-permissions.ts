@@ -42,6 +42,7 @@ const SALES_QUOTING = new Set([
   'searchProjects',
   'searchQuotes',
   'searchLeads',
+  'getCampaignProgress',
   'updateLeadStatus',
   'logFollowUp',
   'getLeadBrief',

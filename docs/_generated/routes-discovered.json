@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-07T14:04:51.091Z",
+  "generatedAt": "2026-08-13T14:22:40.936Z",
   "prefixes": [
     "/api/agent/capacity",
     "/api/agent/credentials",
@@ -85,6 +85,7 @@
     "/api/calls/outbound",
     "/api/calls/outbound/bulk",
     "/api/campaigns/lapsed-customers",
+    "/api/campaigns/progress",
     "/api/campaigns/queue-lapsed",
     "/api/campaigns/templates",
     "/api/campaigns/upload",
@@ -433,6 +434,11 @@
     },
     {
       "prefix": "/api/agent/capacity",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/campaigns/progress",
       "file": "server/ai/agent-routes.ts",
       "kind": "exact"
     },

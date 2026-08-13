@@ -35,6 +35,15 @@ async function processOutboundQueue(): Promise<void> {
   const queueState = getOutboundQueueState();
   if (queueState !== 'running') return;
 
+  try {
+    const { ensureOutboundVoiceReady } = await import('./sally/outbound-voice-health');
+    const voiceOk = await ensureOutboundVoiceReady();
+    if (!voiceOk) return;
+  } catch (err) {
+    console.error('Outbound voice health check failed:', err);
+    return;
+  }
+
   const inQuietHours = isWithinCallQueueQuietHours();
   const capacity = getAgentCapacitySnapshot();
   if (capacity.outboundSlotsFree <= 0) return;

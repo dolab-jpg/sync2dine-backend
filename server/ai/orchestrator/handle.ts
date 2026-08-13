@@ -428,6 +428,11 @@ export async function runStaffOrchestrator(
 
       if (SERVER_READ_TOOLS.has(toolName)) {
         output = await executeServerReadTool(toolName, parsedInput, body);
+        proposedActions.push({
+          action: toolName,
+          input: parsedInput,
+          output: requestedAs ? { ...output, requestedAs } : output,
+        });
       } else if (RESTAURANT_TOOL_NAMES.has(toolName)) {
         output = await executeRestaurantTool(toolName, parsedInput, { ...body, orgId: orgId ?? undefined });
         proposedActions.push({

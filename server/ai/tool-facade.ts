@@ -28,6 +28,7 @@ const SEARCH_RECORDS_OPS: OperationMap = {
   projects: 'searchProjects',
   quotes: 'searchQuotes',
   leads: 'searchLeads',
+  campaignProgress: 'getCampaignProgress',
   emails: 'searchEmails',
   businessSnapshot: 'getBusinessSnapshot',
   teamPerformance: 'getTeamPerformance',
@@ -223,6 +224,7 @@ export const FACADE_TOOLS = [
 - projects: search projects — payload { query (required), customerId, status, limit }.
 - quotes: search quotes — payload { query, customerId, tradeId, status, limit }.
 - leads: search CRM leads — payload { query, status (lead|quoted|won|lost), source, limit }.
+- campaignProgress: CSV/outbound campaign progress (calls made, contacted, dispositions, what was said) — payload { batchId, campaign }.
 - emails: search connected mailbox — payload { query, from, dateFrom, dateTo, limit, connectionId }.
 - businessSnapshot: live counts of customers/quotes/projects/team — no payload.
 - teamPerformance: office team roster + sales metrics (managers/admins only) — no payload.

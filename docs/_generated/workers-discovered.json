@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-07T14:04:51.090Z",
+  "generatedAt": "2026-08-13T14:22:40.936Z",
   "bootFromIndex": [
     {
       "name": "startMailboxPoller",
@@ -122,6 +122,11 @@
       "name": "setInterval",
       "file": "server/sales-brain/worker.ts",
       "kind": "interval"
+    },
+    {
+      "name": "startOfTodayIso",
+      "file": "server/sally/campaign-progress.ts",
+      "kind": "function"
     },
     {
       "name": "startSallyKnowledgeWorker",

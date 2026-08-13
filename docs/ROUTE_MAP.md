@@ -1,19 +1,21 @@
 # Route and handler map (reviewed)
 
 **Evidence:** [`_generated/routes-discovered.json`](./_generated/routes-discovered.json)  
-**Mount order SoT:** `server/index.ts` ∑ short table: [`server/README.md`](../server/README.md)
+**Mount order SoT:** `server/index.ts` ù short table: [`server/README.md`](../server/README.md)
 
 ## Classification legend
 
 `public` | `auth` | `org` | `staff` | `admin` | `webhook` | `internal` | `disabled`
 
-Exact auth enforcement varies by handler ó prefer reading the route file. Many `/api/*` routes use `requireAuth` / org headers when `AUTH_ENFORCED`.
+Exact auth enforcement varies by handler ù prefer reading the route file. Many `/api/*` routes use `requireAuth` / org headers when `AUTH_ENFORCED`.
+
+**Live testing:** see [`LIVE_TESTING_ACCESS.md`](./LIVE_TESTING_ACCESS.md) for current class per family, callers, and deferred lockdown recommendations. **Do not add access gates during live testing.**
 
 ## Primary mounts (by family)
 
 | Prefix / family | Handler module | Class | Notes |
 |-----------------|----------------|-------|-------|
-| `/health` | whatsapp-webhook | public | health ó must stay 200 for phone; nginx 502 = API process down |
+| `/health` | whatsapp-webhook | public | health ù must stay 200 for phone; nginx 502 = API process down |
 | `/api/ops/alerts` | agent-routes | auth | in-process banner alerts (useless if API dead) |
 | `/api/platform/ops-contacts` | platform-routes | platform_owner | GET/PUT alert email/SMS/Trae webhook |
 | `/api/platform/ops-contacts/test` | platform-routes | platform_owner | POST test fan-out |
@@ -21,12 +23,15 @@ Exact auth enforcement varies by handler ó prefer reading the route file. Many `
 | `/webhooks/voice/*`, `/api/calls/*` | phone/phone-webhook | webhook / auth | softphone + call APIs |
 | `/webhooks/vapi`, `/api/vapi/*` | phone/vapi-routes | webhook / auth | **live phone AI** |
 | `/api/agent/*` | ai/agent-routes | staff | lines, voices, TTS |
+| `/api/campaigns/upload` | ai/agent-routes | staff | CSV ? outbound queue (Sally research) |
+| `/api/campaigns/progress` | ai/agent-routes | staff | Cynthia campaign progress (CRM + queue + calls) |
 | `/api/projects`, `/api/portal`, `/api/data/sync`, files | project-routes | auth/org | |
 | `/api/building-control` | building-control-routes | staff | |
 | `/api/ai/studio` | ai/ai-studio-routes | staff | config |
 | `/api/sales-brain` | sales-brain/routes | staff/admin | |
 | `/api/sally-knowledge` | sally-product-kb/routes | staff | |
-| `/api/ai/conversation-log` | ai/conversation-audit | staff | |
+| `/api/ai/conversation-log` | ai/conversation-audit | staff | DELETE thread + delete-batch |
+| `/api/ai/phone-incidents` | ai/phone-incidents | staff | Phone ops queue; DELETE + delete-batch |
 | `/api/banking` | banking-routes | staff | |
 | `/api/mailbox`, `/webhooks/gmail\|outlook` | mailbox-routes | staff / webhook | |
 | `/api/calendar` | calendar-routes | staff | |
@@ -34,11 +39,11 @@ Exact auth enforcement varies by handler ó prefer reading the route file. Many `
 | `/api/ai/price-research` | price-research-routes | staff | |
 | `/api/contracts`, `/api/contract` | contract-routes | auth | |
 | `/api/stripe` (+ webhook) | billing/stripe-routes | webhook / auth | |
-| `/api/auth` | auth + account-auth | public+auth | login, invites |
+| `/api/auth` | auth + account-auth | public+auth | login, invites, `POST /register-org` (optional phone; home-org CRM lead) |
 | `/api/org/openai-key`, `/api/org/ai-brain` | org-openai-key-routes | admin | |
 | `/api/org/.../integrations` | org-integrations-routes | admin | |
 | org phone billing / weekly billing | billing/* | admin | |
-| `/api/platform` | platform-routes | admin | |
+| `/api/platform` | platform-routes | admin | includes `POST /organizations/sync-from-crm` (won CRM ? tenants) |
 | `/api/leads` | leads-routes | staff | |
 | `/api/orders` | orders/orders-routes | auth/org | restaurant |
 | `/api/menu` | orders/menu-routes | auth/org | |
@@ -53,7 +58,7 @@ Exact auth enforcement varies by handler ó prefer reading the route file. Many `
 | `/api/whatsapp-web` | whatsapp-web-routes | staff | |
 | gap SMS/Stripe/banking helpers | ai/gap-api-routes | staff | |
 | `/api/agent-activity` | agent-activity-routes | staff | |
-| `/api/ai/*` catch-all | ai/ai-proxy | auth | orchestrate, staff, code-fix, Ö |
+| `/api/ai/*` catch-all | ai/ai-proxy | auth | orchestrate, staff, code-fix, ù |
 
 ## FE ? BE entry points (representative)
 
@@ -62,14 +67,15 @@ Exact auth enforcement varies by handler ó prefer reading the route file. Many `
 | Cynthia overlay / orchestrate | `/api/ai/orchestrate`, `/api/ai/staff` |
 | Sally widget / Ask Sync2Dine | `POST /api/sally/web` |
 | Restaurant boards | `/api/orders`, `/api/menu`, `/api/reservations` |
-| Call Centre | `/api/agent/*`, `/api/vapi/*`, `/api/calls/*` |
-| Self-heal | `/api/ai/code-fix*` |
+| Call Centre | `/api/agent/*`, `/api/vapi/*`, `/api/calls/*`, `/api/campaigns/*` |
+| Self-heal | `/api/ai/code-fix*` (delete + delete-batch) |
+| Phone errors audit | `/api/ai/phone-incidents*` |
 
 ## Not mounted / quarantine
 
-- `server/_quarantine/*` ó not in `index.ts`
-- `phone/phone-orchestrator.ts` ó throw stub; not on Vapi path
-- `realtime-routes` ó not mounted in index (legacy)
+- `server/_quarantine/*` ù not in `index.ts`
+- `phone/phone-orchestrator.ts` ù throw stub; not on Vapi path
+- `realtime-routes` ù not mounted in index (legacy)
 
 ## Related
 

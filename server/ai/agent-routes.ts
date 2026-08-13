@@ -668,6 +668,13 @@ export async function handleAgentRoutes(
     return true;
   }
 
+  if (pathname === '/api/campaigns/progress' && req.method === 'GET') {
+    const { buildCampaignProgress } = await import('../sally/campaign-progress');
+    const batchId = url.searchParams.get('batchId') || url.searchParams.get('campaign') || undefined;
+    sendJson(res, 200, buildCampaignProgress({ batchId: batchId || undefined }));
+    return true;
+  }
+
   if (pathname === '/api/campaigns/upload' && req.method === 'POST') {
     const body = JSON.parse(await readBody(req)) as {
       csv?: string;
@@ -686,7 +693,7 @@ export async function handleAgentRoutes(
             customerId: r.customerId != null ? String(r.customerId) : undefined,
           }))
         : parseCampaignCsv(String(body.csv ?? ''));
-      const result = queueCsvCampaign({
+      const result = await queueCsvCampaign({
         rows,
         template: body.template,
         brief: body.brief,

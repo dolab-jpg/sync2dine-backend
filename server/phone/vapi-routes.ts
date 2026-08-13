@@ -706,6 +706,18 @@ function finalizeVapiCall(
 
   completeOutboundJobsForCall(callId, { disposition, endedReason: endedReason || undefined });
 
+  void import('../sally/outbound-voice-health').then(({ noteOutboundCallSpeech }) => {
+    noteOutboundCallSpeech({
+      callId,
+      direction: after?.direction != null ? String(after.direction) : undefined,
+      endedReason,
+      disposition,
+      durationSec,
+      transcript: after?.transcript,
+      partyPhone,
+    });
+  }).catch(() => {});
+
   const resolved = resolveContactByPhone(partyPhone);
   const customerId = resolved.customerId
     || (afterMeta.customerId != null ? String(afterMeta.customerId) : null)

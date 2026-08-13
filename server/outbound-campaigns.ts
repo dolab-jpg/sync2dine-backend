@@ -7,7 +7,7 @@ import {
   saveCustomerRecord,
 } from './data-store';
 import type { OutboundCampaignTemplate } from './telephony/types';
-import { scheduleSallyOutboundDial } from './sally/schedule-outbound';
+import { scheduleSallyOutboundDialWithResearch } from './sally/schedule-outbound';
 import { assessContactEligibility } from './sally/call-eligibility';
 import { normalizeVenueType } from './sally/dial-windows';
 
@@ -152,6 +152,7 @@ export type CsvCampaignRow = {
   name: string;
   phone: string;
   notes?: string;
+  address?: string;
   customerId?: string;
   venueType?: string;
   openingHours?: string;
@@ -199,8 +200,10 @@ export function parseCampaignCsv(text: string): CsvCampaignRow[] {
 
   const rows: CsvCampaignRow[] = [];
   for (let i = start; i < lines.length; i++) {
-    const parts = lines[i].match(/("([^"]|"")*"|[^,]*)/g)?.map((p) => p.replace(/^"|"$/g, '').replace(/""/g, '"').trim())
-      ?? lines[i].split(',').map((p) => p.trim());
+    const raw = lines[i];
+    const parts = raw.includes('"')
+      ? (raw.match(/("[^"]*(?:""[^"]*)*"|[^,]+)/g) || []).map((p) => p.replace(/^"|"$/g, '').replace(/""/g, '"').trim())
+      : raw.split(',').map((p) => p.trim());
     const phone = parts[phoneI >= 0 ? phoneI : 1] ?? '';
     let name = parts[nameI >= 0 ? nameI : 0] ?? 'Guest';
     if (/^\d+$/.test(name) || (idI >= 0 && name === parts[idI])) {
@@ -236,6 +239,7 @@ export function parseCampaignCsv(text: string): CsvCampaignRow[] {
       name: name || 'Guest',
       phone,
       notes: extraNotes || undefined,
+      address: addressBits.length ? addressBits.join(', ') : undefined,
       customerId: idI >= 0 ? parts[idI] : undefined,
       venueType: category || 'takeaway',
       openingHours: openingHours || undefined,
@@ -248,14 +252,38 @@ export function parseCampaignCsv(text: string): CsvCampaignRow[] {
   return rows;
 }
 
-export function queueCsvCampaign(input: {
+const CSV_RESEARCH_CONCURRENCY = 3;
+
+async function mapPool<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  const n = Math.max(1, Math.min(concurrency, items.length || 1));
+  await Promise.all(Array.from({ length: items.length ? n : 0 }, () => worker()));
+  return results;
+}
+
+export async function queueCsvCampaign(input: {
   rows: CsvCampaignRow[];
   template?: string;
   brief?: string;
   dryRun?: boolean;
+  batchId?: string;
   /** Default true for Sally/sales templates — schedule into venue dial windows */
   venueAware?: boolean;
-}): { queued: number; skipped: number; jobs: Array<Record<string, unknown>>; preview: CsvCampaignRow[] } {
+}): Promise<{
+  queued: number;
+  skipped: number;
+  held: number;
+  campaignId: string;
+  jobs: Array<Record<string, unknown>>;
+  preview: CsvCampaignRow[];
+}> {
   const template = String(input.template || 'sally_sales');
   const brief = String(input.brief || 'Sales outreach — introduce Sync2Dine.');
   const store = getDataStore();
@@ -266,11 +294,15 @@ export function queueCsvCampaign(input: {
   );
   const jobs: Array<Record<string, unknown>> = [];
   let skipped = 0;
-  const campaignId = `camp-${Date.now()}`;
+  let held = 0;
+  const campaignId = String(input.batchId || '').trim() || `camp-${Date.now()}`;
   const isSally =
     /sally|sales|lead_callback/i.test(template)
     || input.venueAware !== false;
   const venueAware = input.venueAware !== false && isSally;
+
+  type WorkItem = { row: CsvCampaignRow; phone: string; index: number };
+  const work: WorkItem[] = [];
 
   for (let i = 0; i < input.rows.length; i++) {
     const row = input.rows[i];
@@ -281,15 +313,20 @@ export function queueCsvCampaign(input: {
     }
     alreadyQueued.add(phone);
     if (input.dryRun) continue;
+    work.push({ row, phone, index: i });
+  }
 
+  await mapPool(work, CSV_RESEARCH_CONCURRENCY, async ({ row, phone, index }) => {
     let customerId = row.customerId;
     const consentDeclined = /^(0|false|no|n|dnc|do_not_call)$/i.test(String(row.consentToCall || '').trim());
+    const e164 = phone.startsWith('+') ? phone : `+${phone}`;
     const customerPatch: Record<string, unknown> = {
       id: customerId,
       name: row.name,
-      phone: phone.startsWith('+') ? phone : `+${phone}`,
+      phone: e164,
       status: 'lead',
       notes: row.notes,
+      address: row.address,
       source: 'csv_upload',
       consentSource: 'csv_upload',
       consentToCall: consentDeclined ? false : true,
@@ -299,6 +336,9 @@ export function queueCsvCampaign(input: {
       closedDays: row.closedDays,
       preferredContactTimes: row.preferredContactTimes,
       timezone: row.timezone || 'Europe/London',
+      leadBatchId: campaignId,
+      campaign: campaignId,
+      callQueueStatus: 'queued',
       rawUpload: {
         notes: row.notes,
         venueType: row.venueType,
@@ -307,6 +347,7 @@ export function queueCsvCampaign(input: {
         preferredContactTimes: row.preferredContactTimes,
         timezone: row.timezone,
         consentToCall: row.consentToCall,
+        address: row.address,
       },
     };
     try {
@@ -317,65 +358,58 @@ export function queueCsvCampaign(input: {
     }
 
     const customer = customerId
-      ? (getDataStore().customers.find((c) => String(c.id) === customerId) as Record<string, unknown> | undefined)
+      ? (getDataStore().customers.find((c) => String(c.id) === String(customerId)) as Record<string, unknown> | undefined)
       : undefined;
     const eligibility = assessContactEligibility(customer || customerPatch);
     if (!eligibility.eligible) {
       skipped += 1;
-      continue;
+      return;
     }
 
+    const rowBrief = row.notes ? `${brief} Notes: ${row.notes}` : brief;
+    const venueProfile = {
+      venueType: row.venueType || 'takeaway',
+      openingHours: row.openingHours,
+      closedDays: row.closedDays,
+      preferredContactTimes: row.preferredContactTimes,
+      timezone: row.timezone || 'Europe/London',
+    };
+
     if (venueAware) {
-      const result = scheduleSallyOutboundDial({
-        to: phone.startsWith('+') ? phone : `+${phone}`,
+      const result = await scheduleSallyOutboundDialWithResearch({
+        to: e164,
         customerId,
         customerName: row.name,
         company: row.name,
         template,
         aim: 'sales_outreach',
         source: 'csv_campaign',
-        brief: row.notes ? `${brief} Notes: ${row.notes}` : brief,
+        brief: rowBrief,
         venueAware: true,
-        venueProfile: {
-          venueType: row.venueType || 'takeaway',
-          openingHours: row.openingHours,
-          closedDays: row.closedDays,
-          preferredContactTimes: row.preferredContactTimes,
-          timezone: row.timezone || 'Europe/London',
-        },
+        addressHint: row.address || row.notes,
+        venueProfile,
         customer: customer || customerPatch,
         context: {
           campaignId,
-          rowIndex: i,
+          batchId: campaignId,
+          rowIndex: index,
         },
       });
+      if (result.held) {
+        held += 1;
+        if (result.job) jobs.push(result.job);
+        return;
+      }
       if (result.ok && result.job) {
         jobs.push(result.job);
-      } else if (result.reason === 'needs_hours') {
-        jobs.push(enqueueOutboundCall({
-          to: phone.startsWith('+') ? phone : `+${phone}`,
-          template,
-          status: 'needs_hours',
-          customerId,
-          context: {
-            campaignId,
-            rowIndex: i,
-            holdReason: 'needs_hours',
-            company: row.name,
-            agentPersona: 'sally',
-            aim: 'sales_outreach',
-            source: 'csv_campaign',
-            brief: row.notes ? `${brief} Notes: ${row.notes}` : brief,
-          },
-        }));
-      } else {
-        skipped += 1;
+        return;
       }
-      continue;
+      skipped += 1;
+      return;
     }
 
     const job = enqueueOutboundCall({
-      to: phone.startsWith('+') ? phone : `+${phone}`,
+      to: e164,
       template,
       status: 'queued',
       customerId,
@@ -383,17 +417,22 @@ export function queueCsvCampaign(input: {
         customerId,
         customerName: row.name,
         aim: template,
-        brief: row.notes ? `${brief} Notes: ${row.notes}` : brief,
+        brief: rowBrief,
         source: 'csv_campaign',
         campaignId,
-        rowIndex: i,
+        batchId: campaignId,
+        rowIndex: index,
       },
     });
     jobs.push(job);
-  }
+  });
+
+  const queued = jobs.filter((j) => String(j.status ?? '') === 'queued').length;
   return {
-    queued: jobs.length,
+    queued,
     skipped,
+    held,
+    campaignId,
     jobs,
     preview: input.rows.slice(0, 10),
   };
