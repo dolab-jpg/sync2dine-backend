@@ -216,6 +216,7 @@ export function maskOrganization(org: Organization, tokensUsedThisMonth = 0) {
   return {
     ...org,
     openaiApiKeyEncrypted: org.openaiApiKeyEncrypted ? '••••••' : '',
+    deepseekApiKeyEncrypted: org.deepseekApiKeyEncrypted ? '••••••' : undefined,
     tokensUsedThisMonth,
   };
 }

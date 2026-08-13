@@ -409,6 +409,13 @@ function migrateLegacyOrgDiskStores(): void {
   const homeId = getHomeOrgId();
   if (!homeId || homeId === DEFAULT_ORG_ID) return;
 
+  // Home uuid file is SoT once it exists. Re-merging legacy synced-data.json
+  // whenever home CRM is empty resurrects wiped smoke leads on every API boot.
+  if (existsSync(dataFileForOrg(homeId))) {
+    memoryStores.set(homeId, loadFromDisk(homeId));
+    return;
+  }
+
   const home = loadFromDisk(homeId);
   const legacyDefault = loadFromDisk(DEFAULT_ORG_ID);
   const legacySlug = loadFromDisk(BDIDDIES_HOME_ORG_LEGACY_ID);
