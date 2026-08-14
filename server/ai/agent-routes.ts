@@ -794,9 +794,11 @@ export async function handleAgentRoutes(
       const allCrm = body.allCrm === true;
       const result = await queueCrmCampaign({
         batchId: allCrm ? (body.batchId || undefined) : (body.batchId || LEEDS_CAMPAIGN_ID),
+        // Omit statuses for allCrm so queueCrmCampaign uses its orphan-rescue defaults
+        // (not_called + needs_retry + queued + needs_hours). Explicit body.statuses still wins.
         statuses: Array.isArray(body.statuses)
           ? body.statuses
-          : (allCrm ? ['not_called', 'needs_retry'] : ['not_called']),
+          : (allCrm ? undefined : ['not_called']),
         brief: body.brief,
         template: body.template,
         dryRun: body.dryRun === true,
