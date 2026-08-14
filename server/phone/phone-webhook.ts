@@ -557,11 +557,13 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
       customerId?: string;
       venueType?: string;
       openingHours?: string;
+      weeklyHours?: unknown;
       closedDays?: string;
       preferredContactTimes?: string;
       timezone?: string;
       notes?: string;
       address?: string;
+      consentToCall?: string;
     }>;
     template?: string;
     batchId?: string;
@@ -569,127 +571,58 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
     agentPersona?: string;
     aim?: string;
     venueAware?: boolean;
+    dryRun?: boolean;
   };
-  const rows = Array.isArray(body.rows) ? body.rows : [];
-  if (!rows.length) {
+  const rowsIn = Array.isArray(body.rows) ? body.rows : [];
+  if (!rowsIn.length) {
     sendJson(res, 400, { error: 'rows array is required' });
     return;
   }
-  const template = String(body.template ?? 'sally_sales');
-  const batchId = String(body.batchId ?? `sales-csv-${new Date().toISOString().slice(0, 10)}`);
-  const defaultBrief = String(body.brief ?? 'Sales outreach — introduce Sync2Dine takeaway phone platform.');
-  const aim = String(body.aim ?? 'sales_outreach').trim() || 'sales_outreach';
-  const agentPersona = String(body.agentPersona ?? '').trim().toLowerCase() || 'sally';
-  const venueAware = body.venueAware !== false && agentPersona === 'sally';
-  const { scheduleSallyOutboundDialWithResearch } = await import('../sally/schedule-outbound');
-  const { saveCustomerRecord, normalizePhoneExport } = await import('../data-store');
-  const { normalizeVenueType } = await import('../sally/dial-windows');
-  const jobs: Array<Record<string, unknown>> = [];
-  const skipped: string[] = [];
-  let held = 0;
-
-  const CONCURRENCY = 3;
-  async function processRow(row: (typeof rows)[number]) {
-    const phoneRaw = String(row.phone ?? '').trim();
-    const company = String(row.company ?? row.name ?? '').trim();
-    if (!phoneRaw) {
-      skipped.push('missing phone');
-      return;
-    }
-    const phoneNorm = normalizePhoneExport(phoneRaw);
-    let customerId = row.customerId ? String(row.customerId) : undefined;
-    const venueType = row.venueType
-      ? normalizeVenueType(row.venueType)
-      : normalizeVenueType('takeaway');
-    try {
-      const saved = saveCustomerRecord({
-        id: customerId,
-        name: company || 'Restaurant',
-        phone: phoneNorm.startsWith('+') ? phoneNorm : `+${phoneNorm}`,
-        status: 'lead',
-        source: 'sales_csv_dial',
-        consentSource: 'sales_csv_dial',
-        consentToCall: true,
-        venueType,
-        openingHours: row.openingHours,
-        closedDays: row.closedDays,
-        preferredContactTimes: row.preferredContactTimes,
-        timezone: row.timezone || 'Europe/London',
-        notes: row.notes,
-        address: row.address,
-        rawUpload: { ...row },
-      });
-      customerId = String(saved.id);
-    } catch {
-      /* phone-only */
-    }
-
-    if (venueAware) {
-      const result = await scheduleSallyOutboundDialWithResearch({
-        to: phoneNorm.startsWith('+') ? phoneNorm : `+${phoneNorm}`,
-        customerId,
-        customerName: company,
-        company,
-        template,
-        aim,
-        source: 'sales_csv_dial',
-        brief: company ? `${defaultBrief} Company: ${company}.` : defaultBrief,
-        venueAware: true,
-        addressHint: row.address || row.notes,
-        venueProfile: {
-          venueType,
-          openingHours: row.openingHours,
-          closedDays: row.closedDays,
-          preferredContactTimes: row.preferredContactTimes,
-          timezone: row.timezone || 'Europe/London',
-        },
-        context: {
-          agentPersona,
-          batchId,
-        },
-      });
-      if (result.held) {
-        held += 1;
-        if (result.job) jobs.push(result.job);
-        return;
-      }
-      if (result.ok && result.job) jobs.push(result.job);
-      else skipped.push(result.reason || 'skipped');
-      return;
-    }
-
-    const { enqueueOutboundCall } = await import('../data-store');
-    const job = enqueueOutboundCall({
-      to: phoneNorm.startsWith('+') ? phoneNorm : `+${phoneNorm}`,
-      template,
-      status: 'queued',
-      context: {
-        customerId,
-        company,
-        aim,
-        agentPersona,
-        brief: company ? `${defaultBrief} Company: ${company}.` : defaultBrief,
-        source: 'sales_csv_dial',
-        batchId,
-      },
+  try {
+    const { queueCsvCampaign, LEEDS_CAMPAIGN_ID } = await import('../outbound-campaigns');
+    const { normalizeWeeklyHours } = await import('../sally/dial-windows');
+    const batchId = String(body.batchId ?? '').trim() || LEEDS_CAMPAIGN_ID;
+    const template = String(body.template ?? 'sally_sales');
+    const brief = String(body.brief ?? 'Sales outreach — introduce sync Two dine takeaway phone platform.');
+    const venueAware = body.venueAware !== false;
+    const rows = rowsIn.map((row) => {
+      const weekly = normalizeWeeklyHours(row.weeklyHours) || undefined;
+      return {
+        name: String(row.company ?? row.name ?? 'Restaurant').trim() || 'Restaurant',
+        phone: String(row.phone ?? '').trim(),
+        notes: row.notes != null ? String(row.notes) : undefined,
+        address: row.address != null ? String(row.address) : undefined,
+        customerId: row.customerId ? String(row.customerId) : undefined,
+        venueType: row.venueType != null ? String(row.venueType) : 'takeaway',
+        openingHours: row.openingHours != null ? String(row.openingHours) : undefined,
+        weeklyHours: weekly || undefined,
+        closedDays: row.closedDays != null ? String(row.closedDays) : undefined,
+        preferredContactTimes: row.preferredContactTimes != null ? String(row.preferredContactTimes) : undefined,
+        timezone: row.timezone != null ? String(row.timezone) : 'Europe/London',
+        consentToCall: row.consentToCall != null ? String(row.consentToCall) : undefined,
+      };
     });
-    jobs.push(job);
+    const result = await queueCsvCampaign({
+      rows,
+      template,
+      brief,
+      batchId,
+      venueAware,
+      dryRun: body.dryRun === true,
+    });
+    sendJson(res, 200, {
+      success: true,
+      queued: result.queued,
+      held: result.held,
+      skipped: result.skipped,
+      batchId: result.campaignId,
+      campaignId: result.campaignId,
+      venueAware,
+      jobs: result.jobs.slice(0, 50),
+    });
+  } catch (err) {
+    sendJson(res, 400, { error: err instanceof Error ? err.message : 'Bulk outbound failed' });
   }
-
-  for (let i = 0; i < rows.length; i += CONCURRENCY) {
-    const chunk = rows.slice(i, i + CONCURRENCY);
-    await Promise.all(chunk.map((row) => processRow(row)));
-  }
-
-  sendJson(res, 200, {
-    success: true,
-    queued: jobs.filter((j) => String(j.status) !== 'needs_hours').length,
-    held,
-    skipped: skipped.length,
-    batchId,
-    venueAware,
-    jobs: jobs.slice(0, 50),
-  });
 }
 
 function digitsOnly(value: unknown): string {

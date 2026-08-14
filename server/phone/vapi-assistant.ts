@@ -39,7 +39,7 @@ export function buildSilenceHooks(
           ],
           reask:
             "Look, I just need a quick yes or no on a twenty-minute install chat — otherwise I'll leave it there.",
-          bye: "Alright, I'll let you go — ring Sync2Dine when you're free. Cheers!",
+          bye: `Alright, I'll let you go — ring ${SYNC2DINE_SPOKEN} when you're free. Cheers!`,
         }
       : persona === 'staff' || persona === 'cynthia'
         ? {
