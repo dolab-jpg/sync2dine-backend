@@ -733,6 +733,7 @@ function finalizeVapiCall(
     const aim = afterMeta.aim != null ? String(afterMeta.aim) : (afterMeta.brief != null ? 'callback' : undefined);
     const isSally = String(afterMeta.agentPersona || '').toLowerCase() === 'sally'
       || String(aim || '').toLowerCase() === 'sales_outreach'
+      || String(aim || '').toLowerCase() === 'sally_sales'
       || String(aim || '').toLowerCase() === 'meeting_confirm'
       || String(aim || '').toLowerCase() === 'demo_book';
     const crmLite = isSally

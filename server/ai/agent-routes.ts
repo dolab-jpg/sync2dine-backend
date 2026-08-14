@@ -761,6 +761,7 @@ export async function handleAgentRoutes(
       remapLeeds?: boolean;
       allCrm?: boolean;
       venueAware?: boolean;
+      requeueFailed?: boolean;
     };
     try {
       const { queueCrmCampaign, LEEDS_CAMPAIGN_ID } = await import('../outbound-campaigns');
@@ -776,6 +777,7 @@ export async function handleAgentRoutes(
         remapLeeds: allCrm ? body.remapLeeds === true : body.remapLeeds !== false,
         allCrm,
         venueAware: body.venueAware === true ? true : (allCrm ? false : true),
+        requeueFailed: body.requeueFailed === true,
       });
       sendJson(res, 200, { success: true, ...result });
     } catch (err) {

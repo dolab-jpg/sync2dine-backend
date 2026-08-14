@@ -71,8 +71,8 @@ export function toUkE164(input: string): string {
   if (!digits) return raw.replace(/\s+/g, '');
   if (digits.startsWith('44') && digits.length >= 11) return `+${digits}`;
   if (digits.startsWith('0') && digits.length >= 10) return `+44${digits.slice(1)}`;
-  // Missing leading 0: 10-digit NSN (geographic 1… or mobile 7…), including a wrong +1/+7 prefix.
-  if (digits.length === 10 && (digits.startsWith('1') || digits.startsWith('7'))) return `+44${digits}`;
+  // Missing leading 0: 10-digit UK NSN (1/2/3 geographic, 7 mobile, etc.).
+  if (digits.length === 10 && /^[1-9]/.test(digits)) return `+44${digits}`;
   if (raw.startsWith('+')) return `+${digits}`;
   return `+${digits}`;
 }

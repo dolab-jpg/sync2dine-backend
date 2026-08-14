@@ -97,7 +97,7 @@ async function processOutboundQueue(): Promise<void> {
             customerId: ctx.customerId ?? job.customerId,
             aim: ctx.aim ?? ctx.reason,
             brief: ctx.brief ?? ctx.aim ?? ctx.reason,
-            agentPersona: ctx.agentPersona || (String(ctx.aim || '') === 'sales_outreach' ? 'sally' : undefined),
+            agentPersona: ctx.agentPersona || (/sally|sales_outreach|sally_sales/i.test(String(ctx.aim || ctx.template || job.template || '')) ? 'sally' : undefined),
             source: ctx.source ?? 'outbound_queue',
           },
         }),

@@ -6,6 +6,7 @@ import {
   normalizePhoneExport,
   reloadCustomersFromSupabase,
   saveCustomerRecord,
+  syncData,
 } from './data-store';
 import type { OutboundCampaignTemplate } from './telephony/types';
 import { scheduleSallyOutboundDialWithResearch } from './sally/schedule-outbound';
@@ -17,7 +18,7 @@ import {
   type Weekday,
   type WeeklyOpeningHours,
 } from './sally/dial-windows';
-import { toUkE164 } from './phone/vapi-client';
+import { isPlausibleUkE164, toUkE164 } from './phone/vapi-client';
 
 /** Canonical campaign label for the venue lead list (never “Hindi” / scrape-date tags). */
 export const LEEDS_CAMPAIGN_ID = 'Leeds';
@@ -398,7 +399,7 @@ export async function queueCsvCampaign(input: {
   const alreadyQueued = new Set(
     store.outboundQueue
       .filter((j) => ['queued', 'dialling', 'needs_hours'].includes(String(j.status ?? '')))
-      .map((j) => normalizePhoneExport(String(j.to ?? ''))),
+      .map((j) => normalizePhoneExport(toUkE164(String(j.to ?? '')))),
   );
   const jobs: Array<Record<string, unknown>> = [];
   let skipped = 0;
@@ -414,8 +415,9 @@ export async function queueCsvCampaign(input: {
 
   for (let i = 0; i < input.rows.length; i++) {
     const row = input.rows[i];
-    const phone = normalizePhoneExport(row.phone);
-    if (!phone || alreadyQueued.has(phone)) {
+    const e164 = toUkE164(row.phone);
+    const phone = normalizePhoneExport(e164);
+    if (!phone || !isPlausibleUkE164(e164) || alreadyQueued.has(phone)) {
       skipped += 1;
       continue;
     }
@@ -541,7 +543,8 @@ export async function queueCsvCampaign(input: {
       context: {
         customerId,
         customerName: row.name,
-        aim: template,
+        aim: isSally ? 'sales_outreach' : template,
+        agentPersona: isSally ? 'sally' : undefined,
         brief: rowBrief,
         source: 'csv_campaign',
         campaignId,
@@ -577,6 +580,8 @@ export async function queueCrmCampaign(input: {
   allCrm?: boolean;
   /** Default true for Leeds; false for allCrm so unknown hours do not become needs_hours. */
   venueAware?: boolean;
+  /** Put failed outbound jobs back on the queue after a dialer fix. */
+  requeueFailed?: boolean;
 }): Promise<{
   queued: number;
   skipped: number;
@@ -584,6 +589,7 @@ export async function queueCrmCampaign(input: {
   campaignId: string;
   remapped: number;
   matched: number;
+  requeued?: number;
   jobs: Array<Record<string, unknown>>;
 }> {
   const allCrm = input.allCrm === true;
@@ -665,9 +671,45 @@ export async function queueCrmCampaign(input: {
     venueAware,
   });
 
+  const repaired = input.requeueFailed === true ? requeueFailedOutboundJobs() : { requeued: 0 };
+
   return {
     ...result,
     remapped,
     matched: rows.length,
+    requeued: repaired.requeued,
   };
+}
+
+/** Re-queue failed Sally jobs after a dialer/number fix. Rewrites `to` to UK E.164. */
+export function requeueFailedOutboundJobs(): { requeued: number; skipped: number } {
+  const store = getDataStore();
+  const stamp = new Date().toISOString();
+  let requeued = 0;
+  let skipped = 0;
+  for (const job of store.outboundQueue ?? []) {
+    if (String(job.status ?? '') !== 'failed') continue;
+    const e164 = toUkE164(String(job.to ?? ''));
+    if (!isPlausibleUkE164(e164)) {
+      skipped += 1;
+      continue;
+    }
+    const prev = (job.context && typeof job.context === 'object')
+      ? job.context as Record<string, unknown>
+      : {};
+    Object.assign(job, {
+      to: e164,
+      status: 'queued',
+      error: undefined,
+      requeuedAt: stamp,
+      context: {
+        ...prev,
+        agentPersona: prev.agentPersona || 'sally',
+        aim: prev.aim && !/sally|sales/i.test(String(prev.aim)) ? prev.aim : 'sales_outreach',
+      },
+    });
+    requeued += 1;
+  }
+  if (requeued) syncData(store);
+  return { requeued, skipped };
 }

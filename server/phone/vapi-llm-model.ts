@@ -25,6 +25,13 @@ export type VapiModelBlock = {
 
 let cachedDeepSeekCredentialId: string | null | undefined;
 
+/** Vapi native `deep-seek` only accepts these model ids — not DeepSeek API v4 names. */
+export function vapiDeepSeekModelName(model: string): string {
+  const m = String(model || '').trim().toLowerCase();
+  if (m.includes('pro') || m.includes('reasoner')) return 'deepseek-reasoner';
+  return 'deepseek-chat';
+}
+
 async function ensureDeepSeekCredential(apiKey: string): Promise<string | undefined> {
   const fromEnv = process.env.VAPI_DEEPSEEK_CREDENTIAL_ID?.trim();
   if (fromEnv) return fromEnv;
@@ -133,7 +140,7 @@ export async function buildVapiModelBlock(opts: {
 
   if (provider === 'deepseek') {
     const apiKey = await resolveDeepSeekApiKeyAsync(undefined, orgId);
-    const model = defaultChatModelForProvider('deepseek', preferredModel);
+    const model = vapiDeepSeekModelName(defaultChatModelForProvider('deepseek', preferredModel));
     if (apiKey) {
       // Do NOT await Vapi credential create/list here — assistant-request must answer in <7.5s.
       // Credential sync is background-only; transient model must not include credentialId anyway.

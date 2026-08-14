@@ -626,8 +626,8 @@ function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');
   if (digits.startsWith('44')) return digits;
   if (digits.startsWith('0')) return `44${digits.slice(1)}`;
-  // UK missing-zero: 10-digit NSN (geographic 1… or mobile 7…) without the leading 0.
-  if (digits.length === 10 && (digits.startsWith('1') || digits.startsWith('7'))) return `44${digits}`;
+  // UK missing-zero: 10-digit NSN without the leading 0 (020/023/07…).
+  if (digits.length === 10 && /^[1-9]/.test(digits)) return `44${digits}`;
   return digits;
 }
 
@@ -1895,7 +1895,7 @@ export function reclaimStaleDiallingJobs(nowMs: number = Date.now()): number {
       : undefined;
     const live = Boolean(matchingCall && isOpenCallStatus(matchingCall.status));
     const started = Date.parse(String(job.startedAt ?? job.dialAcceptedAt ?? ''));
-    const age = Number.isFinite(started) ? nowMs - started : Number.POSITIVE_INFINITY;
+    const age = Number.isFinite(started) ? nowMs - started : 0;
     const tooOld = age >= maxAge;
 
     // In-flight worker POST: no callId yet and still inside the stale window.
