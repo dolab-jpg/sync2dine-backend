@@ -151,10 +151,30 @@ export function getSystemInstruction(lang?: string | null): string {
   return getPack(lang).systemInstruction;
 }
 
+/** Options controlling STT language resolution for a Vapi phone agent. */
+export interface DeepgramLanguageOpts {
+  persona?: string;
+  direction?: string;
+  /** Force English UK (Sally outbound sales) instead of multilingual. */
+  lockEnglish?: boolean;
+}
+
 /**
- * Deepgram STT for Vapi phone: always multilingual so callers can flip mid-call.
+ * Deepgram STT language for Vapi phone.
+ *
+ * Default (no opts) stays 'multi' so inbound diner calls (Judie) can flip
+ * language mid-call. Sally OUTBOUND sales is locked to English UK: pass
+ * `{ lockEnglish: true }` (or persona 'sally' + direction 'outbound') so she
+ * cannot drift into another language when a caller uses a foreign word.
  */
-export function deepgramLanguageForPack(_lang?: string | null): string {
+export function deepgramLanguageForPack(
+  _lang?: string | null,
+  opts?: DeepgramLanguageOpts,
+): string {
+  const persona = (opts?.persona || '').toLowerCase().trim();
+  const direction = (opts?.direction || '').toLowerCase().trim();
+  const sallyOutbound = persona === 'sally' && direction === 'outbound';
+  if (opts?.lockEnglish || sallyOutbound) return 'en-GB';
   return 'multi';
 }
 

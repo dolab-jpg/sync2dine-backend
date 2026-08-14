@@ -162,15 +162,22 @@ export async function buildVapiAssistantForParty(opts: {
     orgId,
   });
   const sally = session.id === 'sally';
+  // Sally OUTBOUND sales = English-UK only. Never let a foreign word flip her
+  // language (drift into Spanish + "let me switch languages" + hang up).
+  const sallyOutbound = sally && opts.direction === 'outbound';
   let { instructions, language, firstMessage, assistantName } = session;
+  if (sallyOutbound) language = 'en';
   const silencePersona: SilencePersona = session.silencePersona;
 
-  const functionTools = session.chatTools.map((tool) => ({
-    type: 'function' as const,
-    function: tool.function,
-    async: false,
-    server: toolServerCfg,
-  }));
+  const functionTools = session.chatTools
+    // Sally outbound cannot switch languages — strip the setCallLanguage tool.
+    .filter((tool) => !(sallyOutbound && tool.function.name === 'setCallLanguage'))
+    .map((tool) => ({
+      type: 'function' as const,
+      function: tool.function,
+      async: false,
+      server: toolServerCfg,
+    }));
 
   const nativeTools: Array<Record<string, unknown>> = [
     { type: 'endCall' },
@@ -189,9 +196,22 @@ export async function buildVapiAssistantForParty(opts: {
   }
 
   const baseVoice = getVapiVoiceConfigForLang(language) as Record<string, unknown>;
-  const voice = sally
+  const voiceTuned = sally
     ? { ...baseVoice, stability: 0.28, style: 0.55, similarityBoost: 0.85 }
     : baseVoice;
+  // Spoken brand fix: TTS mangles the written brand ("Sync2Dime" / "Sing2Dine" /
+  // "Cinque Dying"). Map written forms to the phonetic "Sync to Dine" before TTS.
+  const voice = {
+    ...voiceTuned,
+    chunkPlan: {
+      formatPlan: {
+        replacements: [
+          { type: 'exact', key: 'Sync2Dine', value: 'Sync to Dine' },
+          { type: 'exact', key: 'sync Two dine', value: 'Sync to Dine' },
+        ],
+      },
+    },
+  };
 
   const model = await buildVapiModelBlock({
     // Judie restaurant calls use the restaurant org key; Sally uses home/platform.
@@ -212,7 +232,7 @@ export async function buildVapiAssistantForParty(opts: {
   const sallyVoicemailMessage =
     process.env.SALLY_VOICEMAIL_MESSAGE?.trim() || SALLY_DEFAULT_VOICEMAIL;
   // Sally outbound: skip silence hangup so beep + voicemail drop can finish; stretch check/reask.
-  const sallyOutbound = sally && opts.direction === 'outbound';
+  // (sallyOutbound computed above so language/voice/transcriber can be locked to English.)
   // Judie inbound: omit auto hangup so we wait for caller goodbye after the order;
   // keep gentle still-there checks, scaled past placeFoodOrder.
   const judieInbound = !sally && opts.direction === 'inbound';
@@ -231,16 +251,21 @@ export async function buildVapiAssistantForParty(opts: {
     firstMessageMode: 'assistant-speaks-first',
     model,
     voice,
+    // Vapi live monitoring: reliably expose a listen (+ control) URL. Safe for all personas.
+    monitorPlan: { listenEnabled: true, controlEnabled: true },
     transcriber: {
       provider: 'deepgram',
-      // Multilingual STT so callers can flip language mid-call (Vapi + Deepgram multi).
+      // Inbound/Judie: multilingual STT so callers can flip language mid-call.
+      // Sally OUTBOUND: locked to en-GB so a foreign word cannot flip her.
       model: process.env.VAPI_DEEPGRAM_MODEL?.trim() || 'nova-2',
-      language: deepgramLanguageForPack(language),
+      language: sallyOutbound
+        ? deepgramLanguageForPack(language, { lockEnglish: true })
+        : deepgramLanguageForPack(language),
     },
     silenceTimeoutSeconds: sallyOutbound ? 60 : judieInbound ? 55 : 35,
     maxDurationSeconds: Number(
       process.env.VAPI_MAX_CALL_SECONDS
-      || (sally ? 1200 : 900),
+      || (sallyOutbound ? 420 : sally ? 1200 : 900),
     ),
     backgroundSound: 'off',
     hooks: silenceHooks,

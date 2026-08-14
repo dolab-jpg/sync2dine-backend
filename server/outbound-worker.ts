@@ -3,6 +3,7 @@ import {
   getOutboundQueueState,
   getAgentCapacitySnapshot,
   reclaimStaleDiallingJobs,
+  reclaimStaleActiveCalls,
   updateOutboundJob,
 } from './data-store';
 
@@ -45,6 +46,7 @@ async function processOutboundQueue(): Promise<void> {
   }
 
   reclaimStaleDiallingJobs();
+  reclaimStaleActiveCalls();
   const capacity = getAgentCapacitySnapshot();
   if (capacity.outboundSlotsFree <= 0) return;
 

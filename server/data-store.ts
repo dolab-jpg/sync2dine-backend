@@ -1948,6 +1948,84 @@ export function reclaimStaleDiallingJobs(nowMs: number = Date.now()): number {
   return reclaimed;
 }
 
+/**
+ * Vapi hard call cap (seconds). A call left in `ringing`/`in_progress` past this
+ * cap + buffer is a zombie from a missed end-of-call webhook, and holds an
+ * outbound slot with a dead listenUrl until reclaimed.
+ */
+export const VAPI_MAX_CALL_SECONDS = Number(process.env.VAPI_MAX_CALL_SECONDS ?? 420);
+
+/**
+ * Reclaim zombie calls stuck `in_progress`/`ringing` past the Vapi hard cap + 60s buffer
+ * (missed end-of-call webhook). Marks each terminal, nulls live-monitor URLs, and persists.
+ * Sibling of reclaimStaleDiallingJobs (jobs) — this one reclaims stuck CALLS. Returns count.
+ */
+export function reclaimStaleActiveCalls(nowMs: number = Date.now()): number {
+  const store = getDataStore();
+  const capSec = Number.isFinite(VAPI_MAX_CALL_SECONDS) && VAPI_MAX_CALL_SECONDS > 0
+    ? VAPI_MAX_CALL_SECONDS
+    : 420;
+  const thresholdMs = (capSec + 60) * 1000;
+  const stamp = new Date(nowMs).toISOString();
+  let reclaimed = 0;
+
+  for (let i = 0; i < store.calls.length; i++) {
+    try {
+      const c = store.calls[i];
+      const status = String(c.status ?? '');
+      if (status !== 'in_progress' && status !== 'ringing') continue;
+
+      const started = callStartedAtMs(c);
+      if (!Number.isFinite(started)) continue;
+      const ageMs = nowMs - started;
+      if (ageMs < thresholdMs) continue;
+
+      // Completed if the call had any answer/duration; failed if it never connected.
+      const durationSec = computeCallDurationSec(c);
+      const hadDuration =
+        (typeof durationSec === 'number' && durationSec > 0)
+        || status === 'in_progress'
+        || Boolean(c.answeredAt)
+        || Boolean(c.connectedAt);
+      const nextStatus = hadDuration ? 'completed' : 'failed';
+      const meta = (c.metadata as Record<string, unknown> | undefined) || {};
+
+      store.calls[i] = {
+        ...c,
+        status: nextStatus,
+        endedReason: 'reclaimed-stale',
+        outcome: String(c.outcome ?? 'reclaimed_stale'),
+        endedAt: c.endedAt ?? stamp,
+        duration: c.duration ?? (durationSec ?? undefined),
+        // Null out any live-monitor URL fields — the listenUrl is dead once reclaimed.
+        listenUrl: null,
+        controlUrl: null,
+        monitorUrl: null,
+        metadata: { ...meta, listenUrl: null, controlUrl: null, monitorUrl: null },
+        updatedAt: stamp,
+      };
+      reclaimed += 1;
+
+      const ageSec = Math.round(ageMs / 1000);
+      const name = String(c.contactName ?? '') || 'Guest';
+      const to = String(c.to ?? c.from ?? '') || '?';
+      const id = String(c.id ?? '') || '?';
+      console.log(
+        `[data-store] reclaimed stale ${status} call → ${nextStatus}: `
+        + `name=${name} to=${to} id=${id} age=${ageSec}s`,
+      );
+    } catch (err) {
+      console.warn(
+        '[data-store] reclaimStaleActiveCalls skipped a call:',
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  if (reclaimed) syncData(store);
+  return reclaimed;
+}
+
 export function getLinesSummary(): { total: number; registered: number; onCall: number } {
   expireStaleOpenCalls();
   const store = getDataStore();
