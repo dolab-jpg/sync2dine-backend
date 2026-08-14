@@ -107,7 +107,7 @@ Editable in Call Centre → capacity **Edit** (`PATCH /api/agent/settings`). Sof
 
 - Judie never gets Sally sales tools or Cynthia construction branding.
 - Cynthia never mounts on `aria` restaurant DIDs (purpose must be `cynthia`).
-- Sally sales never warm-transfers (product close path).
+- Sally sales never warm-transfers (product close path). Short same-line wait only while staff fetch the manager; otherwise take a message + callback/referral. Gatekeeper outcomes use `gatekeeper_manager_callback` → queue status `called` (not main-line `needs_retry`). Assistant-request timeout falls back to minimal Sally sales, never Judie, for sales outbound metadata.
 - Staff tools on Sally when Sally brain + staff/foreman identity (+ PIN verify).
 - Staff/CRM tools on Cynthia via phone-brain + PIN when staff/foreman.
 - Restaurant menu/orders scoped to DID-resolved `orgId`.
