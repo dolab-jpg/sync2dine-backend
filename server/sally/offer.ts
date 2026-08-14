@@ -197,6 +197,7 @@ export function formatOfferFactsBlock(): string {
     `Outbound overage: £${OUTBOUND_OVERAGE.mobileGbpPerMin}/min mobile · £${OUTBOUND_OVERAGE.landlineGbpPerMin}/min landline.`,
     'Minutes reset weekly; unused do not roll over. Alerts at ~80/100% of allowance. Customer must choose overageAction: continue_bill | pause_transfer | approval_required.',
     `Judie PAYG: inbound only, app notifications only, no outbound/SMS/WhatsApp/email/campaigns, AI overage £0.45/min, 125k tokens/week.`,
+    'PAYG honesty: weekly fee with included minutes + overage — not usage-only billing. Venue/carrier diverts when they want cover; Sync2Dine does not auto-flip cover or configure their carrier.',
     `Fare schedule version: ${t.fareScheduleVersion}`,
     `- Billing: ${t.billing}`,
     `- Minimum term: ${t.minimumTerm}`,
