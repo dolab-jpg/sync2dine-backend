@@ -219,11 +219,11 @@ export interface AgentSettings {
     lastSilentCallId?: string;
     pausedForSilent?: boolean;
   };
-  /** Total AI agent slots (inbound + outbound). Default 5. */
+  /** Total AI agent slots (inbound + outbound). Default 4 (Soho66 channel target). */
   maxAgentSlots?: number;
-  /** Reserved inbound AI slots. Default 4. */
+  /** Reserved inbound AI slots. Default 2. */
   maxInboundSlots?: number;
-  /** Max concurrent outbound dials. Default 1. */
+  /** Max concurrent outbound dials. Default 2. */
   maxOutboundSlots?: number;
   /** When all slots busy, divert inbound to this PSTN number */
   overflowNumber?: string;
@@ -267,9 +267,11 @@ const defaultAgentSettings: AgentSettings = {
   callQueueQuietEnd: '00:00',
   callQueueMaxConcurrent: 1,
   outboundQueueState: 'running',
-  maxAgentSlots: 5,
-  maxInboundSlots: 4,
-  maxOutboundSlots: 1,
+  // Soho66 concurrent-channel target: 4 total, 2 reserved inbound, 2 outbound max.
+  // Confirm with soft-phone concurrency test before raising.
+  maxAgentSlots: 4,
+  maxInboundSlots: 2,
+  maxOutboundSlots: 2,
   overflowWhenFull: true,
   campaignReviewBrief: 'Ask how their recent order was and invite them to leave a Google review.',
   campaignReorderBrief: 'Check if they would like to place another order — mention favourites or today\'s specials.',
@@ -1036,8 +1038,8 @@ export function countOpenCallsByDirection(): { inbound: number; outbound: number
 export function getInboundOutboundSlotLimits(): { maxInbound: number; maxOutbound: number; maxTotal: number } {
   const settings = getAgentSettings();
   const maxTotal = getMaxConcurrentCallsPerOrg();
-  const maxInbound = Math.max(1, Math.min(maxTotal, Math.floor(settings.maxInboundSlots ?? 4)));
-  const maxOutbound = Math.max(1, Math.min(maxTotal, Math.floor(settings.maxOutboundSlots ?? 1)));
+  const maxInbound = Math.max(1, Math.min(maxTotal, Math.floor(settings.maxInboundSlots ?? 2)));
+  const maxOutbound = Math.max(1, Math.min(maxTotal, Math.floor(settings.maxOutboundSlots ?? 2)));
   return { maxInbound, maxOutbound, maxTotal };
 }
 

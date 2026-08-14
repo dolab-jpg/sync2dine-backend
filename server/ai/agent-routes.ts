@@ -146,7 +146,11 @@ async function fetchChatterboxVoices(): Promise<Array<{ id: string; name: string
 }
 
 async function handleGetSettings(_req: IncomingMessage, res: ServerResponse) {
-  sendJson(res, 200, getAgentSettings());
+  const settings = getAgentSettings();
+  sendJson(res, 200, {
+    ...settings,
+    capacity: getAgentCapacitySnapshot(),
+  });
 }
 
 async function handlePatchSettings(req: IncomingMessage, res: ServerResponse) {
@@ -173,6 +177,28 @@ async function handlePatchSettings(req: IncomingMessage, res: ServerResponse) {
   if (typeof body.callQueueQuietEnd === 'string') patch.callQueueQuietEnd = body.callQueueQuietEnd;
   if (typeof body.callQueueMaxConcurrent === 'number' && Number.isFinite(body.callQueueMaxConcurrent)) {
     patch.callQueueMaxConcurrent = Math.max(1, Math.min(5, Math.round(body.callQueueMaxConcurrent)));
+  }
+  // Capacity slots (Soho66 concurrent channels). Clamp to 1–10; inbound/outbound cannot exceed total.
+  const current = getAgentSettings();
+  let nextTotal =
+    typeof body.maxAgentSlots === 'number' && Number.isFinite(body.maxAgentSlots)
+      ? Math.max(1, Math.min(10, Math.round(body.maxAgentSlots)))
+      : (current.maxAgentSlots ?? 4);
+  if (typeof body.maxAgentSlots === 'number' && Number.isFinite(body.maxAgentSlots)) {
+    patch.maxAgentSlots = nextTotal;
+  }
+  if (typeof body.maxInboundSlots === 'number' && Number.isFinite(body.maxInboundSlots)) {
+    patch.maxInboundSlots = Math.max(1, Math.min(nextTotal, Math.round(body.maxInboundSlots)));
+  }
+  if (typeof body.maxOutboundSlots === 'number' && Number.isFinite(body.maxOutboundSlots)) {
+    patch.maxOutboundSlots = Math.max(1, Math.min(nextTotal, Math.round(body.maxOutboundSlots)));
+  }
+  if (typeof body.overflowNumber === 'string') {
+    const trimmed = body.overflowNumber.trim();
+    patch.overflowNumber = trimmed || undefined;
+  }
+  if (typeof body.overflowWhenFull === 'boolean') {
+    patch.overflowWhenFull = body.overflowWhenFull;
   }
   if (
     body.outboundQueueState === 'running'

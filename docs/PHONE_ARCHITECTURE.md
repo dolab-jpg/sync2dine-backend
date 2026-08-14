@@ -85,6 +85,24 @@ Do not conflate `orchestrator-handler` with Vapi personality selection.
 - FE `server-legacy/` — **removed from git**; never restore as API SoT.
 - `sally-receptionist.ts` — platform inbox tools used by Sally staff/sales paths
 
+## Concurrent capacity (Soho66)
+
+Call Centre chips (`Inbound x/y`, `Outbound x/y`, `Max n`) come from org `agentSettings`:
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `maxAgentSlots` | 4 | Total concurrent AI calls (inbound + outbound) |
+| `maxInboundSlots` | 2 | Reserved inbound AI slots |
+| `maxOutboundSlots` | 2 | Max concurrent outbound dials |
+
+Editable in Call Centre → capacity **Edit** (`PATCH /api/agent/settings`). Soft-enforced in `getAgentCapacitySnapshot` + Vapi `assistant-request` overflow divert.
+
+**Soho66 is the real ceiling.** Defaults assume a 4-channel trunk. Confirm with soft-phone / handset concurrency before raising:
+
+1. Register staff soft phone (Call Centre → Soft phone) **or** use two mobiles.
+2. Place 2 outbound AI dials while holding 2 inbound on the DID.
+3. If caller 3–4 get busy at the carrier (before our overflow message), lower `maxAgentSlots` to the proven channel count.
+
 ## Separation rules
 
 - Judie never gets Sally sales tools or Cynthia construction branding.
