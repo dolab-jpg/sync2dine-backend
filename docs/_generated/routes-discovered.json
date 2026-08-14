@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T14:22:40.936Z",
+  "generatedAt": "2026-08-14T19:41:40.136Z",
   "prefixes": [
     "/api/agent/capacity",
     "/api/agent/credentials",
@@ -86,6 +86,7 @@
     "/api/calls/outbound/bulk",
     "/api/campaigns/lapsed-customers",
     "/api/campaigns/progress",
+    "/api/campaigns/queue-crm",
     "/api/campaigns/queue-lapsed",
     "/api/campaigns/templates",
     "/api/campaigns/upload",
@@ -133,6 +134,7 @@
     "/api/leads",
     "/api/leads/from-call",
     "/api/leads/inbox",
+    "/api/leads/normalize-csv",
     "/api/mailbox",
     "/api/mailbox/callback",
     "/api/mailbox/connect",
@@ -444,6 +446,11 @@
     },
     {
       "prefix": "/api/campaigns/upload",
+      "file": "server/ai/agent-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/campaigns/queue-crm",
       "file": "server/ai/agent-routes.ts",
       "kind": "exact"
     },
@@ -1279,6 +1286,11 @@
     },
     {
       "prefix": "/api/leads/inbox",
+      "file": "server/leads-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/leads/normalize-csv",
       "file": "server/leads-routes.ts",
       "kind": "exact"
     },

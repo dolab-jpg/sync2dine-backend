@@ -1,13 +1,13 @@
 # Route and handler map (reviewed)
 
 **Evidence:** [`_generated/routes-discovered.json`](./_generated/routes-discovered.json)  
-**Mount order SoT:** `server/index.ts` ù short table: [`server/README.md`](../server/README.md)
+**Mount order SoT:** `server/index.ts` ? short table: [`server/README.md`](../server/README.md)
 
 ## Classification legend
 
 `public` | `auth` | `org` | `staff` | `admin` | `webhook` | `internal` | `disabled`
 
-Exact auth enforcement varies by handler ù prefer reading the route file. Many `/api/*` routes use `requireAuth` / org headers when `AUTH_ENFORCED`.
+Exact auth enforcement varies by handler ? prefer reading the route file. Many `/api/*` routes use `requireAuth` / org headers when `AUTH_ENFORCED`.
 
 **Live testing:** see [`LIVE_TESTING_ACCESS.md`](./LIVE_TESTING_ACCESS.md) for current class per family, callers, and deferred lockdown recommendations. **Do not add access gates during live testing.**
 
@@ -15,15 +15,16 @@ Exact auth enforcement varies by handler ù prefer reading the route file. Many `
 
 | Prefix / family | Handler module | Class | Notes |
 |-----------------|----------------|-------|-------|
-| `/health` | whatsapp-webhook | public | health ù must stay 200 for phone; nginx 502 = API process down |
+| `/health` | whatsapp-webhook | public | health ? must stay 200 for phone; nginx 502 = API process down |
 | `/api/ops/alerts` | agent-routes | auth | in-process banner alerts (useless if API dead) |
 | `/api/platform/ops-contacts` | platform-routes | platform_owner | GET/PUT alert email/SMS/Trae webhook |
 | `/api/platform/ops-contacts/test` | platform-routes | platform_owner | POST test fan-out |
 | `/webhooks/whatsapp` | whatsapp-webhook | webhook | Meta cold unless enabled |
-| `/webhooks/voice/*`, `/api/calls/*` | phone/phone-webhook | webhook / auth | softphone + call APIs |
+| `/webhooks/voice/*`, `/api/calls/*` | phone/phone-webhook | webhook / auth | softphone + call APIs; `POST /api/calls/outbound` immediate Sally dial; `POST /api/calls/outbound/bulk` ? `queueCsvCampaign` |
 | `/webhooks/vapi`, `/api/vapi/*` | phone/vapi-routes | webhook / auth | **live phone AI** |
 | `/api/agent/*` | ai/agent-routes | staff | lines, voices, TTS |
 | `/api/campaigns/upload` | ai/agent-routes | staff bearer (always) | CSV ? outbound queue (Sally research) |
+| `/api/campaigns/queue-crm` | ai/agent-routes | staff bearer (always) | Queue CRM phones. `{ allCrm: true }` = every dialable lead/quoted (Supabase reload, `venueAware` default false, `remapLeeds` off unless set). Leeds-only when `allCrm` omitted. Optional `requeueFailed`. |
 | `/api/campaigns/progress` | ai/agent-routes | staff bearer (always) | Cynthia campaign progress (CRM + queue + calls) |
 | `/api/campaigns/queue-lapsed` | ai/agent-routes | staff bearer (always) | Queue lapsed-customer outbound |
 | `/api/customers/upsert` | ai/agent-routes | staff bearer (always) | CRM upsert; won ? platform provision |
@@ -61,7 +62,7 @@ Exact auth enforcement varies by handler ù prefer reading the route file. Many `
 | `/api/whatsapp-web` | whatsapp-web-routes | staff | |
 | gap SMS/Stripe/banking helpers | ai/gap-api-routes | staff | |
 | `/api/agent-activity` | agent-activity-routes | staff | |
-| `/api/ai/*` catch-all | ai/ai-proxy | auth | orchestrate, staff, code-fix, ù |
+| `/api/ai/*` catch-all | ai/ai-proxy | auth | orchestrate, staff, code-fix, ? |
 
 ## FE ? BE entry points (representative)
 
@@ -71,14 +72,15 @@ Exact auth enforcement varies by handler ù prefer reading the route file. Many `
 | Sally widget / Ask Sync2Dine | `POST /api/sally/web` |
 | Restaurant boards | `/api/orders`, `/api/menu`, `/api/reservations` |
 | Call Centre | `/api/agent/*`, `/api/vapi/*`, `/api/calls/*`, `/api/campaigns/*` |
+| CRM Start calling | `POST /api/campaigns/queue-crm` `{ allCrm: true, template: 'sally_sales' }` |
 | Self-heal | `/api/ai/code-fix*` (delete + delete-batch) |
 | Phone errors audit | `/api/ai/phone-incidents*` |
 
 ## Not mounted / quarantine
 
-- `server/_quarantine/*` ù not in `index.ts`
-- `phone/phone-orchestrator.ts` ù throw stub; not on Vapi path
-- `realtime-routes` ù not mounted in index (legacy)
+- `server/_quarantine/*` ? not in `index.ts`
+- `phone/phone-orchestrator.ts` ? throw stub; not on Vapi path
+- `realtime-routes` ? not mounted in index (legacy)
 
 ## Related
 

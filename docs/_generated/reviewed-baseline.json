@@ -1,9 +1,9 @@
 {
-  "updatedAt": "2026-08-13T14:22:20.716Z",
+  "updatedAt": "2026-08-14T19:41:32.799Z",
   "note": "Reviewed fingerprint of discovery. Update deliberately when runtime architecture changes.",
   "fingerprints": {
-    "tools": "4138d2e62e484c8c",
-    "routes": "712af8e7b71a63ae",
+    "tools": "06d18a45365ffc76",
+    "routes": "3a4a972f1d164da4",
     "bootWorkers": "25829c6bc285a94b",
     "brains": "ed32ef02a42ca423"
   },
@@ -24,6 +24,6 @@
     "judie",
     "sally"
   ],
-  "routePrefixCount": 224,
-  "uniqueToolCount": 187
+  "routePrefixCount": 226,
+  "uniqueToolCount": 188
 }

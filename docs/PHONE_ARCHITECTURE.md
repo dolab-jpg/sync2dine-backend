@@ -9,7 +9,7 @@ Runtime phone AI is **three brain packages** (`BrainId`: `sally` | `judie` | `cy
 | Personality | BrainId | Line purpose | Role |
 |-------------|---------|--------------|------|
 | **Judie** | `judie` | `aria` (restaurant DID) | Diner ordering, bookings, transfer-to-human |
-| **Sally (sales)** | `sally` | `sally` (platform DID) | Sync2Dine SaaS sales close |
+| **Sally (sales)** | `sally` | `sally` (platform DID) | Sync2Dine SaaS sales close. Speak **sync Two dine** (`SYNC2DINE_SPOKEN` in `home-org.ts`); write Sync2Dine. |
 | **Sally (staff)** | `sally` + `identity.kind` staff/foreman | Same Sally DID / staff caller CLI | PIN-gated inbox/CRM/email tools |
 | **Cynthia (construction)** | `cynthia` | `cynthia` | Builder Diddies construction CRM (phone-brain tools + Biddies branding) |
 
@@ -66,7 +66,8 @@ Do not conflate `orchestrator-handler` with Vapi personality selection.
 | DID / lines | `phone/phone-lines.ts`, `data-store` phoneLines |
 | Brains | `brains/{sally,judie,cynthia}/`, `brains/index.ts` |
 | Shared diner/CRM prompt/tools | `phone/phone-brain.ts`, `phone/phone-tools.ts` |
-| Sally sales OS | `phone/sally-sales-phone.ts` (+ root `sally-sales.ts` for web/chat offer) |
+| Sally sales OS | `phone/sally-sales-phone.ts` (+ `sally/sales-os.ts` + root `sally-sales.ts` for web/chat offer) |
+| Spoken brand | `home-org.ts` `SYNC2DINE_SPOKEN` → `brains/sally` firstMessage, voicemail, hang-up |
 | Vapi adapter | `phone/vapi-routes.ts`, `vapi-assistant.ts`, `vapi-client.ts` |
 | Telephony adapters | `telephony/` |
 | Auth / PIN | `phone/phone-auth.ts` |

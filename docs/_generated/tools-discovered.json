@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-08-13T14:22:40.934Z",
-  "toolCount": 187,
-  "occurrenceCount": 219,
+  "generatedAt": "2026-08-14T19:41:40.135Z",
+  "toolCount": 188,
+  "occurrenceCount": 220,
   "uniqueNames": [
     "addComment",
     "addLeadNote",
@@ -130,6 +130,7 @@
     "recordCouncil",
     "rejectQuote",
     "relayCustomerUpdate",
+    "rememberPerson",
     "requestCodeFix",
     "requestGoogleReview",
     "requestReview",
@@ -1069,6 +1070,12 @@
       "source": "schema_scan"
     },
     {
+      "name": "rememberPerson",
+      "file": "server/phone/sally-sales-phone.ts",
+      "priority": true,
+      "source": "schema_scan"
+    },
+    {
       "name": "requestCodeFix",
       "file": "server/ai/orchestrator/tool-catalog-project.ts",
       "priority": true,
@@ -1553,6 +1560,16 @@
         "classifyCallIntent",
         "escalateToStaff",
         "requestCodeFix"
+      ]
+    },
+    {
+      "file": "server/ai/agent-routes.ts",
+      "sampleNames": [
+        "callId",
+        "voiceId",
+        "saveCustomer",
+        "getCampaignProgress",
+        "batchId"
       ]
     },
     {
@@ -2103,6 +2120,7 @@
         "scheduleVenueCallback",
         "updateVenueProfile",
         "captureReferralAndQueue",
+        "rememberPerson",
         "bookCallback",
         "captureMessage",
         "classifyCallIntent",
@@ -2226,6 +2244,7 @@
         "researchRestaurantProfile",
         "scheduleVenueCallback",
         "updateVenueProfile",
+        "rememberPerson",
         "captureReferralAndQueue",
         "providerCallId",
         "localId"
