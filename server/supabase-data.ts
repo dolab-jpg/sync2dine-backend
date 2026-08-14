@@ -11,7 +11,7 @@ const defaultAgentSettings: AgentSettings = {
   updatedAt: new Date().toISOString(),
 };
 
-function isSupabaseConfigured(): boolean {
+export function isSupabaseConfigured(): boolean {
   return Boolean(process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
 }
 
@@ -25,7 +25,10 @@ export async function loadCustomersFromSupabase(orgId?: string | null): Promise<
   const orgUuid = await resolveOrgUuid(orgId);
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase.from('customers').select('id, data').eq('org_id', orgUuid);
-  if (error || !data?.length) return [];
+  if (error) {
+    throw new Error(`customers reload failed: ${error.message}`);
+  }
+  if (!data?.length) return [];
   return rowToRecord(data);
 }
 
@@ -80,6 +83,10 @@ export async function loadSyncedDataFromSupabase(orgId?: string | null): Promise
     channel: s.channel,
     groupId: s.group_id,
   }));
+
+  if (customersRes.error) {
+    throw new Error(`customers reload failed: ${customersRes.error.message}`);
+  }
 
   const agentRow = agentRes.data;
   const agentData = (agentRow?.data && typeof agentRow.data === 'object' && !Array.isArray(agentRow.data))

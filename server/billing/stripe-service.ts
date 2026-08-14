@@ -157,6 +157,26 @@ export async function createCheckoutSessionForOrg(orgId: string): Promise<string
   const org = getOrganizationById(orgId);
   if (!org) throw new Error('Organization not found');
 
+  // Prefer package-aware checkout when the org has an explicit SaaS package id.
+  if (org.saasPackageId) {
+    try {
+      const { isSaasPackageId } = await import('./saas-products');
+      if (isSaasPackageId(org.saasPackageId)) {
+        const { getSallyOfferTerms } = await import('../sally/offer');
+        const setupFeeGbp = Number(getSallyOfferTerms().setupFeeGbp);
+        return createPackageAwareCheckoutSession({
+          orgId,
+          packageId: org.saasPackageId,
+          billingInterval: 'weekly',
+          useLaunch: true,
+          setupFeeGbp: Number.isFinite(setupFeeGbp) && setupFeeGbp > 0 ? setupFeeGbp : undefined,
+        });
+      }
+    } catch {
+      /* fall through to legacy plan price */
+    }
+  }
+
   const stripe = getStripe();
   let customerId = org.stripeCustomerId;
 
@@ -179,6 +199,130 @@ export async function createCheckoutSessionForOrg(orgId: string): Promise<string
     cancel_url: `${baseUrl}/platform/clients?stripe=cancel&org=${orgId}`,
     metadata: { orgId },
     subscription_data: { metadata: { orgId } },
+  });
+
+  if (!session.url) throw new Error('Stripe did not return a checkout URL');
+  return session.url;
+}
+
+export type PackageAwareCheckoutInput = {
+  orgId: string;
+  packageId: string;
+  billingInterval?: 'weekly' | 'annual';
+  useLaunch?: boolean;
+  setupFeeGbp?: number;
+  additionalSites?: number;
+  contractId?: string;
+  /** Optional pre-built lines (already include setup). When set, packageId still goes to metadata. */
+  lines?: Array<{
+    description: string;
+    unitAmountGbp: number;
+    quantity?: number;
+    recurring?: boolean;
+    interval?: 'week' | 'month' | 'year';
+  }>;
+};
+
+/**
+ * Stripe Checkout from signed SaaS package amounts (not legacy OrgPlan price IDs).
+ * Recurring package/site lines + optional one-off setup fee in the same session.
+ */
+export async function createPackageAwareCheckoutSession(
+  input: PackageAwareCheckoutInput,
+): Promise<string> {
+  const org = getOrganizationById(input.orgId);
+  if (!org) throw new Error('Organization not found');
+
+  const { isSaasPackageId, resolvePackageLine } = await import('./saas-products');
+  if (!isSaasPackageId(input.packageId)) {
+    throw new Error(`Unknown package: ${input.packageId}`);
+  }
+
+  const interval = input.billingInterval === 'annual' ? 'annual' : 'weekly';
+  const useLaunch = input.useLaunch !== false;
+  const setupFeeGbp =
+    input.setupFeeGbp != null && Number.isFinite(Number(input.setupFeeGbp))
+      ? Number(input.setupFeeGbp)
+      : undefined;
+
+  let checkoutLines = input.lines?.filter((l) => Number(l.unitAmountGbp) > 0) ?? [];
+  if (!checkoutLines.length) {
+    checkoutLines = resolvePackageLine(input.packageId, {
+      interval,
+      useLaunch,
+      additionalSites: input.additionalSites,
+      setupFeeGbp,
+    }).map((l) => ({
+      description: l.description,
+      unitAmountGbp: l.rate,
+      quantity: l.quantity,
+      recurring: l.category !== 'extra',
+      interval: (l.unit === 'year' ? 'year' : l.unit === 'week' ? 'week' : undefined) as
+        | 'week'
+        | 'year'
+        | undefined,
+    }));
+  }
+  if (!checkoutLines.length) {
+    throw new Error('No payable package line items for checkout');
+  }
+
+  const stripe = await getStripeReady();
+  let customerId = org.stripeCustomerId;
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: org.contactEmail,
+      name: org.contactName || org.name,
+      metadata: {
+        orgId: input.orgId,
+        orgName: org.name,
+        saas_package_id: input.packageId,
+      },
+    });
+    customerId = customer.id;
+    updateOrganization(input.orgId, { stripeCustomerId: customerId });
+  }
+
+  const hasRecurring = checkoutLines.some((l) => l.recurring !== false && l.interval);
+  const metadata: Record<string, string> = {
+    orgId: input.orgId,
+    packageId: input.packageId,
+    saas_package_id: input.packageId,
+    billingInterval: interval,
+  };
+  if (input.contractId) metadata.contractId = input.contractId;
+
+  const baseUrl = process.env.APP_BASE_URL?.trim() || 'http://localhost:5174';
+  const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = checkoutLines.map((line) => {
+    const quantity = Math.max(1, Math.floor(Number(line.quantity) || 1));
+    const unitAmount = Math.round(Number(line.unitAmountGbp) * 100);
+    const recurring =
+      line.recurring !== false && (line.interval === 'week' || line.interval === 'year' || line.interval === 'month');
+    return {
+      quantity,
+      price_data: {
+        currency: 'gbp',
+        unit_amount: unitAmount,
+        product_data: { name: String(line.description || 'Sync2Dine').slice(0, 127) },
+        ...(recurring
+          ? {
+              recurring: {
+                interval: line.interval === 'year' ? 'year' : line.interval === 'month' ? 'month' : 'week',
+              },
+            }
+          : {}),
+      },
+    };
+  });
+
+  const session = await stripe.checkout.sessions.create({
+    customer: customerId,
+    mode: hasRecurring ? 'subscription' : 'payment',
+    line_items,
+    success_url: `${baseUrl}/platform/clients?stripe=success&org=${encodeURIComponent(input.orgId)}`,
+    cancel_url: `${baseUrl}/platform/clients?stripe=cancel&org=${encodeURIComponent(input.orgId)}`,
+    metadata,
+    ...(hasRecurring ? { subscription_data: { metadata } } : { payment_intent_data: { metadata } }),
   });
 
   if (!session.url) throw new Error('Stripe did not return a checkout URL');

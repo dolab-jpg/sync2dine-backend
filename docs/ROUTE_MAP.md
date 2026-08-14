@@ -20,11 +20,11 @@ Exact auth enforcement varies by handler ? prefer reading the route file. Many `
 | `/api/platform/ops-contacts` | platform-routes | platform_owner | GET/PUT alert email/SMS/Trae webhook |
 | `/api/platform/ops-contacts/test` | platform-routes | platform_owner | POST test fan-out |
 | `/webhooks/whatsapp` | whatsapp-webhook | webhook | Meta cold unless enabled |
-| `/webhooks/voice/*`, `/api/calls/*` | phone/phone-webhook | webhook / auth | softphone + call APIs; `POST /api/calls/outbound` immediate Sally dial; `POST /api/calls/outbound/bulk` ? `queueCsvCampaign` |
+| `/webhooks/voice/*`, `/api/calls/*` | phone/phone-webhook | webhook / auth | softphone + call APIs; `POST /api/calls/outbound` immediate Sally dial; `POST /api/calls/outbound/bulk` ? `queueCsvCampaign` (`venueAware` default **false**, opt in with `true`) |
 | `/webhooks/vapi`, `/api/vapi/*` | phone/vapi-routes | webhook / auth | **live phone AI** |
 | `/api/agent/*` | ai/agent-routes | staff | lines, voices, TTS |
-| `/api/campaigns/upload` | ai/agent-routes | staff bearer (always) | CSV ? outbound queue (Sally research) |
-| `/api/campaigns/queue-crm` | ai/agent-routes | staff bearer (always) | Queue CRM phones. `{ allCrm: true }` = every dialable lead/quoted (Supabase reload, `venueAware` default false, `remapLeeds` off unless set). Leeds-only when `allCrm` omitted. Optional `requeueFailed`. |
+| `/api/campaigns/upload` | ai/agent-routes | staff bearer (always) | CSV ? outbound queue (Sally research; `venueAware` still defaults true) |
+| `/api/campaigns/queue-crm` | ai/agent-routes | staff bearer (always) | Queue CRM phones. `{ allCrm: true }` = every dialable lead/quoted (Supabase reload, `venueAware` default false, `remapLeeds` off unless set). Existing rows keep pipeline status. Reload errors ? **503**. Leeds-only when `allCrm` omitted. Optional `requeueFailed`. |
 | `/api/campaigns/progress` | ai/agent-routes | staff bearer (always) | Cynthia campaign progress (CRM + queue + calls) |
 | `/api/campaigns/queue-lapsed` | ai/agent-routes | staff bearer (always) | Queue lapsed-customer outbound |
 | `/api/customers/upsert` | ai/agent-routes | staff bearer (always) | CRM upsert; won ? platform provision |
@@ -41,7 +41,7 @@ Exact auth enforcement varies by handler ? prefer reading the route file. Many `
 | `/api/messages` | messages-routes | auth | |
 | `/api/ai/price-research` | price-research-routes | staff | |
 | `/api/contracts`, `/api/contract` | contract-routes | auth | |
-| `/api/stripe` (+ webhook) | billing/stripe-routes | webhook / auth | |
+| `/api/stripe` (+ webhook) | billing/stripe-routes | webhook / auth | Package-aware org checkout (`createCheckoutSessionForOrg`) includes Sally `setupFeeGbp` from `getSallyOfferTerms()` when > 0 |
 | `/api/auth` | auth + account-auth | public+auth | login, invites, `POST /register-org` (optional phone; home-org CRM lead) |
 | `/api/org/openai-key`, `/api/org/ai-brain` | org-openai-key-routes | admin | |
 | `/api/org/.../integrations` | org-integrations-routes | admin | |

@@ -7,7 +7,7 @@ import {
   nextSilentStreak,
 } from './outbound-voice-health.js';
 import { buildCampaignProgress } from './campaign-progress.js';
-import { parseCampaignCsv } from '../outbound-campaigns.js';
+import { existingCrmQueueIdentityFields, parseCampaignCsv } from '../outbound-campaigns.js';
 
 describe('outbound voice health', () => {
   it('blocks dial when Vapi production or connection fails', () => {
@@ -169,6 +169,17 @@ describe('campaign progress assembler', () => {
     assert.equal(leads.statuses.needs_hours, 1);
     const jobs = report.jobs as { heldForHours: number };
     assert.equal(jobs.heldForHours, 1);
+  });
+});
+
+describe('CRM queue identity', () => {
+  it('does not overwrite quoted/won status on existing customers', () => {
+    const quoted = existingCrmQueueIdentityFields({ id: 'C1', status: 'quoted' }, 'camp-1');
+    assert.deepEqual(quoted, {});
+    const fresh = existingCrmQueueIdentityFields(undefined, 'camp-1');
+    assert.equal(fresh.status, 'lead');
+    assert.equal(fresh.source, 'csv_upload');
+    assert.equal(fresh.leadBatchId, 'camp-1');
   });
 });
 

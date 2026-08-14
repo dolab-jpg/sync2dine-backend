@@ -781,7 +781,8 @@ export async function handleAgentRoutes(
       });
       sendJson(res, 200, { success: true, ...result });
     } catch (err) {
-      sendJson(res, 400, { error: err instanceof Error ? err.message : 'CRM campaign queue failed' });
+      const msg = err instanceof Error ? err.message : 'CRM campaign queue failed';
+      sendJson(res, /customers reload failed/i.test(msg) ? 503 : 400, { error: msg });
     }
     return true;
   }

@@ -1,15 +1,16 @@
-# AGENTS.md ù Sync2Dine backend
+# AGENTS.md ÔøΩ Sync2Dine backend
 
 Start here before API / phone / billing work.
 
 ## Always open first (cold path)
 
-1. [`server/index.ts`](server/index.ts) ù mount + boot workers
+1. [`server/index.ts`](server/index.ts) ÔøΩ mount + boot workers
 2. [`server/README.md`](server/README.md)
 3. [`docs/AI_REGISTRY.md`](docs/AI_REGISTRY.md)
 4. [`docs/TOOL_REGISTRY.md`](docs/TOOL_REGISTRY.md)
 5. [`docs/WORKERS.md`](docs/WORKERS.md)
 6. [`docs/ROUTE_MAP.md`](docs/ROUTE_MAP.md)
+6b. [`docs/LIVE_TESTING_ACCESS.md`](docs/LIVE_TESTING_ACCESS.md) ? live-test access classes (**no gates**; recommendations only)
 7. [`docs/PHONE_ARCHITECTURE.md`](docs/PHONE_ARCHITECTURE.md) / [`SALLY_ARCHITECTURE.md`](docs/SALLY_ARCHITECTURE.md)
 8. [`docs/ARCHITECTURE_DIAGRAMS.md`](docs/ARCHITECTURE_DIAGRAMS.md) (code-verified Mermaid)
 9. [`docs/LEGACY_ALIASES.md`](docs/LEGACY_ALIASES.md)
@@ -33,6 +34,7 @@ Prefer `server/brains/`, `phone/`, `sally/`, `orders/`, `ai/`, `billing/`, `conn
 | Cynthia web | `ai/orchestrator-handler.ts` | Sally web |
 | Cynthia phone | `brains/cynthia/` (purpose `cynthia`) | remapping `aria` |
 | Orders | `orders/*` | JSON as SoT |
+| Sally CRM outbound | `outbound-campaigns.ts` `queueCrmCampaign` `allCrm` | Do not force `status: lead` on existing rows; do not treat Supabase customer errors as `[]`; reclaim stale `dialling` ‚Üí CRM `needs_retry` |
 
 ## Ports / deploy / verify
 

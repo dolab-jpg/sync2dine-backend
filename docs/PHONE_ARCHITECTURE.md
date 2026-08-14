@@ -94,3 +94,4 @@ Do not conflate `orchestrator-handler` with Vapi personality selection.
 - Staff/CRM tools on Cynthia via phone-brain + PIN when staff/foreman.
 - Restaurant menu/orders scoped to DID-resolved `orgId`.
 - Sally model keys use home/platform org; Judie uses restaurant org.
+- CRM Start calling / bulk outbound: see SALLY_ARCHITECTURE “CRM / Call Centre outbound”. Do not default bulk `venueAware` true. Do not overwrite quoted status when queueing existing customers. Reclaim stale `dialling` must reset CRM to `needs_retry`.

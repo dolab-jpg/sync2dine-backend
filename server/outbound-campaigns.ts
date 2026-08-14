@@ -377,6 +377,21 @@ async function mapPool<T, R>(items: T[], concurrency: number, fn: (item: T, inde
   return results;
 }
 
+/** Existing CRM rows keep pipeline status/source/campaign. New rows default to lead + csv_upload. */
+export function existingCrmQueueIdentityFields(
+  existing: Record<string, unknown> | undefined,
+  campaignId: string,
+): Record<string, unknown> {
+  if (existing) return {};
+  return {
+    status: 'lead',
+    source: 'csv_upload',
+    consentSource: 'csv_upload',
+    leadBatchId: campaignId,
+    campaign: campaignId,
+  };
+}
+
 export async function queueCsvCampaign(input: {
   rows: CsvCampaignRow[];
   template?: string;
@@ -430,15 +445,15 @@ export async function queueCsvCampaign(input: {
     let customerId = row.customerId;
     const consentDeclined = /^(0|false|no|n|dnc|do_not_call)$/i.test(String(row.consentToCall || '').trim());
     const e164 = toUkE164(row.phone);
+    const existing = customerId
+      ? (getDataStore().customers.find((c) => String(c.id) === String(customerId)) as Record<string, unknown> | undefined)
+      : undefined;
     const customerPatch: Record<string, unknown> = {
       id: customerId,
       name: row.name,
       phone: e164,
-      status: 'lead',
       notes: row.notes,
       address: row.address,
-      source: 'csv_upload',
-      consentSource: 'csv_upload',
       consentToCall: consentDeclined ? false : true,
       doNotCall: consentDeclined,
       venueType: row.venueType ? normalizeVenueType(row.venueType) : undefined,
@@ -447,9 +462,8 @@ export async function queueCsvCampaign(input: {
       closedDays: row.closedDays,
       preferredContactTimes: row.preferredContactTimes,
       timezone: row.timezone || 'Europe/London',
-      leadBatchId: campaignId,
-      campaign: campaignId,
       callQueueStatus: 'queued',
+      ...existingCrmQueueIdentityFields(existing, campaignId),
       rawUpload: {
         notes: row.notes,
         venueType: row.venueType,

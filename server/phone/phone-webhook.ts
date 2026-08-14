@@ -584,7 +584,7 @@ export async function handleOutboundBulkApi(req: IncomingMessage, res: ServerRes
     const batchId = String(body.batchId ?? '').trim() || LEEDS_CAMPAIGN_ID;
     const template = String(body.template ?? 'sally_sales');
     const brief = String(body.brief ?? 'Sales outreach — introduce sync Two dine takeaway phone platform.');
-    const venueAware = body.venueAware !== false;
+    const venueAware = body.venueAware === true;
     const rows = rowsIn.map((row) => {
       const weekly = normalizeWeeklyHours(row.weeklyHours) || undefined;
       return {

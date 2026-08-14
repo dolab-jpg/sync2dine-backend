@@ -605,21 +605,18 @@ export async function initDataFromSupabase(orgId?: string): Promise<void> {
 
 /**
  * Reload only this org's customers from Supabase into the in-memory store.
- * Does not touch other collections. Empty/failed cloud reads leave the store unchanged.
+ * Does not touch other collections. Empty cloud reads leave the store unchanged.
+ * Query errors throw (`customers reload failed: …`) so queue-crm can return 503 instead of matched: 0.
  */
 export async function reloadCustomersFromSupabase(orgId?: string): Promise<number> {
   const id = resolveStorageOrgId(orgId ?? getRequestOrgId());
-  try {
-    const { isSupabaseConfigured, loadCustomersFromSupabase } = await import('./supabase-data.js');
-    if (!isSupabaseConfigured()) return 0;
-    const customers = await loadCustomersFromSupabase(id);
-    if (!customers.length) return 0;
-    const store = ensureOrgLoaded(id);
-    store.customers = customers;
-    return customers.length;
-  } catch {
-    return 0;
-  }
+  const { isSupabaseConfigured, loadCustomersFromSupabase } = await import('./supabase-data.js');
+  if (!isSupabaseConfigured()) return 0;
+  const customers = await loadCustomersFromSupabase(id);
+  if (!customers.length) return 0;
+  const store = ensureOrgLoaded(id);
+  store.customers = customers;
+  return customers.length;
 }
 
 function normalizePhone(phone: string): string {
@@ -1463,11 +1460,15 @@ export function saveCustomerRecord(customer: Record<string, unknown>): Record<st
 
   if (!id) id = `C${Date.now()}`;
 
+  const existing = existingIdx >= 0
+    ? (store.customers[existingIdx] as Record<string, unknown>)
+    : undefined;
   const record = {
     ...customer,
     id,
-    status: customer.status ?? 'lead',
-    createdAt: customer.createdAt ?? new Date().toISOString(),
+    // Never invent `lead` over an existing quoted/won pipeline status.
+    status: customer.status ?? existing?.status ?? 'lead',
+    createdAt: customer.createdAt ?? existing?.createdAt ?? new Date().toISOString(),
     mergedFromDuplicate: existingIdx >= 0 && !customer.id ? true : customer.mergedFromDuplicate,
   };
   if (existingIdx >= 0) {
@@ -1910,6 +1911,16 @@ export function reclaimStaleDiallingJobs(nowMs: number = Date.now()): number {
       completedAt: stamp,
       reclaimedAt: stamp,
     });
+    const ctx = job.context && typeof job.context === 'object'
+      ? job.context as Record<string, unknown>
+      : {};
+    const customerId = String(job.customerId ?? ctx.customerId ?? '').trim();
+    if (customerId) {
+      const customer = store.customers.find((c) => String(c.id) === customerId) as Record<string, unknown> | undefined;
+      if (customer && String(customer.callQueueStatus ?? '') === 'dialling') {
+        saveCustomerRecord({ id: customerId, callQueueStatus: 'needs_retry', updatedAt: stamp });
+      }
+    }
     reclaimed += 1;
   }
 

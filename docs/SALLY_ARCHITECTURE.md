@@ -80,19 +80,20 @@ Staff **Start calling this list** on `/crm` is Sally outbound, not Judie. It POS
 | Rule | Behaviour |
 |------|-----------|
 | Who gets queued | Every home-org CRM customer with a plausible UK E.164, pipeline lead/quoted, not DNC. Not Leeds-only. |
-| Store | `queueCrmCampaign` reloads customers from Supabase when `allCrm` (`reloadCustomersFromSupabase`) |
-| Venue hours | `venueAware: false` on `allCrm` ó unknown hours do **not** become `needs_hours` hold |
+| Store | `queueCrmCampaign` reloads customers from Supabase when `allCrm` (`reloadCustomersFromSupabase`). Query errors **throw** (`customers reload failed`) ? `queue-crm` **503**. Empty cloud leaves the in-memory store unchanged (never treat error as `matched: 0`). |
+| Pipeline status | Existing `customerId` rows keep `status` / `source` / `campaign`. `saveCustomerRecord` must not invent `lead` over quoted/won. New CSV-only rows default `lead`. |
+| Venue hours | `allCrm` and `POST /api/calls/outbound/bulk` default `venueAware: false` (opt in with `true`). CSV `/api/campaigns/upload` still defaults true (Leeds research path). |
 | Job meta | `aim: 'sales_outreach'`, `agentPersona: 'sally'` (EOC `isSally` also matches `sally_sales`) |
-| Quiet hours | Worker does **not** skip for stored 20:00ñ08:00. Kitchen AlertSettingsPanel quiet hours are unrelated |
-| Stale slots | `reclaimStaleDiallingJobs()` before capacity. Missing `startedAt` age = 0 (not Infinity) |
+| Quiet hours | Worker does **not** skip for stored 20:00ù08:00. Kitchen AlertSettingsPanel quiet hours are unrelated |
+| Stale slots | `reclaimStaleDiallingJobs()` fails the job **and** sets that customer `callQueueStatus` from `dialling` ? `needs_retry` so `allCrm` can pick them up. Do **not** add `dialling` to `ALL_CRM_QUEUE_STATUSES` (would re-queue live dials). Missing `startedAt` age = 0 (not Infinity). |
 | Failed UK numbers | Skip `!isPlausibleUkE164`. `requeueFailed: true` requeues Vapi 400s after DeepSeek / `toUkE164` fixes |
 | Call Centre UI | `/calls` Start/Pause/Stop + capacity only. Running ? queued. `maxOutboundSlots` still 1 |
 | Immediate test dial | `POST /api/calls/outbound` (not back of the campaign queue) |
-| Bulk CSV | `POST /api/calls/outbound/bulk` ? `queueCsvCampaign` (same scheduler as upload) |
+| Bulk CSV | `POST /api/calls/outbound/bulk` ? `queueCsvCampaign` (same scheduler as upload; `venueAware` opt-in) |
 
-Do **not** treat ìGo live (all lines)î as starting the campaign ó that only SIP-registers Judie/Sally DIDs.
+Do **not** treat ùGo live (all lines)ù as starting the campaign ù that only SIP-registers Judie/Sally DIDs.
 
-## Request path ó queue all CRM phones
+## Request path ù queue all CRM phones
 
 ```
 /crm Start calling
@@ -100,11 +101,15 @@ Do **not** treat ìGo live (all lines)î as starting the campaign ó that only SIP-
   ? queueCrmCampaign (Supabase reload, skip DNC, venueAware false)
   ? outbound_queue rows (queued)
   ? startOutboundWorker (reclaim stale ? capacity ? Vapi placeCall)
-  ? brains/sally firstMessage (ìSally from sync Two dineî)
+  ? brains/sally firstMessage (ùSally from sync Two dineù)
 ```
 
 ## Anti-patterns
 
 - Do not route Sally Web through Cynthia `handleOrchestrator` staff mode.
 - Do not edit FE `server-legacy/` for Sally prompts.
-- Do not invent a third copy of offer prices in phone overlays ù import `formatOfferFactsBlock` from `sally/offer.ts`.
+- Do not invent a third copy of offer prices in phone overlays ó import `formatOfferFactsBlock` from `sally/offer.ts`.
+- Do not force `status: 'lead'` on existing CRM rows when Start calling / `queueCsvCampaign` runs (`existingCrmQueueIdentityFields`).
+- Do not treat a Supabase customer-load error as an empty list.
+- Do not add `dialling` to `ALL_CRM_QUEUE_STATUSES` ó reclaim to `needs_retry` instead.
+- Do not omit `setupFeeGbp` from package-aware org checkout when offer terms have a setup fee.

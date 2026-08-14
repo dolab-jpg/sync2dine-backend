@@ -93,7 +93,7 @@ Full unique name list: `_generated/tools-discovered.json` ? `uniqueNames`.
 - Staff phone tools: **runtime** PIN + identity (`phone-auth.ts`).
 - Web orchestrator: session auth + role gating in handler; treat **prompt-only** role hints as insufficient for money/destructive tools — prefer BE checks in executors.
 - `getCampaignProgress` (orch_staff `LEAD_CYCLE_TOOLS`): Cynthia chat read of CRM + `outbound_queue` + calls via `executeServerReadTool` / `GET /api/campaigns/progress`. Role-gated (`SALES_QUOTING`). Do not invent campaign counts.
-- CRM enqueue is **not** a Vapi tool: staff `POST /api/campaigns/queue-crm` `{ allCrm: true }` ? `queueCrmCampaign`. See SALLY_ARCHITECTURE outbound.
+- CRM enqueue is **not** a Vapi tool: staff `POST /api/campaigns/queue-crm` `{ allCrm: true }` ? `queueCrmCampaign`. Existing rows keep pipeline status; reload errors 503; reclaim stale `dialling` ? CRM `needs_retry`. See SALLY_ARCHITECTURE outbound.
 - Public Sally Web: blocked tool set must stay enforced in code (`SALLY_WEB_BLOCKED_TOOLS`), not prompt alone.
 - Flag any new tool that relies only on system-prompt “do not call X” as **security concern**.
 
