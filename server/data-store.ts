@@ -1111,16 +1111,34 @@ export function getOutboundQueueState(): 'running' | 'paused' | 'stopped' {
   return state === 'paused' || state === 'stopped' ? state : 'running';
 }
 
-/** Cancel queued outbound jobs when the queue is stopped. */
+/** Cancel queued outbound jobs when the queue is stopped. Also unsticks CRM callQueueStatus. */
 export function cancelQueuedOutboundJobs(): number {
   const store = getDataStore();
   let count = 0;
+  const customerIds = new Set<string>();
   for (const job of store.outboundQueue) {
     if (String(job.status ?? '') !== 'queued') continue;
     Object.assign(job, { status: 'cancelled', cancelledAt: new Date().toISOString() });
     count += 1;
+    const ctx = job.context && typeof job.context === 'object'
+      ? job.context as Record<string, unknown>
+      : {};
+    const customerId = String(job.customerId ?? ctx.customerId ?? '').trim();
+    if (customerId) customerIds.add(customerId);
   }
   if (count) syncData(store);
+  for (const id of customerIds) {
+    try {
+      const existing = store.customers.find((c) => String(c.id) === id) as Record<string, unknown> | undefined;
+      const status = String(existing?.callQueueStatus ?? '').trim().toLowerCase();
+      // Only reset in-flight queue marks — keep called / needs_retry / DNC.
+      if (status === 'queued' || status === 'dialling' || status === 'needs_hours') {
+        saveCustomerRecord({ id, callQueueStatus: 'not_called' });
+      }
+    } catch {
+      /* keep cancelling even if one CRM stamp fails */
+    }
+  }
   return count;
 }
 

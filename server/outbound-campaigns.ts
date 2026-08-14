@@ -580,7 +580,8 @@ export async function queueCsvCampaign(input: {
   };
 }
 
-const ALL_CRM_QUEUE_STATUSES = ['not_called', 'needs_retry'];
+/** Fresh + retry + orphaned CRM statuses (Stop cancels jobs but used to leave CRM on queued). */
+const ALL_CRM_QUEUE_STATUSES = ['not_called', 'needs_retry', 'queued', 'needs_hours'];
 
 /** Queue Sally dials from existing CRM leads (not_called / batch) — same scheduler as CSV. */
 export async function queueCrmCampaign(input: {
@@ -624,11 +625,20 @@ export async function queueCrmCampaign(input: {
 
   const store = getDataStore();
 
+  // Phones already sitting in the real dialer — do not double-enqueue on allCrm rescue.
+  const activeDialPhones = new Set(
+    (store.outboundQueue ?? [])
+      .filter((j) => ['queued', 'dialling', 'needs_hours'].includes(String(j.status ?? '')))
+      .map((j) => normalizePhoneExport(toUkE164(String(j.to ?? ''))))
+      .filter(Boolean),
+  );
+
   const filtered = store.customers.filter((c) => {
     const rec = c as Record<string, unknown>;
     if (allCrm) {
-      const phone = normalizePhoneExport(String(rec.phone ?? ''));
+      const phone = normalizePhoneExport(toUkE164(String(rec.phone ?? '')));
       if (!phone || phone.length < 7) return false;
+      if (activeDialPhones.has(phone)) return false;
       if (!assessContactEligibility(rec).eligible) return false;
       const pipeline = String(rec.status ?? '').trim().toLowerCase();
       if (pipeline && pipeline !== 'lead' && pipeline !== 'quoted') return false;
