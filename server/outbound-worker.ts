@@ -1,8 +1,8 @@
 import {
   getDataStore,
   getOutboundQueueState,
-  isWithinCallQueueQuietHours,
   getAgentCapacitySnapshot,
+  reclaimStaleDiallingJobs,
   updateOutboundJob,
 } from './data-store';
 
@@ -44,7 +44,7 @@ async function processOutboundQueue(): Promise<void> {
     return;
   }
 
-  const inQuietHours = isWithinCallQueueQuietHours();
+  reclaimStaleDiallingJobs();
   const capacity = getAgentCapacitySnapshot();
   if (capacity.outboundSlotsFree <= 0) return;
 
@@ -54,27 +54,6 @@ async function processOutboundQueue(): Promise<void> {
     const ctx = (j.context && typeof j.context === 'object')
       ? (j.context as Record<string, unknown>)
       : {};
-    const bypassQuiet =
-      j.bypassQuietHours === true
-      || String(ctx.aim || '').toLowerCase() === 'meeting_confirm'
-      || ctx.venueAwareSchedule === true
-      || String(ctx.dialReason || '').includes('may_bypass_global_quiet');
-    // #region agent log
-    if (String(ctx.aim || '').toLowerCase() === 'meeting_confirm' || j.bypassQuietHours === true) {
-      void import('./debug-session-log').then(({ debugLog }) => {
-        debugLog('B', 'outbound-worker.ts:filter', 'meeting_confirm queue eligibility', {
-          jobId: String(j.id || ''),
-          aim: String(ctx.aim || ''),
-          bypassQuietHours: j.bypassQuietHours === true,
-          bypassQuiet,
-          inQuietHours,
-          wouldSkipForQuiet: inQuietHours && !bypassQuiet,
-          scheduledAt: j.scheduledAt || null,
-        });
-      }).catch(() => {});
-    }
-    // #endregion
-    if (inQuietHours && !bypassQuiet) return false;
     const scheduled = j.scheduledAt ? Date.parse(String(j.scheduledAt)) : NaN;
     if (Number.isFinite(scheduled) && scheduled > Date.now()) return false;
 

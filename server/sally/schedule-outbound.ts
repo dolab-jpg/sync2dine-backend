@@ -641,11 +641,16 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
   };
 }
 
+/** Hidden retry ceiling — not a staff UI surface. */
+const HIDDEN_CALL_QUEUE_MAX_ATTEMPTS = 3;
+/** Hidden retry spacing (minutes) — code constant, not a staff setting. */
+const HIDDEN_RETRY_MINUTES = 60;
+
 /** Re-queue CRM leads marked needs_retry using venue-aware slots + eligibility. */
 export function enqueueSallyRetryLeads(): number {
   const settings = getAgentSettings();
-  const maxAttempts = settings.callQueueMaxAttempts ?? 3;
-  const retryMin = settings.callQueueRetryMinutes ?? 60;
+  const maxAttempts = settings.callQueueMaxAttempts ?? HIDDEN_CALL_QUEUE_MAX_ATTEMPTS;
+  const retryMin = HIDDEN_RETRY_MINUTES;
   const store = getDataStore();
   const customers = (store.customers as Array<Record<string, unknown>>) || [];
   let queued = 0;

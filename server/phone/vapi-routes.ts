@@ -724,10 +724,6 @@ function finalizeVapiCall(
     || (after?.customerId != null ? String(after.customerId) : null);
 
   if (customerId) {
-    const settings = getAgentSettings();
-    const noteHint = settings.postCallNotePrompt
-      ? ` ${settings.postCallNotePrompt}`
-      : '';
     const detailParts = [
       fallbackSummary,
       transferredTo ? `Transferred to: ${transferredTo}` : '',
@@ -749,7 +745,7 @@ function finalizeVapiCall(
       outcome: endedReason || disposition,
       disposition,
       aim,
-      detail: `${detailParts.join(' ').slice(0, 700)}${crmLite}${noteHint ? '' : ''}`.slice(0, 900),
+      detail: `${detailParts.join(' ').slice(0, 700)}${crmLite}`.slice(0, 900),
       type: 'call',
       updateCallQueue: true,
       transferredTo,

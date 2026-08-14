@@ -4,13 +4,110 @@ import {
   getDataStore,
   listOrderRecords,
   normalizePhoneExport,
+  reloadCustomersFromSupabase,
   saveCustomerRecord,
 } from './data-store';
 import type { OutboundCampaignTemplate } from './telephony/types';
 import { scheduleSallyOutboundDialWithResearch } from './sally/schedule-outbound';
 import { assessContactEligibility } from './sally/call-eligibility';
-import { normalizeVenueType } from './sally/dial-windows';
+import {
+  normalizeVenueType,
+  normalizeWeeklyHours,
+  parseOpeningHoursHint,
+  type Weekday,
+  type WeeklyOpeningHours,
+} from './sally/dial-windows';
 import { toUkE164 } from './phone/vapi-client';
+
+/** Canonical campaign label for the venue lead list (never “Hindi” / scrape-date tags). */
+export const LEEDS_CAMPAIGN_ID = 'Leeds';
+
+const DEFAULT_SALLY_BRIEF =
+  'Sally from Sync2Dine: introduce the takeaway phone platform — AI answers, takes orders, and drives repeat business.';
+
+/** Legacy batch/campaign/tags from earlier imports of this list. */
+export function looksLikeLeedsLegacyLabel(raw: unknown): boolean {
+  const s = String(raw ?? '').trim();
+  if (!s) return false;
+  if (/^leeds$/i.test(s)) return true;
+  if (/hindi/i.test(s)) return true;
+  if (/sync2dine\s*call\s*leads/i.test(s)) return true;
+  if (/^scrape-\d{4}-\d{2}-\d{2}$/i.test(s)) return true;
+  if (/^sales-\d{4}-\d{2}-\d{2}$/i.test(s)) return true;
+  return false;
+}
+
+export function customerMatchesLeedsBatch(c: Record<string, unknown>, batchId = LEEDS_CAMPAIGN_ID): boolean {
+  const want = String(batchId || LEEDS_CAMPAIGN_ID).trim() || LEEDS_CAMPAIGN_ID;
+  const batch = String(c.leadBatchId ?? '').trim();
+  const campaign = String(c.campaign ?? '').trim();
+  if (batch === want || campaign === want) return true;
+  if (looksLikeLeedsLegacyLabel(batch) || looksLikeLeedsLegacyLabel(campaign)) return true;
+  const tags = Array.isArray(c.tags) ? c.tags.map((t) => String(t)) : [];
+  if (tags.some((t) => t === want || looksLikeLeedsLegacyLabel(t))) return true;
+  return false;
+}
+
+/** Remap Hindi / scrape-date labels → Leeds on a customer record. */
+export function remapCustomerLeedsLabels(c: Record<string, unknown>): Record<string, unknown> | null {
+  const tags = Array.isArray(c.tags) ? c.tags.map((t) => String(t)) : [];
+  const batchLegacy = looksLikeLeedsLegacyLabel(c.leadBatchId);
+  const campaignLegacy = looksLikeLeedsLegacyLabel(c.campaign);
+  const tagLegacy = tags.some(looksLikeLeedsLegacyLabel);
+  if (!batchLegacy && !campaignLegacy && !tagLegacy) return null;
+
+  const nextTags = [
+    ...tags.filter((t) => !looksLikeLeedsLegacyLabel(t)),
+    LEEDS_CAMPAIGN_ID,
+  ];
+
+  return {
+    ...c,
+    leadBatchId: batchLegacy ? LEEDS_CAMPAIGN_ID : String(c.leadBatchId ?? LEEDS_CAMPAIGN_ID),
+    campaign: campaignLegacy ? LEEDS_CAMPAIGN_ID : String(c.campaign ?? LEEDS_CAMPAIGN_ID),
+    tags: [...new Set(nextTags)],
+  };
+}
+
+export function remapAllLeedsLegacyCustomers(): { remapped: number } {
+  const store = getDataStore();
+  let remapped = 0;
+  for (const c of store.customers) {
+    const next = remapCustomerLeedsLabels(c as Record<string, unknown>);
+    if (!next || !next.id) continue;
+    try {
+      saveCustomerRecord({
+        id: next.id,
+        leadBatchId: next.leadBatchId,
+        campaign: next.campaign,
+        tags: next.tags,
+      });
+      remapped += 1;
+    } catch {
+      /* continue */
+    }
+  }
+  return { remapped };
+}
+
+function weeklyHoursFromDayParts(dayParts: Array<{ d: string; v: string }>): WeeklyOpeningHours | undefined {
+  if (!dayParts.length) return undefined;
+  const weekly: WeeklyOpeningHours = {};
+  let any = false;
+  for (const { d, v } of dayParts) {
+    const day = d as Weekday;
+    if (/^closed$/i.test(v) || v === '-') {
+      weekly[day] = [];
+      any = true;
+      continue;
+    }
+    const hint = parseOpeningHoursHint(v);
+    if (!hint) continue;
+    weekly[day] = [{ openHour: hint.openHour, closeHour: hint.closeHour }];
+    any = true;
+  }
+  return any ? weekly : undefined;
+}
 
 export type LapseCampaignTemplate = 'customer_review' | 'customer_reorder' | 'lapse_winback';
 
@@ -157,6 +254,7 @@ export type CsvCampaignRow = {
   customerId?: string;
   venueType?: string;
   openingHours?: string;
+  weeklyHours?: WeeklyOpeningHours;
   closedDays?: string;
   preferredContactTimes?: string;
   timezone?: string;
@@ -214,16 +312,24 @@ export function parseCampaignCsv(text: string): CsvCampaignRow[] {
     if (!phone) continue;
 
     let openingHours = hoursI >= 0 ? parts[hoursI] : undefined;
+    const dayParts: Array<{ d: string; v: string }> = [];
     if (!openingHours?.trim()) {
-      const dayParts: string[] = [];
       for (const { d, i: di } of dayCols) {
         if (di < 0) continue;
         const v = (parts[di] || '').trim();
         if (!v || /^closed$/i.test(v)) continue;
-        dayParts.push(`${d[0].toUpperCase()}${d.slice(1)}: ${v}`);
+        dayParts.push({ d, v });
       }
-      if (dayParts.length) openingHours = dayParts.join('; ');
+      if (dayParts.length) openingHours = dayParts.map(({ d, v }) => `${d[0].toUpperCase()}${d.slice(1)}: ${v}`).join('; ');
+    } else {
+      for (const { d, i: di } of dayCols) {
+        if (di < 0) continue;
+        const v = (parts[di] || '').trim();
+        if (!v) continue;
+        dayParts.push({ d, v });
+      }
     }
+    const weeklyHours = weeklyHoursFromDayParts(dayParts);
 
     const category = venueI >= 0 ? parts[venueI] : undefined;
     const addressBits = [
@@ -244,6 +350,7 @@ export function parseCampaignCsv(text: string): CsvCampaignRow[] {
       customerId: idI >= 0 ? parts[idI] : undefined,
       venueType: category || 'takeaway',
       openingHours: openingHours || undefined,
+      weeklyHours,
       closedDays: closedI >= 0 ? parts[closedI] : undefined,
       preferredContactTimes: prefI >= 0 ? parts[prefI] : undefined,
       timezone: tzI >= 0 ? parts[tzI] : undefined,
@@ -334,6 +441,7 @@ export async function queueCsvCampaign(input: {
       doNotCall: consentDeclined,
       venueType: row.venueType ? normalizeVenueType(row.venueType) : undefined,
       openingHours: row.openingHours,
+      weeklyHours: row.weeklyHours ? normalizeWeeklyHours(row.weeklyHours) || row.weeklyHours : undefined,
       closedDays: row.closedDays,
       preferredContactTimes: row.preferredContactTimes,
       timezone: row.timezone || 'Europe/London',
@@ -344,6 +452,7 @@ export async function queueCsvCampaign(input: {
         notes: row.notes,
         venueType: row.venueType,
         openingHours: row.openingHours,
+        weeklyHours: row.weeklyHours,
         closedDays: row.closedDays,
         preferredContactTimes: row.preferredContactTimes,
         timezone: row.timezone,
@@ -379,6 +488,7 @@ export async function queueCsvCampaign(input: {
     const venueProfile = {
       venueType: row.venueType || 'takeaway',
       openingHours: row.openingHours,
+      weeklyHours: row.weeklyHours,
       closedDays: row.closedDays,
       preferredContactTimes: row.preferredContactTimes,
       timezone: row.timezone || 'Europe/London',
@@ -450,5 +560,114 @@ export async function queueCsvCampaign(input: {
     campaignId,
     jobs,
     preview: input.rows.slice(0, 10),
+  };
+}
+
+const ALL_CRM_QUEUE_STATUSES = ['not_called', 'needs_retry'];
+
+/** Queue Sally dials from existing CRM leads (not_called / batch) — same scheduler as CSV. */
+export async function queueCrmCampaign(input: {
+  batchId?: string;
+  statuses?: string[];
+  brief?: string;
+  template?: string;
+  dryRun?: boolean;
+  remapLeeds?: boolean;
+  /** When true, enqueue every dialable CRM lead (not Leeds/batch-only). */
+  allCrm?: boolean;
+  /** Default true for Leeds; false for allCrm so unknown hours do not become needs_hours. */
+  venueAware?: boolean;
+}): Promise<{
+  queued: number;
+  skipped: number;
+  held: number;
+  campaignId: string;
+  remapped: number;
+  matched: number;
+  jobs: Array<Record<string, unknown>>;
+}> {
+  const allCrm = input.allCrm === true;
+  const shouldRemap = allCrm ? input.remapLeeds === true : input.remapLeeds !== false;
+  const remapped = shouldRemap ? remapAllLeedsLegacyCustomers().remapped : 0;
+  const campaignId = String(input.batchId || '').trim()
+    || (allCrm ? `all-crm-${Date.now()}` : LEEDS_CAMPAIGN_ID);
+  const statuses = (input.statuses?.length
+    ? input.statuses
+    : (allCrm ? ALL_CRM_QUEUE_STATUSES : ['not_called']))
+    .map((s) => String(s).trim().toLowerCase())
+    .filter(Boolean);
+  const venueAware = input.venueAware ?? (allCrm ? false : true);
+
+  if (allCrm) {
+    await reloadCustomersFromSupabase();
+  }
+
+  const store = getDataStore();
+
+  const filtered = store.customers.filter((c) => {
+    const rec = c as Record<string, unknown>;
+    if (allCrm) {
+      const phone = normalizePhoneExport(String(rec.phone ?? ''));
+      if (!phone || phone.length < 7) return false;
+      if (!assessContactEligibility(rec).eligible) return false;
+      const pipeline = String(rec.status ?? '').trim().toLowerCase();
+      if (pipeline && pipeline !== 'lead' && pipeline !== 'quoted') return false;
+      const queueStatus = String(rec.callQueueStatus ?? '').trim().toLowerCase() || 'not_called';
+      return statuses.includes(queueStatus);
+    }
+    const status = String(c.callQueueStatus ?? 'not_called').toLowerCase();
+    if (!statuses.includes(status)) return false;
+    if (campaignId === LEEDS_CAMPAIGN_ID || looksLikeLeedsLegacyLabel(campaignId)) {
+      return customerMatchesLeedsBatch(rec, LEEDS_CAMPAIGN_ID);
+    }
+    const batch = String(c.leadBatchId ?? '').trim();
+    const campaign = String(c.campaign ?? '').trim();
+    const tags = Array.isArray(c.tags) ? c.tags.map((t) => String(t)) : [];
+    return batch === campaignId || campaign === campaignId || tags.includes(campaignId);
+  });
+
+  const rows: CsvCampaignRow[] = filtered.map((c) => {
+    const rec = c as Record<string, unknown>;
+    const weekly = normalizeWeeklyHours(rec.weeklyHours) || undefined;
+    return {
+      name: String(rec.name ?? rec.contactName ?? 'Venue'),
+      phone: String(rec.phone ?? ''),
+      notes: rec.notes != null ? String(rec.notes) : undefined,
+      address: rec.address != null ? String(rec.address) : undefined,
+      customerId: String(rec.id),
+      venueType: rec.venueType != null ? String(rec.venueType) : 'takeaway',
+      openingHours: rec.openingHours != null ? String(rec.openingHours) : undefined,
+      weeklyHours: weekly || undefined,
+      closedDays: rec.closedDays != null ? String(rec.closedDays) : undefined,
+      preferredContactTimes: rec.preferredContactTimes != null ? String(rec.preferredContactTimes) : undefined,
+      timezone: rec.timezone != null ? String(rec.timezone) : 'Europe/London',
+      consentToCall: rec.consentToCall === false || rec.doNotCall === true ? 'false' : 'true',
+    };
+  });
+
+  if (input.dryRun) {
+    return {
+      queued: 0,
+      skipped: 0,
+      held: 0,
+      campaignId,
+      remapped,
+      matched: rows.length,
+      jobs: [],
+    };
+  }
+
+  const result = await queueCsvCampaign({
+    rows,
+    template: input.template || 'sally_sales',
+    brief: input.brief || DEFAULT_SALLY_BRIEF,
+    batchId: campaignId,
+    venueAware,
+  });
+
+  return {
+    ...result,
+    remapped,
+    matched: rows.length,
   };
 }

@@ -19,6 +19,16 @@ function rowToRecord<T extends object>(rows: Array<{ id: string; data: unknown }
   return rows.map(r => ({ id: r.id, ...(r.data as Record<string, unknown>) }) as unknown as T);
 }
 
+/** Customers only for one org — does not load other collections. */
+export async function loadCustomersFromSupabase(orgId?: string | null): Promise<Array<Record<string, unknown>>> {
+  if (!isSupabaseConfigured()) return [];
+  const orgUuid = await resolveOrgUuid(orgId);
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase.from('customers').select('id, data').eq('org_id', orgUuid);
+  if (error || !data?.length) return [];
+  return rowToRecord(data);
+}
+
 export async function loadSyncedDataFromSupabase(orgId?: string | null): Promise<SyncedData> {
   const orgUuid = await resolveOrgUuid(orgId);
   const supabase = getSupabaseAdmin();

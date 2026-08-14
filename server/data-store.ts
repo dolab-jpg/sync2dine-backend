@@ -263,8 +263,8 @@ const defaultAgentSettings: AgentSettings = {
   postCallNotePrompt: 'After the call, note: interest level, any objection, next step, and best callback time if needed.',
   callQueueMaxAttempts: 3,
   callQueueRetryMinutes: 60,
-  callQueueQuietStart: '20:00',
-  callQueueQuietEnd: '08:00',
+  callQueueQuietStart: '00:00',
+  callQueueQuietEnd: '00:00',
   callQueueMaxConcurrent: 1,
   outboundQueueState: 'running',
   maxAgentSlots: 5,
@@ -600,6 +600,25 @@ export async function initDataFromSupabase(orgId?: string): Promise<void> {
     memoryStores.set(id, data);
   } catch {
     // fall back to JSON files
+  }
+}
+
+/**
+ * Reload only this org's customers from Supabase into the in-memory store.
+ * Does not touch other collections. Empty/failed cloud reads leave the store unchanged.
+ */
+export async function reloadCustomersFromSupabase(orgId?: string): Promise<number> {
+  const id = resolveStorageOrgId(orgId ?? getRequestOrgId());
+  try {
+    const { isSupabaseConfigured, loadCustomersFromSupabase } = await import('./supabase-data.js');
+    if (!isSupabaseConfigured()) return 0;
+    const customers = await loadCustomersFromSupabase(id);
+    if (!customers.length) return 0;
+    const store = ensureOrgLoaded(id);
+    store.customers = customers;
+    return customers.length;
+  } catch {
+    return 0;
   }
 }
 
@@ -1068,11 +1087,11 @@ export function getAgentCapacitySnapshot(): {
   };
 }
 
-/** True when auto outbound dialling should be skipped (quiet hours). */
+/** Leftover helper. Defaults are start===end ('00:00') so this returns false. */
 export function isWithinCallQueueQuietHours(now = new Date()): boolean {
   const { callQueueQuietStart, callQueueQuietEnd } = getAgentSettings();
-  const start = String(callQueueQuietStart ?? '20:00').trim();
-  const end = String(callQueueQuietEnd ?? '08:00').trim();
+  const start = String(callQueueQuietStart ?? '00:00').trim();
+  const end = String(callQueueQuietEnd ?? '00:00').trim();
   const toMins = (hhmm: string) => {
     const [h, m] = hhmm.split(':').map((v) => Number(v));
     if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
@@ -1849,6 +1868,53 @@ export function expireStaleOpenCalls(nowMs: number = Date.now()): number {
 export function isOpenCallStatus(status: unknown): boolean {
   const s = String(status ?? '');
   return s === 'ringing' || s === 'in_progress';
+}
+
+/** Dialling jobs older than this (or with no live open call) are reclaimed so slots free. */
+export const STALE_DIALLING_JOB_MAX_MS = Number(process.env.STALE_DIALLING_JOB_MAX_MS ?? 20 * 60 * 1000);
+
+/**
+ * Fail outbound jobs stuck in `dialling` with no matching live open call,
+ * or whose startedAt is older than ~20 minutes. Returns how many were reclaimed.
+ */
+export function reclaimStaleDiallingJobs(nowMs: number = Date.now()): number {
+  expireStaleOpenCalls(nowMs);
+  const store = getDataStore();
+  const maxAge = STALE_DIALLING_JOB_MAX_MS > 0 ? STALE_DIALLING_JOB_MAX_MS : 20 * 60 * 1000;
+  const stamp = new Date(nowMs).toISOString();
+  let reclaimed = 0;
+
+  for (const job of store.outboundQueue ?? []) {
+    if (String(job.status ?? '') !== 'dialling') continue;
+
+    const callId = String(job.callId ?? '').trim();
+    const matchingCall = callId
+      ? store.calls.find((c) =>
+          String(c.id ?? '') === callId || String(c.providerCallId ?? '') === callId,
+        )
+      : undefined;
+    const live = Boolean(matchingCall && isOpenCallStatus(matchingCall.status));
+    const started = Date.parse(String(job.startedAt ?? job.dialAcceptedAt ?? ''));
+    const age = Number.isFinite(started) ? nowMs - started : Number.POSITIVE_INFINITY;
+    const tooOld = age >= maxAge;
+
+    // In-flight worker POST: no callId yet and still inside the stale window.
+    if (!callId && !tooOld) continue;
+    // Call row not visible yet (same-tick / cache) — wait for the stale window.
+    if (callId && !matchingCall && !tooOld) continue;
+    if (live && !tooOld) continue;
+
+    Object.assign(job, {
+      status: 'failed',
+      error: live ? 'stale_dialling_timeout' : 'stale_dialling_no_live_call',
+      completedAt: stamp,
+      reclaimedAt: stamp,
+    });
+    reclaimed += 1;
+  }
+
+  if (reclaimed) syncData(store);
+  return reclaimed;
 }
 
 export function getLinesSummary(): { total: number; registered: number; onCall: number } {

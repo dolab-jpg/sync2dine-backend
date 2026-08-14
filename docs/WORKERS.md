@@ -10,7 +10,7 @@
 | `initDataFromSupabase` | `data-store.ts` | once at listen | hydrate cache from Supabase | ù | boot logs |
 | `ensureBdiddiesHomeOrg` | `organizations.ts` | once | ensure home org | ù | org exists |
 | `startMailboxPoller` | `mailbox/imapSyncService.ts` | interval (~60s) | IMAP sync | stop process / mailbox config | mailbox UI |
-| `startOutboundWorker` | `outbound-worker.ts` | loop | place queued calls; Vapi health gate; pause after consecutive silent outbound; re-queues `needs_retry` via `enqueueSallyRetryLeads`; DNC cancel | ù | outbound queue |
+| `startOutboundWorker` | `outbound-worker.ts` | loop | place queued calls; Vapi health gate; pause after consecutive silent outbound; reclaim stale `dialling` jobs; no global quiet-hours skip; re-queues `needs_retry` via `enqueueSallyRetryLeads`; DNC cancel | ù | outbound queue |
 | `startConnectorQueueWorker` | `connectors/outbound-queue.ts` | ~30s | POS/partner push | ù | connector tests |
 | `startSalesBrainWorker` | `sales-brain/worker.ts` | loop | score calls | `DISABLE_SALES_BRAIN_WORKER=1` | `/api/sales-brain` |
 | `startSallyKnowledgeWorker` | `sally-product-kb/worker.ts` | loop | KB index | ù | `/api/sally-knowledge` |

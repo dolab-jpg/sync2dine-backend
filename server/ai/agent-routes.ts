@@ -724,9 +724,10 @@ export async function handleAgentRoutes(
       template?: string;
       brief?: string;
       dryRun?: boolean;
+      batchId?: string;
     };
     try {
-      const { parseCampaignCsv, queueCsvCampaign } = await import('../outbound-campaigns');
+      const { parseCampaignCsv, queueCsvCampaign, LEEDS_CAMPAIGN_ID } = await import('../outbound-campaigns');
       const rows = Array.isArray(body.rows) && body.rows.length
         ? body.rows.map((r) => ({
             name: String(r.name ?? 'Guest'),
@@ -740,10 +741,45 @@ export async function handleAgentRoutes(
         template: body.template,
         brief: body.brief,
         dryRun: body.dryRun === true,
+        batchId: body.batchId || LEEDS_CAMPAIGN_ID,
       });
       sendJson(res, 200, { success: true, ...result });
     } catch (err) {
       sendJson(res, 400, { error: err instanceof Error ? err.message : 'Campaign upload failed' });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/campaigns/queue-crm' && req.method === 'POST') {
+    if (!(await requireCampaignStaff(req, res, 'getCampaignProgress'))) return true;
+    const body = JSON.parse(await readBody(req)) as {
+      batchId?: string;
+      statuses?: string[];
+      brief?: string;
+      template?: string;
+      dryRun?: boolean;
+      remapLeeds?: boolean;
+      allCrm?: boolean;
+      venueAware?: boolean;
+    };
+    try {
+      const { queueCrmCampaign, LEEDS_CAMPAIGN_ID } = await import('../outbound-campaigns');
+      const allCrm = body.allCrm === true;
+      const result = await queueCrmCampaign({
+        batchId: allCrm ? (body.batchId || undefined) : (body.batchId || LEEDS_CAMPAIGN_ID),
+        statuses: Array.isArray(body.statuses)
+          ? body.statuses
+          : (allCrm ? ['not_called', 'needs_retry'] : ['not_called']),
+        brief: body.brief,
+        template: body.template,
+        dryRun: body.dryRun === true,
+        remapLeeds: allCrm ? body.remapLeeds === true : body.remapLeeds !== false,
+        allCrm,
+        venueAware: body.venueAware === true ? true : (allCrm ? false : true),
+      });
+      sendJson(res, 200, { success: true, ...result });
+    } catch (err) {
+      sendJson(res, 400, { error: err instanceof Error ? err.message : 'CRM campaign queue failed' });
     }
     return true;
   }
