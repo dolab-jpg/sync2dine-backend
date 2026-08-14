@@ -233,4 +233,3 @@ export async function syncDataToSupabase(data: Partial<SyncedData>, orgId?: stri
   }
 }
 
-export { isSupabaseConfigured, DEFAULT_ORG_UUID };
