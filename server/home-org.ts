@@ -36,7 +36,11 @@ export function sanitizeOrgId(id: string | null | undefined): string | null {
 
 export const BDIDDIES_COMPANY = {
   companyName: 'Sync2Dine',
+  /** TTS / spoken brand — never let the voice say “sync-to-dine” or “sync two-deen”. */
+  spokenCompanyName: 'sync Two dine',
   website: 'https://sync2dine.io',
   email: 'info@sync2dine.io',
   phone: '020 3745 3233',
 } as const;
+
+export const SYNC2DINE_SPOKEN = BDIDDIES_COMPANY.spokenCompanyName;

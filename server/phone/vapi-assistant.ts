@@ -16,7 +16,7 @@ import { transferDestinationsFromEnv } from './transfer-numbers';
 import { SALLY_PERSONA } from './sally-sales-phone';
 import { buildBrainSession, type SilencePersona } from '../brains/index';
 import { CYNTHIA_PERSONA } from '../brains/cynthia/branding';
-import { getHomeOrgId } from '../home-org';
+import { getHomeOrgId, SYNC2DINE_SPOKEN } from '../home-org';
 import { buildVapiModelBlock } from './vapi-llm-model';
 import { debugLog } from '../debug-session-log';
 
@@ -102,7 +102,7 @@ export function buildSilenceHooks(
 }
 
 const SALLY_DEFAULT_VOICEMAIL =
-  "Hi, it's Sally from Sync2Dine. We help restaurants answer the phone with AI that takes orders. I'll try you again soon — reply to this number when you're free. Thanks!";
+  `Hi, it's Sally from ${SYNC2DINE_SPOKEN}. We help restaurants answer the phone with AI that takes orders. I'll try you again soon — reply to this number when you're free. Thanks!`;
 
 export async function buildVapiAssistantForParty(opts: {
   partyPhone: string;
@@ -205,8 +205,8 @@ export async function buildVapiAssistantForParty(opts: {
   const isMeetingConfirm = String(callMeta.aim || '').toLowerCase() === 'meeting_confirm';
   if (sally && isMeetingConfirm && opts.direction === 'outbound') {
     firstMessage = firstName && !/^guest$/i.test(firstName)
-      ? `Alright ${firstName}, Sally from Sync2Dine — just confirming your twenty-minute install chat is still on.`
-      : `Alright love, Sally from Sync2Dine — just confirming your twenty-minute install chat is still on.`;
+      ? `Alright ${firstName}, Sally from ${SYNC2DINE_SPOKEN} — just confirming your twenty-minute install chat is still on.`
+      : `Alright love, Sally from ${SYNC2DINE_SPOKEN} — just confirming your twenty-minute install chat is still on.`;
   }
 
   const sallyVoicemailMessage =

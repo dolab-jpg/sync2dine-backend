@@ -6,6 +6,7 @@ import {
 import { getPhoneSessionChatTools, VERIFY_PIN_TOOL } from '../../phone/phone-brain';
 import { warmSallyKnowledgeCache } from '../../sally-product-kb/inject';
 import { debugLog } from '../../debug-session-log';
+import { SYNC2DINE_SPOKEN } from '../../home-org';
 
 function isStaffMode(input: BrainBuildInput): boolean {
   const { identity } = input;
@@ -51,12 +52,12 @@ export const sallyBrain: BrainPackage = {
         : `Alright ${firstName || 'love'}, Sally here for staff. Say your four-digit security code and I'll unlock inbox, emails, and CRM like Cynthia does.`;
     } else if (input.direction === 'outbound') {
       firstMessage = firstName && !/^guest$/i.test(firstName)
-        ? `Alright ${firstName}, it's Sally from Sync2Dine — you got a minute?`
-        : `Alright love, it's Sally from Sync2Dine — who am I speaking with?`;
+        ? `Alright ${firstName}, it's Sally from ${SYNC2DINE_SPOKEN} — you got a minute?`
+        : `Alright love, it's Sally from ${SYNC2DINE_SPOKEN} — who am I speaking with?`;
     } else {
       firstMessage = firstName && !/^guest$/i.test(firstName)
-        ? `Alright ${firstName}, Sally from Sync2Dine — what can I do you for?`
-        : `Alright, Sally from Sync2Dine — who am I speaking with?`;
+        ? `Alright ${firstName}, Sally from ${SYNC2DINE_SPOKEN} — what can I do you for?`
+        : `Alright, Sally from ${SYNC2DINE_SPOKEN} — who am I speaking with?`;
     }
 
     const sallyTools = getSallyPhoneSessionChatTools();
