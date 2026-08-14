@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T19:41:40.135Z",
+  "generatedAt": "2026-08-14T22:41:59.358Z",
   "toolCount": 188,
   "occurrenceCount": 220,
   "uniqueNames": [
@@ -2208,6 +2208,7 @@
       "sampleNames": [
         "onUserSpeech",
         "endCall",
+        "setCallLanguage",
         "transferCall",
         "bookIntegrationMeeting"
       ]
@@ -2365,7 +2366,6 @@
         "checkPaymentStatus",
         "createSaasContract",
         "sendContract",
-        "salesIntent",
         "bookCallback",
         "captureLead",
         "addLeadNote",
@@ -2386,7 +2386,8 @@
         "draftEmailReply",
         "sendWhatsAppTemplate",
         "createCalendarEvent",
-        "scheduleAppointment"
+        "scheduleAppointment",
+        "schedulePaymentReminder"
       ]
     },
     {

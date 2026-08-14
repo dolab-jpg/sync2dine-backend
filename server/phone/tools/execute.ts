@@ -156,6 +156,29 @@ export async function executePhoneTool(
     const aim = firstString(input.aim) || (fromSally ? 'sales_outreach' : 'callback');
     const reason = firstString(input.reason) || 'Callback requested';
 
+    // If a manager referral job is already queued for this venue, do not also queue a main-line callback.
+    const resolvedCustomerIdEarly = customerId || (customer?.id != null ? String(customer.id) : undefined);
+    if (fromSally && resolvedCustomerIdEarly) {
+      const pendingReferral = (getDataStore().outboundQueue || []).some((j) => {
+        if (!['queued', 'dialling'].includes(String(j.status ?? ''))) return false;
+        const ctx = (j.context && typeof j.context === 'object')
+          ? (j.context as Record<string, unknown>)
+          : {};
+        return String(ctx.source || '') === 'gatekeeper_referral'
+          && String(ctx.customerId || j.customerId || '') === resolvedCustomerIdEarly;
+      });
+      if (pendingReferral) {
+        return {
+          callbackQueued: false,
+          skipped: true,
+          reason: 'manager_referral_already_queued',
+          spokenHint:
+            'I already have a call lined up for the manager — no need to book a second callback on the main line.',
+          doNotReadAloud: true,
+        };
+      }
+    }
+
     let job: Record<string, unknown>;
     if (fromSally) {
       const { scheduleSallyOutboundDial } = await import('../../sally/schedule-outbound');
@@ -490,6 +513,27 @@ export async function executePhoneTool(
   }
 
   if (name === 'enqueueOutboundCall' || name === 'placeOutboundCall') {
+    const orgIdForGate = firstString(body.orgId) || getRequestOrgId();
+    try {
+      const { getOrganizationById } = await import('../../organizations');
+      const { getHomeOrgId } = await import('../../home-org');
+      const org = getOrganizationById(orgIdForGate);
+      // PAYG restaurant tenants are inbound-only. Never block Sally home-org sales outbound.
+      if (
+        org?.saasPackageId === 'judie_payg_inbound' &&
+        orgIdForGate &&
+        orgIdForGate !== getHomeOrgId()
+      ) {
+        return {
+          queued: false,
+          error: 'inbound_only_package',
+          spokenHint:
+            'This restaurant is on Judie Pay-as-you-go inbound only — outbound calling is not included on that package.',
+        };
+      }
+    } catch {
+      /* continue */
+    }
     if (name === 'placeOutboundCall' && actionRequiresConfirmation(name) && input.confirmed !== true) {
       return {
         queued: false,

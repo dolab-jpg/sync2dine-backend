@@ -2,10 +2,13 @@
  * Central Sally outbound scheduling ? venue windows + eligibility + Sally brain routing.
  */
 import {
+  appendCustomerCallActivity,
   enqueueOutboundCall,
   getAgentSettings,
   getDataStore,
   normalizePhoneExport,
+  resolveContactByPhone,
+  saveCall,
   saveCustomerRecord,
   syncData,
 } from '../data-store';
@@ -352,7 +355,8 @@ export async function scheduleSallyOutboundDialWithResearch(
 }
 
 export type CaptureReferralInput = {
-  name: string;
+  /** Person to call — optional; never invent. */
+  name?: string;
   phone: string;
   role?: string;
   referredByName?: string;
@@ -370,9 +374,60 @@ export type CaptureReferralInput = {
   notes?: string;
 };
 
+function displayReferredName(input: CaptureReferralInput): string {
+  const named = String(input.name || '').trim();
+  if (named) return named;
+  const role = String(input.role || '').trim();
+  if (role) return `the ${role}`;
+  return 'the manager';
+}
+
+function stampGatekeeperDisposition(
+  callId: string | undefined,
+  detail: string,
+  customerIdHint?: string,
+): void {
+  const id = String(callId || '').trim();
+  try {
+    if (id) {
+      saveCall({
+        id,
+        outcome: 'gatekeeper_manager_callback',
+      });
+    }
+    let customerId = String(customerIdHint || '').trim();
+    if (!customerId && id) {
+      const call = getDataStore().calls.find((c) => String(c.id) === id) as Record<string, unknown> | undefined;
+      const phone = String(
+        (call?.metadata as Record<string, unknown> | undefined)?.partyPhone
+        || call?.to
+        || call?.from
+        || '',
+      ).trim();
+      const resolved = phone ? resolveContactByPhone(phone) : { customerId: undefined as string | undefined };
+      customerId = resolved.customerId ? String(resolved.customerId) : '';
+    }
+    if (customerId) {
+      appendCustomerCallActivity({
+        customerId,
+        callId: id || undefined,
+        summary: 'Reached gatekeeper — manager callback queued',
+        detail: detail.slice(0, 500),
+        aim: 'sales_outreach',
+        type: 'callback',
+        disposition: 'gatekeeper_manager_callback',
+        updateCallQueue: true,
+      });
+    }
+  } catch {
+    /* best-effort stamp */
+  }
+}
+
 /**
  * Atomic: create/link referred contact + queue Sally follow-up with structured referral brief.
  * Same venue + new mobile stays on THIS restaurant (no second customers row).
+ * Manager/person name is optional — phone is required.
  */
 export function captureReferralAndQueue(input: CaptureReferralInput): {
   ok: boolean;
@@ -393,6 +448,9 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
     };
   }
 
+  const personLabel = displayReferredName(input);
+  const personName = String(input.name || '').trim();
+
   const brief = formatReferralBrief({
     referredByName: input.referredByName,
     referredByPhone: input.referredByPhone,
@@ -404,7 +462,7 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
   const sameVenue = resolveSameVenueCustomer({
     referredByCustomerId: input.referredByCustomerId,
     referredByVenue: input.referredByVenue,
-    name: input.name,
+    name: personName || undefined,
     phone: dialTo,
   });
 
@@ -419,14 +477,16 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
         howKnown: 'spoke',
       });
     }
-    rememberPerson({
-      customerId,
-      name: input.name,
-      role: input.role,
-      phone: dialTo,
-      howKnown: 'referred',
-      note: input.summary || input.notes,
-    });
+    if (personName) {
+      rememberPerson({
+        customerId,
+        name: personName,
+        role: input.role,
+        phone: dialTo,
+        howKnown: 'referred',
+        note: input.summary || input.notes,
+      });
+    }
 
     const already = (getDataStore().outboundQueue || []).some((j) => {
       if (!['queued', 'dialling'].includes(String(j.status ?? ''))) return false;
@@ -434,12 +494,13 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
       return to === normalizePhoneExport(dialTo);
     });
     if (already) {
+      stampGatekeeperDisposition(input.callId, `Manager callback already queued to ${dialTo}`, customerId);
       return {
         ok: true,
         customer: sameVenue,
         isNewLead: false,
         brief,
-        spokenHint: `I've already got a call queued to ${input.name} at ${venueName || 'this restaurant'}. I'll mention ${input.referredByName || 'your colleague'} referred us.`,
+        spokenHint: `I've already got a call queued to ${personLabel} at ${venueName || 'this restaurant'}. I'll mention ${input.referredByName || 'your colleague'} referred us.`,
       };
     }
 
@@ -464,7 +525,8 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
       context: {
         referral: true,
         sameVenue: true,
-        referredPersonName: input.name,
+        referredPersonName: personName || undefined,
+        referredPersonRole: input.role || undefined,
         referredByName: input.referredByName,
         referredByPhone: input.referredByPhone,
         referredByVenue: input.referredByVenue || venueName,
@@ -481,10 +543,54 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
         isNewLead: false,
         spokenHint:
           scheduled.reason === 'do_not_call'
-            ? 'That number is marked do-not-call ? I will not dial it.'
-            : `Saved ${input.name} on ${venueName || 'this restaurant'} but could not queue the call ? ask staff to follow up.`,
+            ? 'That number is marked do-not-call — I will not dial it.'
+            : `Saved the contact on ${venueName || 'this restaurant'} but could not queue the call — ask staff to follow up.`,
       };
     }
+
+    // Persist same-venue referral + availability on the venue row (never overwrite main phone).
+    try {
+      const store = getDataStore();
+      const idx = store.customers.findIndex((c) => String(c.id) === customerId);
+      if (idx >= 0) {
+        const prev = store.customers[idx] as Record<string, unknown>;
+        const referral = {
+          referredByName: input.referredByName || null,
+          referredByPhone: input.referredByPhone || null,
+          referredByVenue: input.referredByVenue || venueName || null,
+          referredByCustomerId: customerId,
+          sourceCallId: input.callId || null,
+          summary: String(input.summary || input.notes || '').slice(0, 500),
+          interestHint: String(input.interestHint || '').slice(0, 200),
+          capturedAt: new Date().toISOString(),
+          pendingCallback: {
+            personName: personName || null,
+            phone: dialTo,
+            role: input.role || null,
+            scheduledAt: scheduled.scheduledAt || input.scheduledAt || null,
+            preferredContactTimes: input.preferredContactTimes || null,
+            sourceCallId: input.callId || null,
+          },
+        };
+        store.customers[idx] = {
+          ...prev,
+          referral,
+          preferredContactTimes: input.preferredContactTimes || prev.preferredContactTimes,
+          nextFollowUp: scheduled.scheduledAt || input.scheduledAt || prev.nextFollowUp,
+          timezone: input.timezone || prev.timezone || 'Europe/London',
+          updatedAt: new Date().toISOString(),
+        };
+        syncData(store);
+      }
+    } catch {
+      /* best-effort CRM stamp */
+    }
+
+    stampGatekeeperDisposition(
+      input.callId,
+      `Queued manager callback to ${dialTo}${personName ? ` (${personName})` : ''}`,
+      customerId,
+    );
 
     return {
       ok: true,
@@ -494,23 +600,35 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
       scheduledAt: scheduled.scheduledAt,
       brief,
       spokenHint: scheduled.scheduledAt
-        ? `Got it ? I'll call ${input.name} at ${venueName || 'this restaurant'} in a sensible window and mention ${input.referredByName || 'your colleague'} referred us.`
-        : `Got it ? I'll call ${input.name} at ${venueName || 'this restaurant'} and mention ${input.referredByName || 'your colleague'} referred us.`,
+        ? `Got it — I'll call ${personLabel} at ${venueName || 'this restaurant'} in a sensible window and mention ${input.referredByName || 'your colleague'} referred us.`
+        : `Got it — I'll call ${personLabel} at ${venueName || 'this restaurant'} and mention ${input.referredByName || 'your colleague'} referred us.`,
     };
   }
+
+  // Different venue: restaurant trading name must NOT be the person name.
+  // Prefer referredByVenue as venue; when only `name` is provided, treat it as the other restaurant trading name.
+  const differentVenueTrading =
+    String(input.referredByVenue || '').trim()
+    || (personName ? personName : 'Unknown restaurant');
+  const differentVenuePerson =
+    String(input.referredByVenue || '').trim() && personName
+      ? personName
+      : undefined;
 
   const notes = [
     input.notes,
     input.summary ? `Referral summary: ${input.summary}` : '',
     input.referredByName ? `Referred by: ${input.referredByName}` : '',
     input.role ? `Role: ${input.role}` : '',
+    differentVenuePerson ? `Person to call: ${differentVenuePerson}` : '',
   ]
     .filter(Boolean)
     .join(' | ');
 
   const lead = captureOrUpdateLead(
     {
-      name: input.name,
+      name: differentVenueTrading,
+      contactName: differentVenuePerson || undefined,
       phone: dialTo,
       notes,
       venueType: input.venueType,
@@ -555,6 +673,14 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
       summary: String(input.summary || input.notes || '').slice(0, 500),
       interestHint: String(input.interestHint || '').slice(0, 200),
       capturedAt: new Date().toISOString(),
+      pendingCallback: {
+        personName: differentVenuePerson || null,
+        phone: dialTo,
+        role: input.role || null,
+        scheduledAt: input.scheduledAt || null,
+        preferredContactTimes: input.preferredContactTimes || null,
+        sourceCallId: input.callId || null,
+      },
     };
     store.customers[idx] = {
       ...prev,
@@ -564,6 +690,7 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
       referredByName: input.referredByName || prev.referredByName,
       referredByPhone: input.referredByPhone || prev.referredByPhone,
       preferredContactTimes: input.preferredContactTimes || prev.preferredContactTimes,
+      nextFollowUp: input.scheduledAt || prev.nextFollowUp,
       timezone: input.timezone || prev.timezone || 'Europe/London',
       contactRole: input.role || prev.contactRole,
     };
@@ -578,20 +705,21 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
     return to === normalizePhoneExport(dialTo);
   });
   if (already) {
+    stampGatekeeperDisposition(input.callId, `Manager callback already queued to ${dialTo}`, customerId);
     return {
       ok: true,
       customer: lead.customer,
       isNewLead: lead.isNewLead,
       brief,
-      spokenHint: `I've already got a call queued to ${input.name}. I'll mention ${input.referredByName || 'your colleague'} referred us.`,
+      spokenHint: `I've already got a call queued to ${personLabel}. I'll mention ${input.referredByName || 'your colleague'} referred us.`,
     };
   }
 
   const scheduled = scheduleSallyOutboundDial({
     to: dialTo,
     customerId,
-    customerName: String(lead.customer.name || input.name),
-    company: input.referredByVenue || String(lead.customer.name || ''),
+    customerName: String(lead.customer.name || differentVenueTrading),
+    company: String(lead.customer.name || differentVenueTrading),
     template: 'sally_sales',
     aim: 'sales_outreach',
     source: 'gatekeeper_referral',
@@ -607,6 +735,7 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
     customer: fresh.customers.find((c) => String(c.id) === customerId) as Record<string, unknown>,
     context: {
       referral: true,
+      referredPersonName: differentVenuePerson || undefined,
       referredByName: input.referredByName,
       referredByPhone: input.referredByPhone,
       referredByVenue: input.referredByVenue,
@@ -623,10 +752,16 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
       isNewLead: lead.isNewLead,
       spokenHint:
         scheduled.reason === 'do_not_call'
-          ? 'That number is marked do-not-call ? I will not dial it.'
-          : 'Saved the contact but could not queue the call ? ask staff to follow up.',
+          ? 'That number is marked do-not-call — I will not dial it.'
+          : 'Saved the contact but could not queue the call — ask staff to follow up.',
     };
   }
+
+  stampGatekeeperDisposition(
+    input.callId,
+    `Queued manager callback to ${dialTo}${personName ? ` (${personName})` : ''}`,
+    customerId,
+  );
 
   return {
     ok: true,
@@ -636,8 +771,8 @@ export function captureReferralAndQueue(input: CaptureReferralInput): {
     scheduledAt: scheduled.scheduledAt,
     brief,
     spokenHint: scheduled.scheduledAt
-      ? `Got it ? I'll call ${input.name} in a sensible window and mention ${input.referredByName || 'your colleague'} referred us.`
-      : `Got it ? I'll call ${input.name} and mention ${input.referredByName || 'your colleague'} referred us.`,
+      ? `Got it — I'll call ${personLabel} in a sensible window and mention ${input.referredByName || 'your colleague'} referred us.`
+      : `Got it — I'll call ${personLabel} and mention ${input.referredByName || 'your colleague'} referred us.`,
   };
 }
 

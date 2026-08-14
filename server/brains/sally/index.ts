@@ -32,6 +32,9 @@ export const sallyBrain: BrainPackage = {
     // #endregion
     void warmSallyKnowledgeCache().catch(() => {});
 
+    const meta = (input.callMeta && typeof input.callMeta === 'object')
+      ? input.callMeta
+      : {};
     const prompt = buildSallyBrainPrompt({
       partyPhone: input.partyPhone,
       direction: input.direction,
@@ -42,7 +45,20 @@ export const sallyBrain: BrainPackage = {
       staffName: input.identity.name,
       staffRole: input.identity.role,
       phoneAuthVerified: input.verified,
+      callMeta: meta,
     });
+
+    const source = String(meta.source || '').toLowerCase();
+    const isReferral =
+      source === 'gatekeeper_referral'
+      || Boolean(meta.referral)
+      || Boolean(meta.referredByName)
+      || /REFERRAL:/i.test(String(input.outboundBrief || ''));
+    const referrerName = String(meta.referredByName || '').trim();
+    const usableFirst =
+      firstName
+      && !/^guest$/i.test(firstName)
+      && !/^(unknown|unknown caller|manager|owner|boss)$/i.test(firstName);
 
     let firstMessage: string;
     if (staffMode) {
@@ -50,14 +66,18 @@ export const sallyBrain: BrainPackage = {
       firstMessage = input.verified
         ? `Alright ${firstName || 'love'}, Sally here — staff tools are unlocked. I can brief your inbox, draft and send company emails, or pull CRM — what do you need?`
         : `Alright ${firstName || 'love'}, Sally here for staff. Say your four-digit security code and I'll unlock inbox, emails, and CRM like Cynthia does.`;
+    } else if (input.direction === 'outbound' && isReferral) {
+      firstMessage = referrerName
+        ? `Alright love, it's Sally from ${SYNC2DINE_SPOKEN} — ${referrerName} on the main line asked me to give you a ring. Got a minute?`
+        : `Alright love, it's Sally from ${SYNC2DINE_SPOKEN} — your colleague on the main line asked me to give you a ring. Got a minute?`;
     } else if (input.direction === 'outbound') {
-      firstMessage = firstName && !/^guest$/i.test(firstName)
+      firstMessage = usableFirst
         ? `Alright ${firstName}, it's Sally from ${SYNC2DINE_SPOKEN} — you got a minute?`
-        : `Alright love, it's Sally from ${SYNC2DINE_SPOKEN} — who am I speaking with?`;
+        : `Alright love, it's Sally from ${SYNC2DINE_SPOKEN} — is the manager or owner about?`;
     } else {
-      firstMessage = firstName && !/^guest$/i.test(firstName)
+      firstMessage = usableFirst
         ? `Alright ${firstName}, Sally from ${SYNC2DINE_SPOKEN} — what can I do you for?`
-        : `Alright, Sally from ${SYNC2DINE_SPOKEN} — who am I speaking with?`;
+        : `Alright, Sally from ${SYNC2DINE_SPOKEN} — is the manager or owner about?`;
     }
 
     const sallyTools = getSallyPhoneSessionChatTools();

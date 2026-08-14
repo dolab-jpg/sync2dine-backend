@@ -91,7 +91,7 @@ export function buildSallyRelationshipMemory(partyPhone: string, orgId?: string)
     lines.push(...formatPeopleMemoryLines(String(resolved.customerId), customer));
   }
   if (!customer) {
-    lines.push('No CRM row yet ? discover gently; captureLead when appropriate.');
+    lines.push('No CRM row yet — discover gently; captureLead with venue trading name when appropriate (contactName optional — never invent).');
     return lines.join('\n');
   }
 

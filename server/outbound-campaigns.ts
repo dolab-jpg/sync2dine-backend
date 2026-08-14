@@ -24,7 +24,7 @@ import { isPlausibleUkE164, toUkE164 } from './phone/vapi-client';
 export const LEEDS_CAMPAIGN_ID = 'Leeds';
 
 const DEFAULT_SALLY_BRIEF =
-  'Sally from sync Two dine: introduce the takeaway phone platform — AI answers, takes orders, and drives repeat business.';
+  'Sally from sync Two dine: quick intro on the venue main line, ask for the manager or owner, then introduce the takeaway phone platform — AI answers, takes orders, and drives repeat business. Do not demand the gatekeeper\'s name.';
 
 /** Legacy batch/campaign/tags from earlier imports of this list. */
 export function looksLikeLeedsLegacyLabel(raw: unknown): boolean {

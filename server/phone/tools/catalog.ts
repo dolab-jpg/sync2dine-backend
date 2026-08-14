@@ -54,14 +54,14 @@ const CAPTURE_LEAD_PROPERTIES = {
   notes: { type: 'string' },
 } as const;
 
-function captureLeadTool(required: readonly string[]) {
-  const sales = required.includes('contactName');
+function captureLeadTool(required: readonly string[], opts?: { sales?: boolean }) {
+  const sales = opts?.sales === true || required.includes('contactName');
   return {
     type: 'function' as const,
     function: {
       name: 'captureLead',
       description: sales
-        ? 'Save a CRM sales lead. `name` is the restaurant/venue trading name (never the person). `contactName` is the point of contact. Always pass both.'
+        ? 'Save a CRM sales lead. `name` is the restaurant/venue trading name (from the account — never the person on the line). Pass `contactName` only if you genuinely learn who you are speaking to — never invent a name and never block the call to collect one.'
         : 'Capture a CRM lead. `name` is the restaurant/venue trading name (not the person). `contactName` is the point of contact when known. For diner bag-name, pass the guest as `name`.',
       parameters: {
         type: 'object',
@@ -72,8 +72,8 @@ function captureLeadTool(required: readonly string[]) {
   };
 }
 
-/** Sally sales overlay — restaurant + point of contact both required. */
-export const SALES_CAPTURE_LEAD_TOOL = captureLeadTool(['name', 'contactName']);
+/** Sally sales overlay — venue trading name required; contactName optional when volunteered. */
+export const SALES_CAPTURE_LEAD_TOOL = captureLeadTool(['name'], { sales: true });
 
 export const PHONE_TOOLS = [
   {

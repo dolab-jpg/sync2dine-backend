@@ -7,6 +7,7 @@ export const LEAD_CALL_DISPOSITIONS = [
   'answered_interested',
   'answered_not_interested',
   'callback_requested',
+  'gatekeeper_manager_callback',
   'wrong_number',
   'do_not_call',
   'transferred',
@@ -61,6 +62,9 @@ export function mapEndedReasonToDisposition(
   if (tool.includes('quote')) return 'quote_requested';
   if (tool.includes('lead_captured') || tool.includes('interested')) return 'answered_interested';
   if (tool.includes('transferred') || tool.includes('transfer')) return 'transferred';
+  if (tool.includes('gatekeeper_manager_callback') || tool.includes('referral_queued') || tool.includes('manager_callback')) {
+    return 'gatekeeper_manager_callback';
+  }
   if (tool.includes('message_taken') || tool.includes('callback')) return 'callback_requested';
   if (tool.includes('do_not_call') || tool.includes('dnc')) return 'do_not_call';
   if (tool.includes('wrong')) return 'wrong_number';

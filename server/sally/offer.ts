@@ -154,7 +154,7 @@ export function getSallyOfferTerms(): SallyOfferTerms {
   };
 }
 
-export function formatOfferFactsBlock(): string {
+function buildOfferFactsCore(opts?: { phoneClose?: boolean }): string {
   const t = getSallyOfferTerms();
   const stored = getSallyOfferStored();
   const founder = stored.founderName || 'Shervin Dolab';
@@ -175,6 +175,10 @@ export function formatOfferFactsBlock(): string {
         : '';
     return `  - ${p.name}: normally £${p.standardWeeklyGbp}/wk — ${t.launchActive ? 'launch ' : ''}£${weekly}/wk · annual £${p.annualPrepayGbp}${mins}`;
   });
+
+  const closePath = opts?.phoneClose
+    ? 'Close path (PHONE): getOfferTerms before any price → bookIntegrationMeeting (20-minute install/senior chat) or leave_goodwill/callback/message. Do NOT run createSaasContract / sendContract / sendStripeCheckoutLink on a cold phone dial.'
+    : 'Close path: getOfferTerms → confirmSaleTerms (include packageId, weekly/annual, overageAction) → createSaasContract → sendContract → after signed → sendStripeCheckoutLink.';
 
   const lines = [
     'OFFER FACTS (authoritative — never invent different prices or terms):',
@@ -202,7 +206,7 @@ export function formatOfferFactsBlock(): string {
     `- Billing: ${t.billing}`,
     `- Minimum term: ${t.minimumTerm}`,
     `- Cancel policy: ${t.cancelPolicy}`,
-    'Close path: getOfferTerms → confirmSaleTerms (include packageId, weekly/annual, overageAction) → createSaasContract → sendContract → after signed → sendStripeCheckoutLink.',
+    closePath,
   ];
   if (t.demoPhone) lines.push(`- Demo phone: ${t.demoPhone}`);
   if (t.demoVideoUrl) lines.push(`- Demo video: ${t.demoVideoUrl}`);
@@ -210,10 +214,20 @@ export function formatOfferFactsBlock(): string {
   return lines.filter(Boolean).join('\n');
 }
 
+/** Web / chat close path (contract + Stripe). */
+export function formatOfferFactsBlock(): string {
+  return buildOfferFactsCore({ phoneClose: false });
+}
+
+/** Phone sales close path — meeting-first, no contract/checkout on cold dials. */
+export function formatPhoneOfferFactsBlock(): string {
+  return buildOfferFactsCore({ phoneClose: true });
+}
+
 export function formatObjectionPlaybook(): string {
   return [
     'OBJECTION PLAYBOOK (short, honest answers):',
-    '- "Are you AI / a robot / is this real / are you a person?": OWN being an AI and sell it. Say, warmly and confidently: "Yes — I\'m an AI, and that\'s exactly why I\'m worth having: I can answer all your calls for you. I\'m proper — we\'re not normal AI, this is specially integrated." Then smoothly continue the pitch. Never get flustered, go quiet, apologise for being AI, switch language, or hang up just because they challenge whether you are AI.',
+    '- "Are you AI / a robot / is this real / are you a person?": OWN being an AI and sell it. Say, warmly and confidently: "Yes — I\'m an AI, and I\'m actually what\'s for sale. This is exactly what your phone could do for orders and bookings." Then ask for the manager or owner if you are not already speaking to them. Never get flustered, go quiet, apologise for being AI, pretend to be human, switch language, or hang up just because they challenge whether you are AI. If they put you on loudspeaker to show the room — lean into it; treat it as a live demo.',
     '- Too expensive / Spotify: Atmosphere is not a music stream — exclusive brand soundtrack from their keywords, seating vs kitchen moods, controllable announcements, and multi-week staff training while service runs. Proven track record helping venues lift sales; do not invent ROI %. Founder patent licences. Judie frees staff from the phone.',
     '- We already answer the phone: Judie covers missed/overflow/after-hours, takes orders into the app, transfers exceptions to humans.',
     '- Afraid of unlimited bills: No unlimited minutes sold. Clear weekly allowance + published overage. They choose continue_bill / pause_transfer / approval_required.',

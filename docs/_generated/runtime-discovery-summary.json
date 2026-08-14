@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T19:41:40.136Z",
+  "generatedAt": "2026-08-14T22:41:59.360Z",
   "beRoot": "sync2dine-backend",
   "counts": {
     "uniqueTools": 188,
@@ -7,7 +7,7 @@
     "routePrefixes": 226,
     "bootWorkers": 10,
     "quarantineFiles": 8,
-    "dynamicImports": 312,
+    "dynamicImports": 313,
     "envGates": 55,
     "phoneBrains": 3
   },

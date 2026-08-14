@@ -38,7 +38,7 @@ import {
 } from '../call-recording-artifacts';
 import { ingestCallRecording } from './call-recording-store';
 import type { OrchestratorRequest } from '../orchestrator-types';
-import { getDemoKitchenOrgId } from '../home-org';
+import { getDemoKitchenOrgId, getHomeOrgId } from '../home-org';
 import {
   resolveInboundDidRoute,
   type InboundDidRoute,
@@ -1406,12 +1406,32 @@ async function handleVapiMessage(
         sendJson(res, 200, { assistant: built });
         return;
       }
-      console.warn(`[vapi] assistant-request budget ${ASSISTANT_BUDGET_MS}ms exceeded — fast Judie fallback`);
+      // Prefer a minimal Sally sales fallback when this looks like a Sally dial —
+      // never land Judie diner tools on a Sync2Dine sales outbound.
+      const callMsg = (message.call || {}) as Record<string, unknown>;
+      const metaMsg = (callMsg.metadata || {}) as Record<string, unknown>;
+      const priorMeta = ((priorByProvider?.metadata as Record<string, unknown> | undefined) || {});
+      const personaHint = String(
+        metaMsg.agentPersona || priorMeta.agentPersona || '',
+      ).toLowerCase();
+      const aimHint = String(metaMsg.aim || priorMeta.aim || '').toLowerCase();
+      const sourceHint = String(metaMsg.source || priorMeta.source || '').toLowerCase();
+      const useSallyFallback =
+        isOutbound
+        || personaHint === 'sally'
+        || /sales_outreach|demo_book|meeting_confirm/.test(aimHint)
+        || /gatekeeper_referral|sales_csv_dial|csv_campaign|outbound_queue/.test(sourceHint);
+      console.warn(
+        `[vapi] assistant-request budget ${ASSISTANT_BUDGET_MS}ms exceeded — fast ${useSallyFallback ? 'Sally' : 'Judie'} fallback`,
+      );
       const { assistant } = await buildVapiAssistantForParty({
-        partyPhone: '',
-        direction: 'inbound',
-        agentPersona: 'judie',
-        orgId: getDemoKitchenOrgId(),
+        partyPhone: String(metaMsg.partyPhone || priorMeta.partyPhone || ''),
+        direction: isOutbound ? 'outbound' : 'inbound',
+        agentPersona: useSallyFallback ? 'sally' : 'judie',
+        orgId: useSallyFallback ? getHomeOrgId() : getDemoKitchenOrgId(),
+        contactName: String(metaMsg.customerName || priorMeta.customerName || ''),
+        campaignTemplate: useSallyFallback ? 'sally_sales' : undefined,
+        callId: priorByProvider?.id != null ? String(priorByProvider.id) : undefined,
       });
       console.log(`[vapi] assistant-request fallback ok in ${Date.now() - t0}ms`);
       sendJson(res, 200, { assistant });
@@ -1427,11 +1447,22 @@ async function handleVapiMessage(
         });
       }).catch(() => {});
       try {
+        const callMsg = (message.call || {}) as Record<string, unknown>;
+        const metaMsg = (callMsg.metadata || {}) as Record<string, unknown>;
+        const directionRawCatch = String(callMsg.type || '').toLowerCase();
+        const isOutboundCatch = directionRawCatch.includes('outbound');
+        const personaHint = String(metaMsg.agentPersona || '').toLowerCase();
+        const useSally =
+          isOutboundCatch
+          || personaHint === 'sally'
+          || /sales_outreach|gatekeeper_referral|sales_csv/.test(
+            `${metaMsg.aim || ''} ${metaMsg.source || ''}`,
+          );
         const { assistant } = await buildVapiAssistantForParty({
-          partyPhone: '',
-          direction: 'inbound',
-          agentPersona: 'judie',
-          orgId: getDemoKitchenOrgId(),
+          partyPhone: String(metaMsg.partyPhone || ''),
+          direction: isOutboundCatch ? 'outbound' : 'inbound',
+          agentPersona: useSally ? 'sally' : 'judie',
+          orgId: useSally ? getHomeOrgId() : getDemoKitchenOrgId(),
         });
         sendJson(res, 200, { assistant });
       } catch (err2) {

@@ -122,7 +122,7 @@ export function formatReferralBrief(input: {
     interest
       ? `They indicated possible interest in: ${interest}. Do not invent stronger interest.`
       : 'Do not invent interest — confirm whether they are the decision-maker and diagnose gently.',
-    'Open with who referred you, then Sync2Dine value (Judie / Atmosphere / Complete) briefly.',
+    'Open with who referred you, then Sync2Dine value (Judie / Atmosphere / Complete) briefly. Do not ask "who am I speaking with?" as the opener.',
   ];
   return bits.join(' ');
 }

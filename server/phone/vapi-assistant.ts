@@ -38,7 +38,7 @@ export function buildSilenceHooks(
             'Can you still hear me?',
           ],
           reask:
-            "Look, I just need a quick yes or no on a twenty-minute install chat — otherwise I'll leave it there.",
+            "No worries — is the manager or owner about, or when are they usually in? Otherwise I can leave a short message.",
           bye: `Alright, I'll let you go — ring ${SYNC2DINE_SPOKEN} when you're free. Cheers!`,
         }
       : persona === 'staff' || persona === 'cynthia'
@@ -170,8 +170,8 @@ export async function buildVapiAssistantForParty(opts: {
   const silencePersona: SilencePersona = session.silencePersona;
 
   const functionTools = session.chatTools
-    // Sally outbound cannot switch languages — strip the setCallLanguage tool.
-    .filter((tool) => !(sallyOutbound && tool.function.name === 'setCallLanguage'))
+    // Sally never switches languages on phone sales — strip setCallLanguage for all Sally calls.
+    .filter((tool) => !(sally && tool.function.name === 'setCallLanguage'))
     .map((tool) => ({
       type: 'function' as const,
       function: tool.function,
@@ -281,6 +281,25 @@ export async function buildVapiAssistantForParty(opts: {
             },
             // Wait long enough for typical UK greetings before speaking the drop.
             beepMaxAwaitSeconds: 30,
+          },
+          // Conservative turn-taking for takeaway main-line noise / loudspeaker.
+          startSpeakingPlan: {
+            waitSeconds: Number(process.env.VAPI_SALLY_WAIT_SECONDS || 0.55),
+            smartEndpointingPlan: {
+              provider: 'livekit',
+              waitFunction: process.env.VAPI_SALLY_EOT_WAIT_FUNCTION?.trim()
+                || '30 + 500 * sqrt(x) + 2200 * x^3',
+            },
+            transcriptionEndpointingPlan: {
+              onPunctuationSeconds: 0.35,
+              onNoPunctuationSeconds: 1.2,
+              onNumberSeconds: 0.5,
+            },
+          },
+          stopSpeakingPlan: {
+            numWords: 3,
+            voiceSeconds: 0.3,
+            backoffSeconds: 1.0,
           },
         }
       : {
