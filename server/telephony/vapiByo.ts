@@ -15,7 +15,9 @@
  * This is a runtime TS port of scripts/vapi-ensure-byo.mjs (kept for CLI use).
  */
 
-const API_BASE = process.env.VAPI_API_BASE || 'https://api.vapi.ai';
+import { getVapiApiBase, getVapiWebhookBaseUrl } from '../phone/vapi-client';
+
+const API_BASE = process.env.VAPI_API_BASE || getVapiApiBase();
 
 function key(): string | null {
   return process.env.VAPI_PRIVATE_KEY || process.env.VAPI_API_KEY || null;
@@ -26,8 +28,7 @@ function credentialId(): string | null {
 }
 
 function webhookUrl(): string {
-  const base = (process.env.WEBHOOK_BASE_URL || process.env.APP_BASE_URL || 'https://app.sync2dine.io').replace(/\/$/, '');
-  return `${base}/webhooks/vapi`;
+  return `${getVapiWebhookBaseUrl()}/webhooks/vapi`;
 }
 
 function webhookSecret(): string | null {
@@ -126,7 +127,7 @@ seedKnownPhoneNumberIds();
  * Resolve a Vapi BYO phoneNumberId to its E.164 DID.
  * Critical for Judie: inbound webhooks often only send phoneNumberId, and without
  * the DID we fall back to home org (empty menu).
- * Must stay fast ó Vapi assistant-request times out at ~7.5s.
+ * Must stay fast ù Vapi assistant-request times out at ~7.5s.
  */
 export async function resolveVapiPhoneNumberIdToDid(phoneNumberId: string): Promise<string | null> {
   const id = String(phoneNumberId || '').trim();
@@ -135,7 +136,7 @@ export async function resolveVapiPhoneNumberIdToDid(phoneNumberId: string): Prom
   if (cached) return cached;
   if (!key()) return null;
   try {
-    // Short timeout ó never burn the whole assistant-request budget on Vapi GET.
+    // Short timeout ù never burn the whole assistant-request budget on Vapi GET.
     const res = await vapiFetch(`/phone-number/${id}`, undefined, 2_000);
     if (res.ok) {
       const row = (await res.json()) as VapiNumber;

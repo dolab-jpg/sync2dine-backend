@@ -16,6 +16,7 @@ import {
   type PhoneLinePurpose,
   type PhoneLineStatus,
 } from '../data-store';
+import { getVapiRegion } from './vapi-client';
 import {
   getOrganizationById,
   getOrganizationByPhoneDid,
@@ -111,7 +112,12 @@ function resolveSharedVapiSipHost(): string {
   const credId = String(
     process.env.VAPI_SIP_CREDENTIAL_ID ?? process.env.VAPI_SIP_CREDENTIAL ?? '',
   ).trim();
-  if (credId) return `${credId}.sip.vapi.ai`;
+  if (credId) {
+    const region = getVapiRegion();
+    return region === 'us'
+      ? `${credId}.sip.vapi.ai`
+      : `${credId}.sip.eu.vapi.ai`;
+  }
   return '';
 }
 
