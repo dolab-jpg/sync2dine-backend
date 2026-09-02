@@ -459,6 +459,14 @@ async function handleAgentStt(req: IncomingMessage, res: ServerResponse) {
 }
 
 async function handleGetLines(_req: IncomingMessage, res: ServerResponse) {
+  // Overlay live Asterisk REGISTER status onto AI lines so Call Centre is not stuck on
+  // a stale "registered" from the last Go live while Soho66 shows Rejected.
+  try {
+    const { refreshAiLineStatusesFromAsterisk } = await import('../telephony/asteriskBridge');
+    await refreshAiLineStatusesFromAsterisk();
+  } catch {
+    // Probe is best-effort (docker may be unavailable in local/dev).
+  }
   sendJson(res, 200, {
     bridgeUrl: getSipBridgeUrl(),
     lines: listPhoneLines().map(maskPhoneLine),

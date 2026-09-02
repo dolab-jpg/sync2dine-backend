@@ -46,7 +46,7 @@ Exact auth enforcement varies by handler ? prefer reading the route file. Many `
 | `/api/org/openai-key`, `/api/org/ai-brain` | org-openai-key-routes | admin | |
 | `/api/org/.../integrations` | org-integrations-routes | admin | |
 | org phone billing / weekly billing | billing/* | admin | |
-| `/api/platform` | platform-routes | admin | includes `POST /organizations/sync-from-crm` (won CRM ? tenants) |
+| `/api/platform` | platform-routes | admin | includes `POST /organizations/sync-from-crm` (won CRM → tenants); `GET /phone-lines/registration-status` (live Asterisk REGISTER + store refresh); `POST /phone-lines/sync-asterisk-bridge` (Go live) |
 | `/api/leads` | leads-routes | staff | |
 | `POST /api/leads/normalize-csv` | leads-routes | staff | DeepSeek column map + local UK E.164 (heuristic fallback); staff auth required |
 | `/api/orders` | orders/orders-routes | auth/org | restaurant |

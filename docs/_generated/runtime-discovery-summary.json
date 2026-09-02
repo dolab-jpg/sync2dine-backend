@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-08-14T22:41:59.360Z",
+  "generatedAt": "2026-09-02T10:32:17.405Z",
   "beRoot": "sync2dine-backend",
   "counts": {
     "uniqueTools": 188,
     "toolOccurrences": 220,
-    "routePrefixes": 226,
+    "routePrefixes": 227,
     "bootWorkers": 10,
     "quarantineFiles": 8,
-    "dynamicImports": 313,
+    "dynamicImports": 314,
     "envGates": 55,
     "phoneBrains": 3
   },
@@ -19,7 +19,7 @@
   ],
   "fingerprints": {
     "tools": "06d18a45365ffc76",
-    "routes": "3a4a972f1d164da4",
+    "routes": "d2c415ba2c7a061d",
     "bootWorkers": "25829c6bc285a94b",
     "brains": "ed32ef02a42ca423"
   }

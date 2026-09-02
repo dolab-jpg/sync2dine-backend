@@ -34,7 +34,7 @@ import {
   type PhoneLinePurpose,
 } from './data-store';
 import { registerAllEnabledLines, registerLine, testLineConnection } from './telephony/lineRegistry';
-import { syncAsteriskBridge } from './telephony/asteriskBridge';
+import { refreshAiLineStatusesFromAsterisk, syncAsteriskBridge } from './telephony/asteriskBridge';
 import { collectAiPhoneLinesMasked } from './phone-lines';
 import { getSallyOfferTerms } from './sally/offer';
 import { getSallyOfferStored, updateSallyOfferStored, type SallyOfferStored } from './sally-offer-store';
@@ -117,6 +117,17 @@ export async function handlePlatformRoutes(
 
   if (pathname === '/api/platform/plans' && req.method === 'GET') {
     sendJson(res, 200, { plans: PLAN_CONFIG });
+    return true;
+  }
+
+  // Live Asterisk REGISTER status for Sally + every Judie (also refreshes stored line status).
+  if (pathname === '/api/platform/phone-lines/registration-status' && req.method === 'GET') {
+    try {
+      const result = await refreshAiLineStatusesFromAsterisk();
+      sendJson(res, 200, result);
+    } catch (err) {
+      sendJson(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
     return true;
   }
 

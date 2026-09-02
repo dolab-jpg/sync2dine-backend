@@ -83,6 +83,88 @@ export function parseRegistrationStatuses(output: string): Map<string, AsteriskR
   return statuses;
 }
 
+/** Map live Asterisk REGISTER status ? stored phone-line status. */
+export function storedStatusFromLive(
+  live: AsteriskRegistrationStatus,
+): 'registered' | 'error' | 'disconnected' {
+  if (live === 'Registered') return 'registered';
+  if (live === 'Unknown') return 'disconnected';
+  return 'error';
+}
+
+export function getBridgeContainerName(): string {
+  return process.env.SIP_BRIDGE_CONTAINER || 'tradepro-sip-bridge';
+}
+
+/** Read-only probe of Asterisk pjsip registrations (no container recreate). */
+export async function probeAsteriskRegistrations(): Promise<{
+  ok: boolean;
+  registrations: string;
+  statuses: Map<string, AsteriskRegistrationStatus>;
+}> {
+  const container = getBridgeContainerName();
+  const dump = await run(
+    `docker exec ${container} asterisk -rx 'pjsip show registrations' 2>/dev/null || true`,
+    30_000,
+  );
+  const registrations = dump.output;
+  const statuses = parseRegistrationStatuses(registrations);
+  return {
+    ok: statuses.size > 0 || /Objects found:\s*\d+/i.test(registrations),
+    registrations,
+    statuses,
+  };
+}
+
+export type AiRegistrationStatusRow = {
+  id: string;
+  orgId: string;
+  orgName?: string;
+  purpose: 'aria' | 'sally';
+  label: string;
+  sipUsername: string;
+  did: string;
+  liveStatus: AsteriskRegistrationStatus;
+  status: 'registered' | 'error' | 'disconnected';
+};
+
+/**
+ * Probe live REGISTER status for every AI line, and write it into the phone-line store
+ * so Call Centre / Sally / Judie cards stop showing stale "registered" from last Go live.
+ */
+export async function refreshAiLineStatusesFromAsterisk(): Promise<{
+  ok: boolean;
+  registrations: string;
+  lines: AiRegistrationStatusRow[];
+}> {
+  const aiLines = collectAiPhoneLines();
+  const probe = await probeAsteriskRegistrations();
+  const lines: AiRegistrationStatusRow[] = [];
+
+  for (const l of aiLines) {
+    const liveStatus = probe.statuses.get(l.sipUsername) ?? 'Unknown';
+    const status = storedStatusFromLive(liveStatus);
+    updateAiLineStatus(l, {
+      status,
+      registeredAt: liveStatus === 'Registered' ? new Date().toISOString() : undefined,
+      lastError: liveStatus === 'Registered' ? undefined : `Asterisk REGISTER status: ${liveStatus}`,
+    });
+    lines.push({
+      id: l.id,
+      orgId: l.orgId,
+      orgName: l.orgName,
+      purpose: l.purpose,
+      label: l.label,
+      sipUsername: l.sipUsername,
+      did: l.did,
+      liveStatus,
+      status,
+    });
+  }
+
+  return { ok: probe.ok, registrations: probe.registrations, lines };
+}
+
 function updateAiLineStatus(
   line: AiBridgeLine,
   patch: Parameters<typeof updatePhoneLineStatus>[1],

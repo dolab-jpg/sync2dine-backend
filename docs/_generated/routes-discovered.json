@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T22:41:59.360Z",
+  "generatedAt": "2026-09-02T10:32:17.405Z",
   "prefixes": [
     "/api/agent/capacity",
     "/api/agent/credentials",
@@ -172,6 +172,7 @@
     "/api/platform/phone-lines",
     "/api/platform/phone-lines/ai-set",
     "/api/platform/phone-lines/register-all",
+    "/api/platform/phone-lines/registration-status",
     "/api/platform/phone-lines/sync-asterisk-bridge",
     "/api/platform/plans",
     "/api/platform/sally-offer",
@@ -1636,6 +1637,11 @@
     },
     {
       "prefix": "/api/platform/plans",
+      "file": "server/platform-routes.ts",
+      "kind": "exact"
+    },
+    {
+      "prefix": "/api/platform/phone-lines/registration-status",
       "file": "server/platform-routes.ts",
       "kind": "exact"
     },

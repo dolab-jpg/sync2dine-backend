@@ -17,7 +17,7 @@ import { getHomeOrgId } from './home-org';
 import { getOrganizationById } from './organizations';
 import { createOrganization, deleteOrganization, listOrganizations } from './organizations';
 import { withOrgContext, listPhoneLines, maskPhoneLine } from './data-store';
-import { parseRegistrationStatuses } from './telephony/asteriskBridge';
+import { parseRegistrationStatuses, storedStatusFromLive } from './telephony/asteriskBridge';
 
 const MASK = '••••••';
 
@@ -32,6 +32,13 @@ describe('Asterisk registration status parsing', () => {
     assert.equal(statuses.get('1005090093'), 'Registered');
     assert.equal(statuses.get('1014090093'), 'Unregistered');
     assert.equal(statuses.get('1015090093'), 'Rejected');
+  });
+
+  it('maps live Asterisk status to stored phone-line status', () => {
+    assert.equal(storedStatusFromLive('Registered'), 'registered');
+    assert.equal(storedStatusFromLive('Rejected'), 'error');
+    assert.equal(storedStatusFromLive('Unregistered'), 'error');
+    assert.equal(storedStatusFromLive('Unknown'), 'disconnected');
   });
 });
 
