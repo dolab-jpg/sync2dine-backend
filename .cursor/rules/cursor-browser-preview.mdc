@@ -1,0 +1,14 @@
+---
+description: Mandatory - open every UI surface in Cursor's internal browser and show screenshot proof of every change
+alwaysApply: true
+---
+
+# Visible work rule: browser open + screenshot proof (MANDATORY, always-on)
+
+Canonical copy lives in `sync2dine-frontend/.cursor/rules/cursor-browser-preview.mdc` — follow it exactly.
+
+## Summary
+
+1. **Before** any change that affects a visible surface: open the page in Cursor via `cursor-app-control` `open_resource` (Simple Browser on this laptop). Default **https://app.sync2dine.io**. Phone work: `/calls`.
+2. After every change: re-open/refresh, take a screenshot, **embed it inline**.
+3. If `cursor-ide-browser` MCP tools are missing, **do not stop**. Use Playwright/Edge/Chrome on this Windows PC for screenshots. Never claim "Browser MCP isn't available" as a reason to skip proof.

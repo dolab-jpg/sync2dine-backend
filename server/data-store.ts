@@ -1408,7 +1408,15 @@ export function saveRecruitmentCandidate(candidate: Record<string, unknown>): Re
   if (existing >= 0) {
     store.recruitmentCandidates[existing] = { ...store.recruitmentCandidates[existing], ...record };
   } else {
-    store.recruitmentCandidates.unshift(record);
+    // The CRM iterates these, so a candidate created mid-call must not miss them.
+    store.recruitmentCandidates.unshift({
+      skills: [],
+      certifications: [],
+      preferredLocations: [],
+      rating: 0,
+      createdAt: new Date().toISOString(),
+      ...record,
+    });
   }
   syncData(store);
   return record;

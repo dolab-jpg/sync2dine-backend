@@ -96,6 +96,11 @@ export async function ingestCvFile(file: {
     status: existing?.status || 'applied',
     currentEmploymentStatus: existing?.currentEmploymentStatus || 'unknown',
     createdAt: existing?.createdAt || new Date().toISOString(),
+    // The CRM list and profile iterate these, so never leave them unset.
+    skills: Array.isArray(existing?.skills) ? existing?.skills : [],
+    certifications: Array.isArray(existing?.certifications) ? existing?.certifications : [],
+    preferredLocations: Array.isArray(existing?.preferredLocations) ? existing?.preferredLocations : [],
+    rating: Number(existing?.rating) || 0,
     cvFilename: filename,
     cvStoragePath: stored?.storagePath,
     cvUploadedAt: new Date().toISOString(),
