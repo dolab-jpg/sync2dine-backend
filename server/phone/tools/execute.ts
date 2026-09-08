@@ -12,6 +12,7 @@ import {
   saveRecruitmentCandidate,
   saveRecruitmentInterview,
   getCallById,
+  resolveCandidateByPhone,
   syncData,
 } from '../../data-store';
 import type { CallIntent, OutboundCampaignTemplate } from '../../telephony/types';
@@ -35,7 +36,13 @@ import { resolveCallbackIso } from '../callback-time';
 import { firstString } from './util';
 import { captureOrUpdateLead, normalizeDialableE164, isStaffPartyPhone } from './leads';
 import { PHONE_TOOLS, PHONE_AUTO_ACTIONS } from './catalog';
-import { persistHireScorecard } from '../../sally/recruitment-interview';
+import {
+  getHiringDirective,
+  isHiringOwnerPhone,
+  persistHireScorecard,
+  queueFaceToFaceArrangement,
+  setHiringDirective,
+} from '../../sally/recruitment-interview';
 
 export async function executePhoneTool(
   name: string,
@@ -424,37 +431,63 @@ export async function executePhoneTool(
     return { appointmentId: appointment.id, type: appointment.type, scheduled: true };
   }
 
-  if (name === 'screenCandidate') {
-    const candidate = saveRecruitmentCandidate({
-      name: input.name,
-      phone: callerPhone ?? input.phone,
-      email: input.email ?? '',
-      desiredRole: input.desiredRole ?? '',
-      experience: input.experience ?? '',
-      availability: input.availability ?? '',
-      location: input.location ?? '',
-      skills: input.skills ?? [],
-      source: 'phone',
-      currentEmploymentStatus: 'unknown',
-      createdAt: new Date().toISOString(),
-    });
+  if (name === 'screenCandidate' || name === 'logCandidate') {
+    const callRow = callId ? getCallById(callId) : undefined;
+    const meta = (callRow?.metadata as Record<string, unknown> | undefined) || {};
+    const phone = String(callerPhone ?? input.phone ?? '').trim();
+    const byPhone = phone ? resolveCandidateByPhone(phone) : { candidateId: null as string | null };
+    const candidateId = String(
+      input.candidateId ?? meta.candidateId ?? byPhone.candidateId ?? '',
+    ).trim();
+    const existing = candidateId
+      ? getDataStore().recruitmentCandidates.find((c) => String(c.id) === candidateId)
+      : undefined;
+
+    // Only overwrite what Sally actually heard — never blank a field she did not ask about.
+    const patch: Record<string, unknown> = {
+      id: candidateId || undefined,
+      name: input.name ?? existing?.name,
+      phone: phone || existing?.phone,
+      source: input.source ?? existing?.source ?? 'phone',
+    };
+    const optional: Array<[string, unknown]> = [
+      ['email', input.email],
+      ['desiredRole', input.desiredRole],
+      ['experience', input.experience],
+      ['fieldComfort', input.fieldComfort],
+      ['outboundExperience', input.outboundExperience],
+      ['rightToWork', input.rightToWork],
+      ['notice', input.notice],
+      ['salaryExpectation', input.salaryExpectation],
+      ['travelOk', input.travelOk],
+      ['availability', input.availability],
+      ['location', input.location],
+      ['drivingLicence', input.drivingLicence],
+      ['skills', input.skills],
+      ['notes', input.notes],
+    ];
+    for (const [key, value] of optional) {
+      if (value == null) continue;
+      if (typeof value === 'string' && !value.trim()) continue;
+      patch[key] = value;
+    }
+    if (!existing) {
+      patch.currentEmploymentStatus = 'unknown';
+      patch.createdAt = new Date().toISOString();
+    }
+
+    const candidate = saveRecruitmentCandidate(patch);
     if (callId) {
       saveCall({ id: callId, candidateId: candidate.id, intent: 'recruitment' });
     }
-    return { candidateId: candidate.id, name: candidate.name, screened: true };
-  }
-
-  if (name === 'logCandidate') {
-    const candidate = saveRecruitmentCandidate({
-      id: input.candidateId,
-      name: input.name,
-      phone: callerPhone ?? input.phone,
-      email: input.email ?? '',
-      desiredRole: input.desiredRole ?? '',
-      source: input.source ?? 'phone',
-      notes: input.notes ?? '',
-    });
-    return { candidateId: candidate.id, name: candidate.name, saved: true };
+    return {
+      candidateId: candidate.id,
+      name: candidate.name,
+      saved: true,
+      screened: name === 'screenCandidate',
+      spokenHint: 'Noted. Carry on with the interview — do not read the record back to them.',
+      doNotReadAloud: true,
+    };
   }
 
   if (name === 'scoreInterview') {
@@ -489,40 +522,169 @@ export async function executePhoneTool(
         outcome: 'interview_scored',
       });
     }
+    const recommendation = String(saved.candidate.hireRecommendation || '');
+    // Recommended but no slot agreed: Sally rings them back herself to book the visit.
+    let arrangeCallQueued = saved.faceToFace.arrangeCallQueued;
+    if (recommendation === 'hire' && input.needsInterviewCall === true && !saved.faceToFace.booked && !arrangeCallQueued) {
+      arrangeCallQueued = queueFaceToFaceArrangement({
+        candidateId: String(saved.candidate.id),
+        phone: String(callerPhone || saved.candidate.phone || ''),
+        name: String(saved.candidate.name || ''),
+      }).queued;
+    }
+    const where = getHiringDirective().interviewLocation;
+    const spokenHint = recommendation !== 'hire'
+      ? 'Score saved. Thank them and end the call — do not mention the numbers, and do not promise anyone will call them back.'
+      : saved.faceToFace.booked
+        ? `Score saved. Their face-to-face at ${where} is already booked — confirm it and end the call.`
+        : arrangeCallQueued
+          ? `Score saved. Tell them you will ring them back to sort a day to come into ${where} and meet the founder, then end the call.`
+          : `Score saved. Get a day and rough time they can come into ${where} to meet the founder and call bookInterview, or tell them you will ring back to arrange it.`;
     return {
       ok: true,
       candidateId: saved.candidate.id,
       overall: saved.candidate.hireScore,
       recommendation: saved.candidate.hireRecommendation,
-      spokenHint: 'Score saved. Thank them and end the call — do not mention the numbers.',
+      faceToFaceBooked: saved.faceToFace.booked,
+      arrangeCallQueued,
+      spokenHint,
       doNotReadAloud: true,
     };
   }
 
+  if (name === 'setHiringInstruction') {
+    if (!isHiringOwnerPhone(String(callerPhone || ''))) {
+      return {
+        ok: false,
+        error: 'owner_line_only',
+        spokenHint: 'Only the founder can change hiring instructions, and only from their own number.',
+      };
+    }
+    const directive = setHiringDirective({
+      instruction: input.instruction != null ? String(input.instruction) : undefined,
+      interviewLocation: input.interviewLocation != null ? String(input.interviewLocation) : undefined,
+      clearInstruction: input.clearInstruction === true,
+      updatedBy: `owner ${String(callerPhone || '')}`.trim(),
+    });
+    return {
+      ok: true,
+      instruction: directive.instruction,
+      interviewLocation: directive.interviewLocation,
+      spokenHint: directive.instruction
+        ? `Saved. From now on: ${directive.instruction}. Face-to-faces at ${directive.interviewLocation}. Read that back and check it is right.`
+        : `Saved. No standing instruction now, face-to-faces at ${directive.interviewLocation}.`,
+    };
+  }
+
+  if (name === 'queueRecruitmentCall') {
+    if (!isHiringOwnerPhone(String(callerPhone || ''))) {
+      return {
+        ok: false,
+        error: 'owner_line_only',
+        spokenHint: 'Only the founder can queue hiring calls, and only from their own number.',
+      };
+    }
+    const target = normalizeDialableE164(String(input.phone || ''));
+    if (!target) {
+      return { ok: false, error: 'bad_phone', spokenHint: 'That number did not sound like a UK number — say it again.' };
+    }
+    const byPhone = resolveCandidateByPhone(target);
+    const candidateId = String(input.candidateId || byPhone.candidateId || '').trim();
+    const candidateName = String(input.name || byPhone.candidateName || 'Candidate').trim();
+    const arrangeOnly = String(input.purpose || 'screen') === 'arrange_interview';
+
+    if (arrangeOnly) {
+      const result = queueFaceToFaceArrangement({
+        candidateId,
+        phone: target,
+        name: candidateName,
+        cvSummary: input.note != null ? String(input.note) : undefined,
+      });
+      return {
+        ok: true,
+        queued: result.queued,
+        reason: result.reason,
+        spokenHint: result.queued
+          ? `Right, I'll ring ${candidateName} back to sort a day to come in.`
+          : result.reason === 'already_booked'
+            ? `${candidateName} is already booked in for a face-to-face.`
+            : `I've already got a call queued to ${candidateName} about coming in.`,
+      };
+    }
+
+    const note = String(input.note || '').trim();
+    const job = enqueueOutboundCall({
+      to: target,
+      template: 'recruitment_interview',
+      status: 'queued',
+      context: {
+        name: candidateName,
+        aim: 'recruitment_interview',
+        agentPersona: 'sally',
+        source: 'recruitment_interview',
+        campaignTemplate: 'recruitment_interview',
+        venueAware: false,
+        candidateId: candidateId || undefined,
+        brief: note || undefined,
+        cvSummary: note || undefined,
+      },
+    });
+    return {
+      ok: true,
+      queued: true,
+      jobId: job.id,
+      candidateId: candidateId || undefined,
+      spokenHint: `Queued. I'll interview ${candidateName} from the sales line.`,
+    };
+  }
+
   if (name === 'bookInterview') {
+    const callRow = callId ? getCallById(callId) : undefined;
+    const meta = (callRow?.metadata as Record<string, unknown> | undefined) || {};
+    const phone = String(callerPhone ?? '').trim();
+    const byPhone = phone ? resolveCandidateByPhone(phone) : { candidateId: null as string | null, candidateName: '' };
+    const candidateId = String(input.candidateId ?? meta.candidateId ?? byPhone.candidateId ?? '').trim();
+    const type = String(input.type ?? 'in-person');
+    const directive = getHiringDirective();
+    const location = String(input.location ?? '').trim()
+      || (type === 'in-person' ? directive.interviewLocation : '');
     const interview = saveRecruitmentInterview({
-      candidateId: input.candidateId,
-      candidateName: input.candidateName,
+      candidateId: candidateId || input.candidateId,
+      candidateName: input.candidateName ?? byPhone.candidateName,
       jobId: input.jobId,
       jobTitle: input.jobTitle,
       scheduledDate: input.scheduledDate,
       scheduledTime: input.scheduledTime,
-      type: input.type ?? 'phone',
-      location: input.location,
+      type,
+      location,
       notes: input.notes,
       status: 'scheduled',
       duration: 30,
-      interviewers: ['Cynthia (AI pre-screen)'],
+      interviewers: ['Sally (AI phone screen)'],
     });
+    if (candidateId) {
+      saveRecruitmentCandidate({
+        id: candidateId,
+        status: 'interview',
+        faceToFaceBooked: type === 'in-person',
+        faceToFaceArrangeQueued: false,
+        faceToFace: { date: input.scheduledDate, time: input.scheduledTime, type, location },
+      });
+    }
     if (callId) {
       saveCall({ id: callId, outcome: 'interview_booked' });
     }
     return {
       interviewId: interview.id,
+      candidateId: candidateId || undefined,
       scheduledDate: input.scheduledDate,
       scheduledTime: input.scheduledTime,
-      type: input.type,
+      type,
+      location,
       booked: true,
+      spokenHint: location
+        ? `Booked. Confirm the day and time back to them and that it is at ${location}.`
+        : 'Booked. Confirm the day and time back to them.',
     };
   }
 

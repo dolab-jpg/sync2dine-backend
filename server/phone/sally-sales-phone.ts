@@ -49,7 +49,9 @@ import { suggestDialWindows } from '../sally/dial-windows';
 import { draftSallyFollowThrough } from '../sally/follow-through';
 import {
   isSallyRecruitmentCall,
+  isArrangeInterviewCall,
   buildRecruitmentInterviewPrompt,
+  getHiringDirective,
   SCORE_INTERVIEW_TOOL,
 } from '../sally/recruitment-interview';
 export const SALLY_PERSONA = 'sally';
@@ -453,11 +455,39 @@ const REMEMBER_PERSON_TOOL = {
   },
 };
 
+/** What Sally does when the founder rings her to change the hiring. */
+function buildOwnerHiringOpsBlock(opts: { verified?: boolean }): string {
+  const directive = getHiringDirective();
+  return [
+    'OWNER HIRING OPS — THIS IS THE FOUNDER ON HIS OWN MOBILE:',
+    '- He is not a candidate and not a restaurant. Never interview him, never pitch him, never ask if the manager is about.',
+    '- You are his hiring assistant on this call. Take what he tells you and ACT on it with tools — do not just agree and forget.',
+    '- Instruction about how you screen people, what to ask, what to say, or where interviews happen → call setHiringInstruction, then read it back so he can correct you.',
+    '- "Ring so-and-so" / "call this number" / "get them booked in" → call queueRecruitmentCall with their number: purpose screen for a full interview, purpose arrange_interview to just book the face-to-face. You dial candidates from the Sync2Dine sales line — never from his mobile.',
+    `- Current standing instruction: ${directive.instruction || '(none set)'}`,
+    `- Face-to-face interviews happen at: ${directive.interviewLocation}. If he gives you a proper address, save it with setHiringInstruction.`,
+    opts.verified
+      ? '- PIN verified — you may pull up candidate records, notes and scores and speak them.'
+      : '- NOT PIN verified yet: you can still take instructions and queue calls, but do NOT read out candidate notes, scores, or any CRM detail. Ask for his four-digit code when he wants that.',
+    '- Keep it short and practical. Confirm each thing you did in one line.',
+  ].join('\n');
+}
+
+/**
+ * Founder on his own mobile: retune hiring and dispatch calls without a PIN.
+ * Candidate notes and CRM reads still sit behind the staff PIN tools.
+ */
+export function getOwnerHiringOpsTools(opts?: { verified?: boolean }) {
+  const base = pickPhoneTools('setHiringInstruction', 'queueRecruitmentCall');
+  if (!opts?.verified) return base;
+  return [...base, ...pickPhoneTools('bookInterview', 'logCandidate', 'screenCandidate')];
+}
+
 export function getSallyPhoneSessionChatTools(meta?: Record<string, unknown> | null) {
   if (isSallyRecruitmentCall(meta)) {
     return [
       SCORE_INTERVIEW_TOOL,
-      ...pickPhoneTools('logCandidate', 'screenCandidate'),
+      ...pickPhoneTools('logCandidate', 'screenCandidate', 'bookInterview'),
       END_CALL_FUNCTION_TOOL,
     ];
   }
@@ -497,9 +527,12 @@ export function buildSallyBrainPrompt(input: {
   staffName?: string;
   staffRole?: string;
   phoneAuthVerified?: boolean;
+  /** Founder rang in on his own mobile — hiring ops, not a candidate and not a restaurant. */
+  ownerHiringOps?: boolean;
   callMeta?: Record<string, unknown>;
 }): { instructions: string; language: 'en' } {
-  if (isSallyRecruitmentCall(input.callMeta)) {
+  // Owner ops wins over hiring: the founder ringing in is never the candidate.
+  if (!input.ownerHiringOps && isSallyRecruitmentCall(input.callMeta)) {
     return {
       instructions: buildRecruitmentInterviewPrompt({
         contactName: input.contactName,
@@ -509,6 +542,7 @@ export function buildSallyBrainPrompt(input: {
         cvSummary: input.callMeta?.cvSummary != null
           ? String(input.callMeta.cvSummary)
           : input.outboundBrief,
+        arrangeInterviewOnly: isArrangeInterviewCall(input.callMeta),
       }),
       language: 'en',
     };
@@ -523,6 +557,9 @@ export function buildSallyBrainPrompt(input: {
   const relationshipMemory = input.staffMode
     ? ''
     : buildSallyRelationshipMemory(input.partyPhone);
+  const ownerBlock = input.ownerHiringOps
+    ? buildOwnerHiringOpsBlock({ verified: input.phoneAuthVerified })
+    : '';
   const staffBlock = input.staffMode
     ? [
         'STAFF / PLATFORM MODE (caller is recognised staff or platform owner — stay named Sally):',
@@ -545,8 +582,11 @@ export function buildSallyBrainPrompt(input: {
     relationshipMemory,
     approvedBrain,
     productKb,
+    ownerBlock,
     staffBlock,
-    input.staffMode
+    input.ownerHiringOps
+      ? '- This is the founder on the owner line — hiring ops come first. Do not pitch him, do not interview him.'
+      : input.staffMode
       ? '- This caller is staff/platform — prioritise their ops/CRM ask; sales close only if they want it.'
       : isMeetingConfirm
       ? '- THIS IS A T−30 MEETING CONFIRM CALL: Keep under 60 seconds. Confirm the 20-minute install/integration meeting. If they cancel, acknowledge. Do not re-pitch packages.'

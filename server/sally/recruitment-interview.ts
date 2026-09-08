@@ -6,10 +6,12 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import {
   enqueueOutboundCall,
+  getAgentSettings,
   getDataStore,
   resolveCandidateByPhone,
   saveRecruitmentCandidate,
   saveRecruitmentInterview,
+  updateAgentSettings,
 } from '../data-store';
 
 export const RECRUITMENT_AIM = 'recruitment_interview';
@@ -17,6 +19,9 @@ export const RECRUITMENT_TEMPLATE = 'recruitment_interview';
 export const RECRUITMENT_SOURCE = 'recruitment_interview';
 
 const HIRE_MARK = 'recruitment_interview';
+
+/** Follow-up dial whose only job is booking the in-person interview. */
+export const ARRANGE_INTERVIEW_AIM = 'arrange_face_to_face';
 
 export type HireRecommendation = 'hire' | 'maybe' | 'no';
 
@@ -51,7 +56,7 @@ export const SCORE_INTERVIEW_TOOL = {
   function: {
     name: 'scoreInterview',
     description:
-      'Save the hire scorecard for this Indeed sales interview. Call once you have enough signal, before ending. Never use captureLead, bookIntegrationMeeting, or restaurant CRM tools on this call.',
+      'Save the hire scorecard for this sales interview. Call once you have enough signal, before ending. Set needsInterviewCall when you are recommending hire but could not pin a face-to-face slot on this call — Sally will ring them back to book it. Never use captureLead, bookIntegrationMeeting, or restaurant CRM tools on this call.',
     parameters: {
       type: 'object',
       properties: {
@@ -67,6 +72,10 @@ export const SCORE_INTERVIEW_TOOL = {
         notice: { type: 'string' },
         salaryExpectation: { type: 'string' },
         travelOk: { type: 'string', description: 'Woking/Surrey and London travel' },
+        needsInterviewCall: {
+          type: 'boolean',
+          description: 'True when recommending hire but no in-person slot was agreed on this call',
+        },
         candidateId: { type: 'string' },
         name: { type: 'string' },
       },
@@ -104,6 +113,13 @@ export function isSallyRecruitmentCall(
     return true;
   }
   return false;
+}
+
+/** Sally's second call to a candidate she already recommended: book the face-to-face, do not re-interview. */
+export function isArrangeInterviewCall(meta?: Record<string, unknown> | null): boolean {
+  const m = meta || {};
+  if (m.arrangeInterview === true) return true;
+  return String(m.aim || m.purpose || '').toLowerCase() === ARRANGE_INTERVIEW_AIM;
 }
 
 export function isSallyPersona(
@@ -293,9 +309,69 @@ export function candidateHasHireScoreForCall(callId: string, candidateId?: strin
   return String(cand.lastInterviewCallId || '') === callId && cand.hireScore != null;
 }
 
+/** Is there already an in-person interview on the books for this candidate? */
+export function hasScheduledFaceToFace(candidateId: string): boolean {
+  if (!candidateId) return false;
+  return getDataStore().recruitmentInterviews.some((row) => (
+    String(row.candidateId || '') === String(candidateId)
+    && String(row.type || '') === 'in-person'
+    && String(row.status || '') === 'scheduled'
+  ));
+}
+
+/**
+ * Sally rings a recommended candidate back purely to book the Woking face-to-face.
+ * No-ops when a visit is already booked or an arrange call is already queued.
+ */
+export function queueFaceToFaceArrangement(opts: {
+  candidateId?: string;
+  phone: string;
+  name?: string;
+  cvSummary?: string;
+}): { queued: boolean; reason?: string; job?: Record<string, unknown> } {
+  const phone = String(opts.phone || '').trim();
+  if (!phone) return { queued: false, reason: 'no_phone' };
+  const candidateId = String(opts.candidateId || '').trim();
+  if (candidateId && hasScheduledFaceToFace(candidateId)) {
+    return { queued: false, reason: 'already_booked' };
+  }
+  const store = getDataStore();
+  const pending = (store.outboundQueue || []).some((job) => {
+    const ctx = (job.context && typeof job.context === 'object')
+      ? (job.context as Record<string, unknown>)
+      : {};
+    const status = String(job.status || '');
+    return (
+      String(job.to || '') === phone
+      && isArrangeInterviewCall(ctx)
+      && (status === 'queued' || status === 'dialling' || status === 'dialing')
+    );
+  });
+  if (pending) return { queued: false, reason: 'already_queued' };
+
+  const job = enqueueOutboundCall({
+    to: phone,
+    template: RECRUITMENT_TEMPLATE,
+    status: 'queued',
+    context: {
+      name: opts.name || 'Candidate',
+      aim: ARRANGE_INTERVIEW_AIM,
+      agentPersona: 'sally',
+      source: RECRUITMENT_SOURCE,
+      campaignTemplate: RECRUITMENT_TEMPLATE,
+      venueAware: false,
+      arrangeInterview: true,
+      candidateId: candidateId || undefined,
+      cvSummary: opts.cvSummary ? String(opts.cvSummary).slice(0, 900) : undefined,
+    },
+  });
+  return { queued: true, job };
+}
+
 export function persistHireScorecard(input: PersistHireScorecardInput): {
   candidate: Record<string, unknown>;
   interview: Record<string, unknown>;
+  faceToFace: { booked: boolean; arrangeCallQueued: boolean };
 } {
   const parts: HireScoreParts = {
     hunger: clampScore(input.hunger),
@@ -309,11 +385,15 @@ export function persistHireScorecard(input: PersistHireScorecardInput): {
     : computeOverallScore(parts);
   const notes = String(input.notes || '').slice(0, 2000);
   const notInterested = /\bnot interested\b|\bdon'?t want (the )?role\b|\bno longer looking\b/i.test(notes);
-  const recommendation: HireRecommendation = notInterested
+  let recommendation: HireRecommendation = notInterested
     ? 'no'
     : (['hire', 'maybe', 'no'].includes(String(input.recommendation || ''))
       ? (input.recommendation as HireRecommendation)
       : recommendationFromOverall(overall));
+  // Hard gate: this job is walking into venues cold. Not comfortable going out = not a hire.
+  if (recommendation === 'hire' && parts.outboundComfort < 4) {
+    recommendation = 'maybe';
+  }
   const card: HireScorecard = {
     ...parts,
     overall,
@@ -367,7 +447,85 @@ export function persistHireScorecard(input: PersistHireScorecardInput): {
     recommendation,
   });
 
-  return { candidate, interview };
+  // Hires get a face-to-face with the founder. Sally arranges it herself — no senior callback.
+  const booked = hasScheduledFaceToFace(candidateId);
+  let arrangeCallQueued = false;
+  if (recommendation === 'hire' && !booked) {
+    const dialPhone = phone || String(existing?.phone || '').trim();
+    arrangeCallQueued = queueFaceToFaceArrangement({
+      candidateId,
+      phone: dialPhone,
+      name: String(candidate.name || ''),
+      cvSummary: existing?.cvSummary != null ? String(existing.cvSummary) : undefined,
+    }).queued;
+  }
+  if (recommendation === 'hire') {
+    saveRecruitmentCandidate({
+      id: candidateId,
+      faceToFaceBooked: booked,
+      faceToFaceArrangeQueued: arrangeCallQueued,
+    });
+  }
+
+  return { candidate, interview, faceToFace: { booked, arrangeCallQueued } };
+}
+
+/** Spoken fallback until the founder gives Sally the exact address on the owner line. */
+export const HIRING_INTERVIEW_LOCATION_DEFAULT = 'our Woking office';
+
+export type HiringDirective = {
+  instruction: string;
+  interviewLocation: string;
+  updatedAt?: string;
+  updatedBy?: string;
+};
+
+/** Founder's standing hiring instruction + face-to-face location (set by voice on the owner line). */
+export function getHiringDirective(): HiringDirective {
+  const settings = getAgentSettings();
+  const location = String(settings.hiringInterviewLocation || '').trim();
+  return {
+    instruction: String(settings.hiringInstruction || '').trim(),
+    interviewLocation: location || HIRING_INTERVIEW_LOCATION_DEFAULT,
+    updatedAt: settings.hiringDirectiveUpdatedAt,
+    updatedBy: settings.hiringDirectiveUpdatedBy,
+  };
+}
+
+export function setHiringDirective(patch: {
+  instruction?: string;
+  interviewLocation?: string;
+  updatedBy?: string;
+  clearInstruction?: boolean;
+}): HiringDirective {
+  const next: Record<string, unknown> = {
+    hiringDirectiveUpdatedAt: new Date().toISOString(),
+  };
+  if (patch.clearInstruction) {
+    next.hiringInstruction = '';
+  } else if (patch.instruction != null && String(patch.instruction).trim()) {
+    next.hiringInstruction = String(patch.instruction).trim().slice(0, 1200);
+  }
+  if (patch.interviewLocation != null && String(patch.interviewLocation).trim()) {
+    next.hiringInterviewLocation = String(patch.interviewLocation).trim().slice(0, 200);
+  }
+  if (patch.updatedBy != null && String(patch.updatedBy).trim()) {
+    next.hiringDirectiveUpdatedBy = String(patch.updatedBy).trim().slice(0, 120);
+  }
+  updateAgentSettings(next as Parameters<typeof updateAgentSettings>[0]);
+  return getHiringDirective();
+}
+
+/** The founder's mobile — this line is owner ops on Sally, never a candidate interview. */
+export function hiringOwnerPhone(): string {
+  return String(process.env.HIRING_OWNER_PHONE || '+447576442345').trim();
+}
+
+export function isHiringOwnerPhone(phone: string): boolean {
+  const digits = (value: string) => String(value || '').replace(/\D/g, '').slice(-10);
+  const target = digits(hiringOwnerPhone());
+  const candidate = digits(phone);
+  return target.length === 10 && candidate === target;
 }
 
 export function buildRecruitmentInterviewPrompt(input: {
@@ -376,41 +534,85 @@ export function buildRecruitmentInterviewPrompt(input: {
   direction: 'inbound' | 'outbound';
   outboundBrief?: string;
   cvSummary?: string;
+  /** Second call to a candidate Sally already screened and recommended — book the face-to-face. */
+  arrangeInterviewOnly?: boolean;
 }): string {
   const contact = String(input.contactName || '').trim();
   const safeName = contact && !/^(guest|unknown|unknown caller)$/i.test(contact) ? contact : '';
   const cv = String(input.cvSummary || input.outboundBrief || '').trim();
-  return [
+  const founderTest = cv.toLowerCase().includes('founder test');
+  const directive = getHiringDirective();
+  const where = directive.interviewLocation;
+
+  const identityBlock = [
     'You are Sally, Sync2Dine’s hiring interviewer on the phone.',
     'PRONUNCIATION: Say the company “sync Two dine”. Write Sync2Dine in tools.',
-    'IDENTITY: You are Sally, an AI. Never introduce yourself as Cynthia, Judie, or Builder Diddies. Never pretend to be a human.',
-    'THIS IS A JOB INTERVIEW, not a restaurant sales call.',
-    cv.toLowerCase().includes('founder test')
-      ? 'This is a recorded founder line test of hiring mode. Do not say they applied on Indeed. Confirm they can hear you, then run a short interview rehearsal.'
-      : 'They applied on Indeed for a field sales role covering restaurants in Woking / Surrey AND London.',
+    'IDENTITY: You are Sally, an AI. Never introduce yourself under any other assistant or company name, and never pretend to be a human.',
+    'THIS IS A JOB INTERVIEW, not a restaurant sales call. Never ask for the manager or owner. Never pitch them as if they were a restaurant buyer. Never transfer to a restaurant line.',
     'This call is recorded. Tell them once if they have not already heard it.',
-    'Speak natural UK English. One question at a time. Short turns. Listen more than you talk.',
-    'JOB: Sales role in Sync2Dine’s AI business solution. They walk into restaurants in Woking, Surrey and London and sell Atmosphere (venue audio) and Judie (AI that takes orders on the phone). Lead with Atmosphere when the talk is room, music, spend or staff training — Judie when the talk is missed calls and orders.',
-    'Do not invent pay, commission, or benefits. If they ask about money, take their salary expectation and say the package is confirmed later.',
-    'Never pitch as if they are a restaurant buyer. Never ask for the manager or owner. Never transfer to a restaurant line.',
+    'Speak natural UK English. One question at a time, then stop and let them answer. Short turns. Listen far more than you talk.',
     'Never call captureLead, bookIntegrationMeeting, getOfferTerms, captureReferralAndQueue, researchRestaurant, rememberPerson, or any restaurant CRM / lead tool.',
-    'If they are not interested in the job, thank them, call scoreInterview with recommendation no, then endCall.',
-    'INTERVIEW FLOW (one question at a time, then wait):',
-    '1) Confirm identity and that they applied on Indeed.',
-    '2) What they sell today and to whom.',
-    '3) A real close or target story (numbers if they have them — do not invent).',
-    '4) Comfort walking into restaurants and speaking to owners.',
-    '5) Why this role versus their current job.',
-    '6) Right to work, notice, start date, salary expectation, travel (Surrey + London).',
-    '7) Then a 30-second live pitch: they sell Atmosphere + Judie to YOU as if you own a busy takeaway. You are the owner in that exercise only — they are still the candidate.',
-    'After the pitch (or if they clearly will not continue), you MUST call scoreInterview with hunger, salesProof, restaurantFit, outboundComfort, cvHonesty (1–5 each), recommendation hire|maybe|no, and notes.',
-    'Then thank them and endCall.',
-    safeName ? `Candidate name: ${safeName}.` : '- Name unknown — confirm who you are speaking to.',
+    'CONFIDENTIAL — KEEP PRODUCT DETAIL THIN. All you say about what we sell: our top product is Atmosphere, AI-generated audio atmosphere that lets a venue control the room and lift its takings. Nothing more. No pricing, no packages, no other products, no how it works, no client names, no internal process. Do not run a product pitch exercise on this call.',
+    'If they press for more detail about the product or the company, tell them that is covered properly at the face-to-face, and move back to your questions.',
+  ];
+
+  const closingBlock = [
+    'CLOSING:',
+    '- Before you finish you MUST call scoreInterview: hunger, salesProof, restaurantFit, outboundComfort and cvHonesty each 1–5, recommendation hire | maybe | no, plus notes covering what you learned.',
+    '- Only recommend hire if they are genuinely comfortable going out cold — that means outboundComfort 4 or 5. However good they sound otherwise, if they are not comfortable knocking on doors they are maybe or no.',
+    `- When you are recommending hire: invite them in for a face-to-face at ${where} to meet the founder. If they can give you a day and a rough time on this call, call bookInterview with type in-person and that location. If they cannot, tell them you will ring them back to arrange it and set needsInterviewCall true on scoreInterview.`,
+    '- YOU arrange that face-to-face yourself. Never tell anyone that a senior, a manager, or a colleague will call them back.',
+    '- If they are not interested in the job, thank them, call scoreInterview with recommendation no, then endCall.',
+    '- Never read your scores or numbers out loud.',
+    '- Then thank them and endCall.',
+  ];
+
+  const contextBlock = [
+    safeName ? `Candidate name: ${safeName}.` : 'Name unknown — confirm who you are speaking to.',
     `Their number: ${input.partyPhone}`,
+    cv
+      ? `CV / notes for this person (facts to work through and probe — never read it out as a list): ${cv.slice(0, 900)}`
+      : 'No CV on file — get their history verbally instead.',
+    directive.instruction
+      ? `STANDING INSTRUCTION FROM THE FOUNDER (follow this over your defaults): ${directive.instruction}`
+      : '',
+  ];
+
+  if (input.arrangeInterviewOnly) {
+    return [
+      ...identityBlock,
+      'THIS CALL HAS ONE JOB: they already passed your phone screen and you are ringing back to book their face-to-face. Do not re-interview them.',
+      `Get a day and a rough time they can come to ${where} to meet the founder, then call bookInterview with type in-person and that location. Confirm it back to them before you finish.`,
+      'If they now sound unsure about the role or about going out to restaurants in person, say the visit is to talk it through properly, take what they say, and call scoreInterview again with your updated view.',
+      'If they cannot commit to a day, agree roughly when you will try again, note it, and endCall politely.',
+      ...contextBlock,
+      'Then endCall.',
+    ].filter(Boolean).join('\n');
+  }
+
+  return [
+    ...identityBlock,
+    founderTest
+      ? 'This is a recorded founder-line test of hiring mode. Do not say they applied for anything. Confirm they can hear you, then run a short interview rehearsal.'
+      : 'They applied for a field sales role covering restaurants in Woking, Surrey and London.',
+    'YOU RUN THIS LIKE A PROFESSIONAL RECRUITER, not a script. You choose the order, you follow up on what they actually say, you challenge anything vague, and you keep hold of the call.',
+    'THE JOB — be straight about it: field sales on the road. They go out to restaurants in person, get in front of owners, take the owner’s details, and then follow those leads up by phone from the office. New places they do not know, cold approach, then the office contact work afterwards.',
+    'THE THING THAT DECIDES IT: are they genuinely comfortable walking into somewhere new and starting a conversation with a stranger. Do not accept a one-word yes — make them give you a real example of having done it.',
+    'PAY: you may say plainly that it is highly rewarding, high earning, and rewards people who deliver. NEVER quote a salary, rate, band, commission percentage or any figure — you do not have those numbers, and the package is confirmed at the face-to-face. Ask what they are looking to earn and record their answer.',
+    'COVER ALL OF THIS BEFORE YOU SCORE (conversationally, in whatever order fits — do not read it out as a list):',
+    '- Who you are speaking to, and that they applied for the sales role.',
+    '- Their CV role by role: what they sold, who they sold it to, targets and real numbers, why they left, and any gaps.',
+    '- Any face-to-face, door-to-door, cold approach, outbound phone or hospitality experience.',
+    '- Why this role rather than what they are doing now.',
+    '- Right to work in the UK, notice period, and when they could start.',
+    '- Travel: can they cover Woking and Surrey, and get into London.',
+    '- What they want to earn.',
+    'WRITE IT DOWN AS YOU GO like any decent recruiter would: call logCandidate or screenCandidate during the call with their experience, field comfort, right to work, notice, availability and contact details. Do not leave it all to the end.',
+    ...closingBlock,
+    ...contextBlock,
     input.direction === 'inbound'
-      ? '- Inbound callback — they rang you back about the sales role. Continue the interview; do not start a restaurant pitch.'
-      : '- Outbound — they applied on Indeed. Ask if they have ten minutes.',
-    cv ? `CV / brief for this person (facts only, probe gaps, do not read it aloud as a list): ${cv.slice(0, 900)}` : '',
+      ? 'Inbound — they rang you back about the sales role. Pick the interview back up; do not start a restaurant pitch.'
+      : 'Outbound — they applied for the role. Check they have ten minutes before you dig in.',
   ].filter(Boolean).join('\n');
 }
 
@@ -424,19 +626,23 @@ export function recruitmentFirstMessage(opts: {
   firstName?: string;
   direction: 'inbound' | 'outbound';
   founderTest?: boolean;
+  arrangeInterviewOnly?: boolean;
 }): string {
   const name = spokenFirstName(opts.firstName);
+  if (opts.arrangeInterviewOnly) {
+    return `Alright ${name}, it's Sally from sync Two dine — good news, we'd like you to come in and meet us about the sales role. This call is recorded. Have you got a minute to sort a day?`;
+  }
   if (opts.direction === 'inbound') {
     return `Alright ${name}, Sally from sync Two dine — thanks for ringing back about the sales role. This call is recorded. Ready to continue?`;
   }
   if (opts.founderTest) {
-    return `Alright ${name}, it's Sally from sync Two dine. This is a recorded hiring-mode test for the AI sales role — Atmosphere and Judie. Can you hear me?`;
+    return `Alright ${name}, it's Sally from sync Two dine. This is a recorded hiring-mode test for the sales role. Can you hear me?`;
   }
-  return `Alright ${name}, it's Sally from sync Two dine — you applied on Indeed for a restaurant sales role. Have you got ten minutes? This call is recorded.`;
+  return `Alright ${name}, it's Sally from sync Two dine — you applied for our restaurant sales role. Have you got ten minutes? This call is recorded.`;
 }
 
 export function recruitmentVoicemailMessage(): string {
-  return "Hi, it's Sally from sync Two dine. I'm ringing about the restaurant sales role you applied for on Indeed. Call this number back when you can and I'll finish the interview. Thanks.";
+  return "Hi, it's Sally from sync Two dine. I'm ringing about the restaurant sales role you applied for. Call this number back when you can and I'll finish the interview. Thanks.";
 }
 
 export type IndeedSalesCandidateSeed = {

@@ -177,7 +177,8 @@ export const PHONE_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'screenCandidate',
-      description: 'Pre-screen a recruitment candidate during a phone call',
+      description:
+        'Write down what you have learned about a candidate mid-interview, like a recruiter taking notes. Safe to call more than once as the call goes on — later calls update the same record.',
       parameters: {
         type: 'object',
         properties: {
@@ -185,10 +186,27 @@ export const PHONE_TOOLS = [
           phone: { type: 'string' },
           email: { type: 'string' },
           desiredRole: { type: 'string' },
-          experience: { type: 'string' },
+          experience: {
+            type: 'string',
+            description: 'CV walkthrough in their own words: roles, what they sold, to whom, targets/numbers, why they left, gaps',
+          },
+          fieldComfort: {
+            type: 'string',
+            description: 'Their real evidence of walking into new places cold / door-to-door / face-to-face approach',
+          },
+          outboundExperience: {
+            type: 'string',
+            description: 'Outbound phone, cold calling or hospitality experience',
+          },
+          rightToWork: { type: 'string' },
+          notice: { type: 'string', description: 'Notice period / earliest start' },
+          salaryExpectation: { type: 'string', description: 'What they say they want to earn — their words, never ours' },
+          travelOk: { type: 'string', description: 'Can they cover Woking / Surrey and get into London' },
           availability: { type: 'string' },
           location: { type: 'string' },
+          drivingLicence: { type: 'string' },
           skills: { type: 'array', items: { type: 'string' } },
+          notes: { type: 'string', description: 'Anything else a recruiter would file' },
           jobId: { type: 'string' },
         },
         required: ['name'],
@@ -199,7 +217,8 @@ export const PHONE_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'bookInterview',
-      description: 'Schedule a recruitment interview for a candidate',
+      description:
+        'Book a candidate in for their face-to-face. For the sales role this is type in-person at the Woking office to meet the founder. Only book when you are recommending hire and they gave you a day and a rough time.',
       parameters: {
         type: 'object',
         properties: {
@@ -207,10 +226,10 @@ export const PHONE_TOOLS = [
           candidateName: { type: 'string' },
           jobId: { type: 'string' },
           jobTitle: { type: 'string' },
-          scheduledDate: { type: 'string' },
-          scheduledTime: { type: 'string' },
+          scheduledDate: { type: 'string', description: 'Day they agreed, e.g. 2026-09-15 or "Thursday"' },
+          scheduledTime: { type: 'string', description: 'Rough time they agreed, e.g. 14:00 or "early afternoon"' },
           type: { type: 'string', enum: ['phone', 'video', 'in-person'] },
-          location: { type: 'string' },
+          location: { type: 'string', description: 'Leave blank for the default hiring office' },
           notes: { type: 'string' },
         },
         required: ['scheduledDate', 'scheduledTime', 'type'],
@@ -221,7 +240,8 @@ export const PHONE_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'logCandidate',
-      description: 'Create or update a recruitment candidate record',
+      description:
+        'Create or update a candidate record. Use it during the call to save details as you get them — it merges into the same profile, so nothing is lost if the call drops.',
       parameters: {
         type: 'object',
         properties: {
@@ -231,6 +251,13 @@ export const PHONE_TOOLS = [
           email: { type: 'string' },
           desiredRole: { type: 'string' },
           source: { type: 'string' },
+          location: { type: 'string' },
+          experience: { type: 'string', description: 'CV walkthrough so far' },
+          fieldComfort: { type: 'string', description: 'Evidence of cold face-to-face approach' },
+          rightToWork: { type: 'string' },
+          notice: { type: 'string' },
+          salaryExpectation: { type: 'string' },
+          travelOk: { type: 'string' },
           notes: { type: 'string' },
         },
         required: ['name'],
@@ -238,6 +265,51 @@ export const PHONE_TOOLS = [
     },
   },
   SCORE_INTERVIEW_TOOL,
+  {
+    type: 'function' as const,
+    function: {
+      name: 'setHiringInstruction',
+      description:
+        'Owner line only. Save what the founder just told you about hiring so it steers your later candidate screens (what to ask, what to say, who to prioritise), and/or set where face-to-face interviews happen. Read it back to confirm.',
+      parameters: {
+        type: 'object',
+        properties: {
+          instruction: {
+            type: 'string',
+            description: 'The founder’s instruction in plain words, e.g. "push harder on door-to-door evidence"',
+          },
+          interviewLocation: {
+            type: 'string',
+            description: 'Where candidates come in, e.g. "our Woking office, 12 High Street"',
+          },
+          clearInstruction: { type: 'boolean', description: 'True to wipe the standing instruction' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'queueRecruitmentCall',
+      description:
+        'Owner line only. Queue yourself an outbound hiring call from the Sync2Dine sales line — either a full phone screen or a call purely to arrange a face-to-face.',
+      parameters: {
+        type: 'object',
+        properties: {
+          phone: { type: 'string', description: 'Candidate UK number in E.164, e.g. +447700900123' },
+          candidateId: { type: 'string' },
+          name: { type: 'string' },
+          purpose: {
+            type: 'string',
+            enum: ['screen', 'arrange_interview'],
+            description: 'screen = full HR interview, arrange_interview = book the face-to-face only',
+          },
+          note: { type: 'string', description: 'Anything specific to cover on that call' },
+        },
+        required: ['phone'],
+      },
+    },
+  },
   {
     type: 'function' as const,
     function: {
@@ -576,6 +648,8 @@ export const PHONE_AUTO_ACTIONS = new Set([
   'bookInterview',
   'logCandidate',
   'scoreInterview',
+  'setHiringInstruction',
+  'queueRecruitmentCall',
   'transferToHuman',
   'enqueueOutboundCall',
   'placeOutboundCall',

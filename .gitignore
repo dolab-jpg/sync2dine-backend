@@ -11,3 +11,4 @@ supabase/.temp
 server/data/*.json
 server/data/synced-data-*.json
 server/data/.wwebjs_auth/
+server/data/candidate-cvs/

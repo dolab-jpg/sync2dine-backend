@@ -252,6 +252,13 @@ export interface AgentSettings {
    * Separate from isActive (phone answering only).
    */
   orderingEnabled?: boolean;
+  /** Founder's spoken hiring instruction — injected into Sally's candidate screens */
+  hiringInstruction?: string;
+  /** Where hire-recommended candidates are invited for their face-to-face */
+  hiringInterviewLocation?: string;
+  /** Audit for the hiring directive (who changed it on the owner line, and when) */
+  hiringDirectiveUpdatedAt?: string;
+  hiringDirectiveUpdatedBy?: string;
   updatedAt: string;
 }
 
