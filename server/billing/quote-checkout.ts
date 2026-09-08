@@ -494,5 +494,53 @@ export async function markQuotePaidFromStripe(input: {
     syncData(store, input.orgId);
     return true;
   });
+
+  // Paid Sync2Dine SaaS quote → ensure Platform Client org exists
+  try {
+    const wizard = quoteWizard(quote);
+    const isSaas = wizard.saas === true
+      || Boolean(firstString(wizard.packageId, quote.packageId))
+      || String(quote.tradeName ?? '').toLowerCase() === 'sync2dine saas';
+    if (isSaas) {
+      const customerId = firstString(quote.customerId, quote.customer_id);
+      let customer: Record<string, unknown> | undefined;
+      withOrgContext(input.orgId, () => {
+        const store = getDataStore(input.orgId);
+        customer = store.customers.find((c) => String(c.id) === customerId) as
+          | Record<string, unknown>
+          | undefined;
+      });
+      const { ensurePlatformClientFromCrmCustomerAsync } = await import('../provision-from-crm');
+      ensurePlatformClientFromCrmCustomerAsync({
+        customer: customer
+          ? { ...customer, status: 'won' }
+          : customerId
+            ? { id: customerId, status: 'won' }
+            : undefined,
+        customerId: customerId || undefined,
+        businessName: firstString(
+          quote.customerName,
+          customer?.company,
+          customer?.name,
+          quote.title,
+        ),
+        contactEmail: firstString(
+          customer?.email,
+          customer?.contactEmail,
+          quote.customerEmail,
+        ),
+        contactPhone: firstString(customer?.phone, quote.customerPhone),
+        plan: firstString(wizard.packageId, quote.packageId, 'starter'),
+        sellingOrgId: input.orgId,
+        notes: `Provisioned from paid SaaS quote ${input.quoteId}.`,
+      });
+    }
+  } catch (err) {
+    console.warn(
+      '[quote-checkout] platform client provision hook failed:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   return cloudUpdated || localUpdated;
 }

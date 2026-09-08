@@ -47,12 +47,18 @@ import {
 import { researchRestaurantProfile } from '../restaurant-research';
 import { suggestDialWindows } from '../sally/dial-windows';
 import { draftSallyFollowThrough } from '../sally/follow-through';
+import {
+  isSallyRecruitmentCall,
+  buildRecruitmentInterviewPrompt,
+  SCORE_INTERVIEW_TOOL,
+} from '../sally/recruitment-interview';
 export const SALLY_PERSONA = 'sally';
 
 export function isSallySalesCall(
   meta?: Record<string, unknown> | null,
   opts?: { campaignTemplate?: string; agentPersona?: string },
 ): boolean {
+  if (isSallyRecruitmentCall(meta, opts)) return false;
   const m = meta || {};
   const persona = String(opts?.agentPersona || m.agentPersona || '').toLowerCase();
   if (persona === SALLY_PERSONA) return true;
@@ -447,7 +453,14 @@ const REMEMBER_PERSON_TOOL = {
   },
 };
 
-export function getSallyPhoneSessionChatTools() {
+export function getSallyPhoneSessionChatTools(meta?: Record<string, unknown> | null) {
+  if (isSallyRecruitmentCall(meta)) {
+    return [
+      SCORE_INTERVIEW_TOOL,
+      ...pickPhoneTools('logCandidate', 'screenCandidate'),
+      END_CALL_FUNCTION_TOOL,
+    ];
+  }
   return [
     GET_OFFER_TERMS_TOOL,
     BOOK_INTEGRATION_MEETING_TOOL,
@@ -486,6 +499,20 @@ export function buildSallyBrainPrompt(input: {
   phoneAuthVerified?: boolean;
   callMeta?: Record<string, unknown>;
 }): { instructions: string; language: 'en' } {
+  if (isSallyRecruitmentCall(input.callMeta)) {
+    return {
+      instructions: buildRecruitmentInterviewPrompt({
+        contactName: input.contactName,
+        partyPhone: input.partyPhone,
+        direction: input.direction,
+        outboundBrief: input.outboundBrief,
+        cvSummary: input.callMeta?.cvSummary != null
+          ? String(input.callMeta.cvSummary)
+          : input.outboundBrief,
+      }),
+      language: 'en',
+    };
+  }
   const contact = String(input.contactName || '').trim();
   const safeName = contact && !/^(guest|unknown|unknown caller)$/i.test(contact) ? contact : '';
   const onMobile = isUkMobile(input.partyPhone);

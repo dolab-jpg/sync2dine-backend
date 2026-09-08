@@ -21,6 +21,8 @@ export type ComposeEmailBody = {
   rewrite?: string;
   channel?: string;
   apiKey?: string;
+  deepseekApiKey?: string;
+  provider?: string;
   orgId?: string;
   model?: string;
 };
@@ -130,6 +132,8 @@ export async function handleComposeEmail(
 
   const { client, provider } = await createLLMClientForOrg(orgId, '/api/ai/compose-email', {
     bodyOpenAIApiKey: body.apiKey,
+    bodyDeepSeekApiKey: body.deepseekApiKey,
+    provider: body.provider,
   });
   const model = defaultChatModelForProvider(provider, body.model ?? 'gpt-4o-mini');
 

@@ -103,7 +103,21 @@ export function noteOutboundCallSpeech(opts: {
   durationSec?: number;
   transcript?: unknown;
   partyPhone?: string;
+  aim?: string;
+  template?: string;
 }): { silent: boolean; paused: boolean; consecutive: number } {
+  const hireMark = `${opts.aim || ''} ${opts.template || ''}`.toLowerCase().includes('recruitment_interview');
+  const reason = `${opts.endedReason || ''} ${opts.disposition || ''}`.toLowerCase();
+  const speech = assistantSpeechTurns(opts.transcript);
+  const trueDeadAgent = speech === 0 && /silence-timed-out/.test(reason);
+  if (hireMark && !trueDeadAgent) {
+    const prev = getOutboundVoiceHealthStamp();
+    return {
+      silent: false,
+      paused: false,
+      consecutive: Number(prev?.consecutiveSilentOutbound ?? 0),
+    };
+  }
   const silent = isSilentOutboundCall(opts);
   const prev = getOutboundVoiceHealthStamp();
   const streak = nextSilentStreak(Number(prev?.consecutiveSilentOutbound ?? 0), silent);

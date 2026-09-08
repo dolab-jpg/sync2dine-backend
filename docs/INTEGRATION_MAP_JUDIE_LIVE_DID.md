@@ -1,4 +1,8 @@
-# Integration map � Judie live DID routing
+﻿> **HISTORICAL — do not use as Sync2Dine personality / path SoT.**
+> Live phone: [PHONE_ARCHITECTURE.md](./PHONE_ARCHITECTURE.md) · Sally: [SALLY_ARCHITECTURE.md](./SALLY_ARCHITECTURE.md) · Aliases: [LEGACY_ALIASES.md](./LEGACY_ALIASES.md)
+> Live app: **https://app.sync2dine.io** · Domain paths live under `server/phone/`, `server/orders/`, `server/brains/`.
+> Branch plan with pre-domain flat paths — completed/superseded; edit `server/phone/*` and `server/orders/*`.
+# Integration map — Judie live DID routing
 
 Branch: `cursor/judie-live-did-routing` (from latest `master`).  
 Source reviewed: `cursor/judie-order-harden-6cb9` (not merged wholesale).
@@ -56,7 +60,7 @@ Source reviewed: `cursor/judie-order-harden-6cb9` (not merged wholesale).
 |---|---|
 | `platformApi.ts` | Add Sally/Judie phone-line helpers. |
 | `SallyOfferSettings.tsx` | Sally DID + SIP card. |
-| `OrgJudiePhoneCredentials.tsx` | NEW � client detail Judie block. |
+| `OrgJudiePhoneCredentials.tsx` | NEW — client detail Judie block. |
 | `PlatformClientsCRM.tsx` | Mount Judie credentials. |
 | `MenuManager.tsx` | Additive upgrade options editor. |
 | `App.tsx` / `AppShell.tsx` | Keep Sally knowledge + Sales Brain; no primary Phone-lines nav (APIs still available). |
@@ -69,7 +73,7 @@ Source reviewed: `cursor/judie-order-harden-6cb9` (not merged wholesale).
 4. `purpose === 'sally'` ? Sally brain; `aria` ? Judie brain for that org.
 5. Unknown DID (present but unmatched) ? safe failure (no demo-kitchen override).
 6. Missing DID ? optional explicit demo-kitchen fallback for controlled tests only.
-7. Tool/order org always from call-resolved context � never from LLM `orgId` args.
+7. Tool/order org always from call-resolved context — never from LLM `orgId` args.
 
 ## POS / commerce policy
 
@@ -94,3 +98,4 @@ Live test org may set `automatic`; others stay `manual_only`.
 1. Redeploy previous `master` commit (recorded pre-deploy).
 2. Phone-line JSON fields are additive; SIP ciphertext needs decrypt path or re-entry if rolled back without decrypt helper.
 3. Set live test org `posPush` back to `manual_only` if forward misbehaves.
+

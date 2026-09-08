@@ -36,6 +36,7 @@ import {
   type SaasProductId,
   type SaasProductPrices,
 } from '../saas-products';
+import { isSallyRecruitmentCall } from './recruitment-interview';
 import {
   FARE_SCHEDULE_VERSION,
   OUTBOUND_OVERAGE,
@@ -362,6 +363,7 @@ export function isSallySalesCall(
   meta?: Record<string, unknown> | null,
   opts?: { campaignTemplate?: string; agentPersona?: string },
 ): boolean {
+  if (isSallyRecruitmentCall(meta, opts)) return false;
   const m = meta || {};
   const persona = String(opts?.agentPersona || m.agentPersona || '').toLowerCase();
   if (persona === SALLY_PERSONA) return true;

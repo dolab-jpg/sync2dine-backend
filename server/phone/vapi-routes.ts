@@ -54,6 +54,13 @@ import {
 import { buildStaffOrchBody } from './phone-session';
 import { buildVapiAssistantForParty } from './vapi-assistant';
 import { SALLY_PERSONA } from './sally-sales-phone';
+import {
+  candidateHasHireScoreForCall,
+  flattenCallTranscript,
+  heuristicHireScoreFromTranscript,
+  isSallyRecruitmentCall,
+  persistHireScorecard,
+} from '../sally/recruitment-interview';
 import { resolveTransferDestination, resolveTransferNumber } from './transfer-numbers';
 import { assertVapiProductionReady, isProductionRuntime } from '../provider-gates';
 import {
@@ -706,6 +713,11 @@ function finalizeVapiCall(
 
   completeOutboundJobsForCall(callId, { disposition, endedReason: endedReason || undefined });
 
+  const recruitmentCall = isSallyRecruitmentCall(afterMeta, {
+    campaignTemplate: after?.campaignTemplate != null ? String(after.campaignTemplate) : undefined,
+    agentPersona: String(afterMeta.agentPersona || ''),
+  });
+
   void import('../sally/outbound-voice-health').then(({ noteOutboundCallSpeech }) => {
     noteOutboundCallSpeech({
       callId,
@@ -715,6 +727,10 @@ function finalizeVapiCall(
       durationSec,
       transcript: after?.transcript,
       partyPhone,
+      aim: afterMeta.aim != null ? String(afterMeta.aim) : undefined,
+      template: after?.campaignTemplate != null
+        ? String(after.campaignTemplate)
+        : (afterMeta.campaignTemplate != null ? String(afterMeta.campaignTemplate) : undefined),
     });
   }).catch(() => {});
 
@@ -723,7 +739,23 @@ function finalizeVapiCall(
     || (afterMeta.customerId != null ? String(afterMeta.customerId) : null)
     || (after?.customerId != null ? String(after.customerId) : null);
 
-  if (customerId) {
+  if (recruitmentCall) {
+    const candidateId = afterMeta.candidateId != null
+      ? String(afterMeta.candidateId)
+      : (after?.candidateId != null ? String(after.candidateId) : undefined);
+    if (!candidateHasHireScoreForCall(callId, candidateId)) {
+      const transcriptText = flattenCallTranscript(after?.transcript) || transcriptHint;
+      if (transcriptText.replace(/\s+/g, ' ').trim().length >= 80) {
+        persistHireScorecard({
+          ...heuristicHireScoreFromTranscript(transcriptText),
+          callId,
+          candidateId,
+          phone: partyPhone,
+          name: after?.contactName != null ? String(after.contactName) : undefined,
+        });
+      }
+    }
+  } else if (customerId) {
     const detailParts = [
       fallbackSummary,
       transferredTo ? `Transferred to: ${transferredTo}` : '',
@@ -809,36 +841,38 @@ function finalizeVapiCall(
   }
 
   // Sally sales: staff card only — CRM activity already written above (skipCrmActivity)
-  void import('./sally-sales-phone')
-    .then(({ isSallySalesCall, notifySallyCallEnded }) => {
-      const sally = isSallySalesCall(afterMeta, { agentPersona: String(afterMeta.agentPersona || '') });
-      auditVapiWebhook({
-        event: 'finalize_sally_notify',
-        callId,
-        sally,
-        customerId: customerId || null,
-        hasRecording: Boolean(recordingUrl || after?.recordingUrl),
-        transcriptLen: Array.isArray(after?.transcript) ? (after!.transcript as unknown[]).length : 0,
-        disposition: disposition || endedReason || null,
-      });
-      if (sally) {
-        notifySallyCallEnded({
+  if (!recruitmentCall) {
+    void import('./sally-sales-phone')
+      .then(({ isSallySalesCall, notifySallyCallEnded }) => {
+        const sally = isSallySalesCall(afterMeta, { agentPersona: String(afterMeta.agentPersona || '') });
+        auditVapiWebhook({
+          event: 'finalize_sally_notify',
           callId,
-          customerId,
-          partyPhone,
-          summary: fallbackSummary,
-          disposition: disposition || endedReason,
-          skipCrmActivity: true,
+          sally,
+          customerId: customerId || null,
+          hasRecording: Boolean(recordingUrl || after?.recordingUrl),
+          transcriptLen: Array.isArray(after?.transcript) ? (after!.transcript as unknown[]).length : 0,
+          disposition: disposition || endedReason || null,
         });
-      }
-    })
-    .catch((err) => {
-      auditVapiWebhook({
-        event: 'finalize_sally_notify_error',
-        callId,
-        error: err instanceof Error ? err.message.slice(0, 160) : String(err).slice(0, 160),
+        if (sally) {
+          notifySallyCallEnded({
+            callId,
+            customerId,
+            partyPhone,
+            summary: fallbackSummary,
+            disposition: disposition || endedReason,
+            skipCrmActivity: true,
+          });
+        }
+      })
+      .catch((err) => {
+        auditVapiWebhook({
+          event: 'finalize_sally_notify_error',
+          callId,
+          error: err instanceof Error ? err.message.slice(0, 160) : String(err).slice(0, 160),
+        });
       });
-    });
+  }
 }
 
 async function buildTransientAssistant(message: Record<string, unknown>) {
@@ -897,11 +931,17 @@ async function buildTransientAssistant(message: Record<string, unknown>) {
     agentPersona,
     orgId,
   });
+  const afterAssist = getCallById(String(call.id));
+  const latestMeta = (afterAssist?.metadata as Record<string, unknown> | undefined) || {};
   saveCall({
     id: String(call.id),
     orgId,
+    contactName: afterAssist?.contactName || (identity.kind !== 'customer' ? identity.name : (call.contactName as string | undefined)),
+    candidateId: afterAssist?.candidateId,
+    campaignTemplate: afterAssist?.campaignTemplate || call.campaignTemplate,
     metadata: {
       ...meta,
+      ...latestMeta,
       callerKind: identity.kind,
       callerRole: identity.role,
       agentPersona,
@@ -909,7 +949,6 @@ async function buildTransientAssistant(message: Record<string, unknown>) {
         ? 'verified'
         : (identity.needsPin ? 'pending' : 'n/a'),
     },
-    contactName: identity.kind !== 'customer' ? identity.name : (call.contactName as string | undefined),
   });
   return assistant;
 }

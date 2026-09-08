@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readStudioMeta } from './ai-studio-routes';
+import { isAuthEnforced, requireAuth } from '../auth';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LOG_PATH = join(__dirname, '..', 'data', 'conversation-logs.json');
@@ -19,6 +20,8 @@ interface LogEntry {
   content: string;
   timestamp: string;
 }
+
+const AUDIT_DELETE_ROLES = new Set(['super_admin', 'manager', 'platform_owner']);
 
 function readLogs(): LogEntry[] {
   try {
@@ -52,6 +55,20 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(body));
+}
+
+function requireAuditDeleteAuth(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!isAuthEnforced()) return true;
+  const auth = requireAuth(req);
+  if (!auth) {
+    sendJson(res, 401, { error: 'Unauthorized' });
+    return false;
+  }
+  if (!AUDIT_DELETE_ROLES.has(auth.role)) {
+    sendJson(res, 403, { error: 'Forbidden' });
+    return false;
+  }
+  return true;
 }
 
 export async function handleConversationAudit(
@@ -104,6 +121,34 @@ export async function handleConversationAudit(
     return true;
   }
 
+  if (req.method === 'POST' && pathname === '/api/ai/conversation-log/delete-batch') {
+    if (!requireAuditDeleteAuth(req, res)) return true;
+    let body: { threadIds?: string[]; all?: boolean } = {};
+    try {
+      body = JSON.parse(await readBody(req) || '{}') as { threadIds?: string[]; all?: boolean };
+    } catch {
+      body = {};
+    }
+    const logs = readLogs();
+    let remaining: LogEntry[];
+    let deletedThreads = 0;
+    if (body.all) {
+      deletedThreads = new Set(logs.map((l) => l.threadId)).size;
+      remaining = [];
+    } else {
+      const ids = new Set((body.threadIds ?? []).filter(Boolean));
+      if (ids.size === 0) {
+        sendJson(res, 400, { error: 'threadIds required (or all: true)' });
+        return true;
+      }
+      deletedThreads = ids.size;
+      remaining = logs.filter((l) => !ids.has(l.threadId));
+    }
+    writeLogs(remaining);
+    sendJson(res, 200, { ok: true, deletedThreads });
+    return true;
+  }
+
   if (req.method === 'POST' && pathname === '/api/ai/conversation-log') {
     const body = JSON.parse(await readBody(req));
     const logs = readLogs();
@@ -127,11 +172,26 @@ export async function handleConversationAudit(
   }
 
   const match = pathname.match(/^\/api\/ai\/conversation-log\/(.+)$/);
-  if (req.method === 'GET' && match) {
+  if (match) {
     const threadId = decodeURIComponent(match[1]);
-    const messages = readLogs().filter((l) => l.threadId === threadId);
-    sendJson(res, 200, { messages });
-    return true;
+    if (req.method === 'GET') {
+      const messages = readLogs().filter((l) => l.threadId === threadId);
+      sendJson(res, 200, { messages });
+      return true;
+    }
+    if (req.method === 'DELETE') {
+      if (!requireAuditDeleteAuth(req, res)) return true;
+      const logs = readLogs();
+      const remaining = logs.filter((l) => l.threadId !== threadId);
+      const removed = logs.length - remaining.length;
+      if (removed === 0) {
+        sendJson(res, 404, { error: 'Thread not found' });
+        return true;
+      }
+      writeLogs(remaining);
+      sendJson(res, 200, { ok: true, deleted: removed });
+      return true;
+    }
   }
 
   sendJson(res, 404, { error: 'Not found' });

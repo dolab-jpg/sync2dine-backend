@@ -28,6 +28,23 @@ describe('resolveBrainId', () => {
     assert.equal(resolveBrainId({ agentPersona: 'lizzie' }), 'judie');
   });
 
+  it('keeps recruitment interviews on sally even though they are not sales', () => {
+    assert.equal(
+      resolveBrainId({
+        agentPersona: 'sally',
+        callMeta: { aim: 'recruitment_interview', agentPersona: 'sally' },
+      }),
+      'sally',
+    );
+    assert.equal(
+      resolveBrainId({
+        campaignTemplate: 'recruitment_interview',
+        callMeta: { source: 'recruitment_interview' },
+      }),
+      'sally',
+    );
+  });
+
   it('defaults to judie', () => {
     assert.equal(resolveBrainId({}), 'judie');
     assert.equal(resolveBrainId({ agentPersona: 'judie', callMeta: { linePurpose: 'aria' } }), 'judie');

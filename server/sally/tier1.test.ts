@@ -200,6 +200,7 @@ describe('sally brain routing', () => {
     assert.equal(isSallySalesCall({ source: 'csv_campaign', agentPersona: 'sally' }), true);
     assert.equal(isSallySalesCall({ source: 'book_callback' }), true);
     assert.equal(isSallySalesCall({}), false);
+    assert.equal(isSallySalesCall({ agentPersona: 'sally', aim: 'recruitment_interview' }), false);
   });
 });
 

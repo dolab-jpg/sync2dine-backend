@@ -16,9 +16,18 @@ describe('Sally web channel', () => {
   it('shared offer facts include package pricing lines', () => {
     const facts = formatOfferFactsBlock();
     assert.match(facts, /PACKAGES|Judie|Atmosphere/i);
-    assert.match(facts, /£|GBP|\/wk/i);
+    assert.match(facts, /ï¿½|GBP|\/wk/i);
     assert.match(facts, /proven track record helping venues increase sales/i);
     assert.match(facts, /Discover first|footfall vs in-venue spend/i);
+  });
+
+  it('offer facts include Judie PAYG cover USP and honest divert disclosures', () => {
+    const facts = formatOfferFactsBlock();
+    assert.match(facts, /judie_payg_inbound|Judie PAYG/i);
+    assert.match(facts, /PAYG COVER USP/i);
+    assert.match(facts, /venue or their carrier diverts|they control divert/i);
+    assert.match(facts, /not usage-only/i);
+    assert.doesNotMatch(facts, /Say this exact pitch|word-for-word/i);
   });
 
   it('web Atmosphere pitch cites track record without inventing prices in overlay', () => {

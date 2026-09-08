@@ -24,6 +24,7 @@ import { handleMailboxRoutes } from './mailbox-routes';
 import { handleCalendarRoutes } from './calendar-routes';
 import { handlePackageUpdatesRoute } from './mailbox/package-updates';
 import { handleLeadsRoutes } from './leads-routes';
+import { handleRecruitmentRoutes } from './sally/recruitment-routes';
 import { handleOrdersRoutes } from './orders-routes';
 import { handleMenuRoutes } from './menu-routes';
 import { handleReservationsRoutes } from './reservations-routes';
@@ -132,6 +133,8 @@ const server = createServer(async (req, res) => {
     if (await handlePlatformRoutes(req, res, pathname)) return;
 
     if (await handleLeadsRoutes(req, res, pathname, url)) return;
+
+    if (await handleRecruitmentRoutes(req, res, pathname)) return;
 
     if (await handleOrdersRoutes(req, res, pathname)) return;
 

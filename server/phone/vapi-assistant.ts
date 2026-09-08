@@ -2,7 +2,7 @@
  * Shared builders for Vapi assistant payloads (outbound + assistant-request).
  * Session brains load from server/brains/{sally|judie|cynthia}.
  */
-import { DEFAULT_ORG_ID, getCallById, hydrateCallerFromCloud } from '../data-store';
+import { DEFAULT_ORG_ID, getCallById, hydrateCallerFromCloud, saveCall } from '../data-store';
 import {
   isPhoneAuthVerified,
   resolvePhoneCallerIdentity,
@@ -14,6 +14,11 @@ import { getVapiServerSecret, getVapiWebhookBaseUrl } from './vapi-client';
 export { resolveTransferNumber, transferDestinationsFromEnv } from './transfer-numbers';
 import { transferDestinationsFromEnv } from './transfer-numbers';
 import { SALLY_PERSONA } from './sally-sales-phone';
+import {
+  applyInboundCandidateRecruitmentMeta,
+  isSallyRecruitmentCall,
+  recruitmentVoicemailMessage,
+} from '../sally/recruitment-interview';
 import { buildBrainSession, type SilencePersona } from '../brains/index';
 import { CYNTHIA_PERSONA } from '../brains/cynthia/branding';
 import { getHomeOrgId, SYNC2DINE_SPOKEN } from '../home-org';
@@ -25,12 +30,22 @@ export type { SilencePersona };
 /** Shared dead-air ladder for every Vapi phone agent (check → re-ask → hang up). */
 export function buildSilenceHooks(
   persona: SilencePersona,
-  opts?: { omitHangup?: boolean; timeoutScale?: number },
+  opts?: { omitHangup?: boolean; timeoutScale?: number; recruitment?: boolean },
 ): Array<Record<string, unknown>> {
   const scale = opts?.timeoutScale && opts.timeoutScale > 0 ? opts.timeoutScale : 1;
   const t = (seconds: number) => Math.max(8, Math.round(seconds * scale));
   const lines =
-    persona === 'sally'
+    opts?.recruitment
+      ? {
+          check: [
+            'You still with me?',
+            'You still there?',
+            'Can you still hear me?',
+          ],
+          reask: 'Still there? Shall we finish the interview?',
+          bye: "I'll leave it there — call this number back when you can finish the interview. Cheers!",
+        }
+      : persona === 'sally'
       ? {
           check: [
             'You still with me, love?',
@@ -131,12 +146,33 @@ export async function buildVapiAssistantForParty(opts: {
   const languageOverride = (existingCall?.metadata as Record<string, unknown> | undefined)?.callLanguage as
     | string
     | undefined;
-  const callMeta = (existingCall?.metadata as Record<string, unknown> | undefined) || {};
+  let callMeta = { ...((existingCall?.metadata as Record<string, unknown> | undefined) || {}) };
+  const personaHint = String(opts.agentPersona || callMeta.agentPersona || callMeta.linePurpose || '').toLowerCase();
+  let contactName = opts.contactName || identity.name || String(callMeta.contactName || callMeta.name || '');
+  if (opts.direction === 'inbound' && (personaHint === 'sally' || personaHint === SALLY_PERSONA)) {
+    const stamped = applyInboundCandidateRecruitmentMeta(opts.partyPhone, callMeta);
+    callMeta = stamped.meta;
+    if (stamped.contactName) contactName = stamped.contactName;
+    if (opts.callId && stamped.candidateId) {
+      saveCall({
+        id: opts.callId,
+        contactName: stamped.contactName || contactName,
+        candidateId: stamped.candidateId,
+        campaignTemplate: 'recruitment_interview',
+        intent: 'recruitment',
+        metadata: callMeta,
+      });
+    }
+  }
   const outboundBrief = callMeta.brief != null
     ? String(callMeta.brief)
     : callMeta.aim != null
       ? String(callMeta.aim)
       : undefined;
+  const recruitment = isSallyRecruitmentCall(callMeta, {
+    campaignTemplate: opts.campaignTemplate,
+    agentPersona: opts.agentPersona || String(callMeta.agentPersona || ''),
+  });
 
   const webhookBase = getVapiWebhookBaseUrl();
   const toolServer = `${webhookBase}/webhooks/vapi`;
@@ -144,7 +180,7 @@ export async function buildVapiAssistantForParty(opts: {
   const toolServerCfg = webhookSecret
     ? { url: toolServer, secret: webhookSecret }
     : { url: toolServer };
-  const firstName = (opts.contactName || identity.name || String(callMeta.company || '')).split(/\s+/)[0];
+  const firstName = (contactName || String(callMeta.company || '')).split(/\s+/)[0];
 
   const session = await buildBrainSession({
     partyPhone: opts.partyPhone,
@@ -152,9 +188,9 @@ export async function buildVapiAssistantForParty(opts: {
     identity,
     verified,
     callId: opts.callId,
-    campaignTemplate: opts.campaignTemplate,
+    campaignTemplate: recruitment ? 'recruitment_interview' : opts.campaignTemplate,
     outboundBrief,
-    contactName: opts.contactName || identity.name,
+    contactName,
     companyHint: callMeta.company != null ? String(callMeta.company) : undefined,
     languageOverride,
     callMeta,
@@ -223,14 +259,15 @@ export async function buildVapiAssistantForParty(opts: {
   });
 
   const isMeetingConfirm = String(callMeta.aim || '').toLowerCase() === 'meeting_confirm';
-  if (sally && isMeetingConfirm && opts.direction === 'outbound') {
+  if (sally && isMeetingConfirm && opts.direction === 'outbound' && !recruitment) {
     firstMessage = firstName && !/^guest$/i.test(firstName)
       ? `Alright ${firstName}, Sally from ${SYNC2DINE_SPOKEN} — just confirming your twenty-minute install chat is still on.`
       : `Alright love, Sally from ${SYNC2DINE_SPOKEN} — just confirming your twenty-minute install chat is still on.`;
   }
 
-  const sallyVoicemailMessage =
-    process.env.SALLY_VOICEMAIL_MESSAGE?.trim() || SALLY_DEFAULT_VOICEMAIL;
+  const sallyVoicemailMessage = recruitment
+    ? recruitmentVoicemailMessage()
+    : (process.env.SALLY_VOICEMAIL_MESSAGE?.trim() || SALLY_DEFAULT_VOICEMAIL);
   // Sally outbound: skip silence hangup so beep + voicemail drop can finish; stretch check/reask.
   // (sallyOutbound computed above so language/voice/transcriber can be locked to English.)
   // Judie inbound: omit auto hangup so we wait for caller goodbye after the order;
@@ -239,10 +276,12 @@ export async function buildVapiAssistantForParty(opts: {
   const silenceHooks = buildSilenceHooks(
     silencePersona,
     sallyOutbound
-      ? { omitHangup: true, timeoutScale: 2.5 }
+      ? { omitHangup: true, timeoutScale: 2.5, recruitment }
       : judieInbound
         ? { omitHangup: true, timeoutScale: 2.75 }
-        : undefined,
+        : recruitment
+          ? { recruitment: true }
+          : undefined,
   );
 
   const assistant: Record<string, unknown> = {

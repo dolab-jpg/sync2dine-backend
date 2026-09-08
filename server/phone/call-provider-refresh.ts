@@ -208,14 +208,20 @@ export async function refreshCallFromProvider(callId: string): Promise<RefreshFr
 
   const transcriptAdded = applyTranscriptFromVapi(callId, json, partyPhone);
   if (transcriptAdded && transcriptAdded > 0) {
-    void import('../sales-brain/enqueue').then(({ enqueueSalesBrainJob }) => {
-      const persona = String(meta.agentPersona || '').toLowerCase() || undefined;
-      enqueueSalesBrainJob({
-        callId,
-        agentPersona: persona,
-        aim: meta.aim != null ? String(meta.aim) : null,
-      });
-    }).catch(() => {});
+    const { isSallyRecruitmentCall } = await import('../sally/recruitment-interview');
+    if (!isSallyRecruitmentCall(meta, {
+      campaignTemplate: local.campaignTemplate != null ? String(local.campaignTemplate) : undefined,
+      agentPersona: String(meta.agentPersona || ''),
+    })) {
+      void import('../sales-brain/enqueue').then(({ enqueueSalesBrainJob }) => {
+        const persona = String(meta.agentPersona || '').toLowerCase() || undefined;
+        enqueueSalesBrainJob({
+          callId,
+          agentPersona: persona,
+          aim: meta.aim != null ? String(meta.aim) : null,
+        });
+      }).catch(() => {});
+    }
   }
 
   const ingest = await ingestCallRecording({

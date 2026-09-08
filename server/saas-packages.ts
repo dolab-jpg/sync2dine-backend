@@ -1,5 +1,5 @@
 /**
- * Sync2Dine SaaS package catalog — canonical commercial source of truth.
+ * Sync2Dine SaaS package catalog ï¿½ canonical commercial source of truth.
  * Weekly billing with 40% launch offer and 50% annual prepay.
  */
 
@@ -29,11 +29,11 @@ export type SaasPackageDef = {
   shortName: string;
   description: string;
   family: 'judie' | 'atmosphere' | 'complete';
-  /** Standard (ongoing) weekly GBP — real product price. */
+  /** Standard (ongoing) weekly GBP ï¿½ real product price. */
   standardWeeklyGbp: number;
-  /** Launch weekly GBP — deadline-bound offer, keep after signing. */
+  /** Launch weekly GBP ï¿½ deadline-bound offer, keep after signing. */
   launchWeeklyGbp: number;
-  /** Annual prepay GBP = round(launchWeekly × 52 × 0.50). */
+  /** Annual prepay GBP = round(launchWeekly ï¿½ 52 ï¿½ 0.50). */
   annualPrepayGbp: number;
   judieTier: JudieTier;
   includesAtmosphere: boolean;
@@ -52,7 +52,7 @@ export const OUTBOUND_OVERAGE = {
   landlineGbpPerMin: 0.03,
 } as const;
 
-/** Additional site floor (? £2.49/mo ? £1/week launch floor). */
+/** Additional site floor (? ï¿½2.49/mo ? ï¿½1/week launch floor). */
 export const ADDITIONAL_SITE_WEEKLY_GBP = 1;
 export const ADDITIONAL_SITE_ANNUAL_GBP = 26;
 
@@ -61,7 +61,7 @@ export const SAAS_PACKAGES: Record<SaasPackageId, SaasPackageDef> = {
     id: 'judie_payg_inbound',
     name: 'Judie Pay-as-you-go',
     shortName: 'Pay-as-you-go',
-    description: 'Inbound-only Judie receptionist — orders and bookings into the app',
+    description: 'Inbound-only Judie receptionist ï¿½ weekly fee with included AI minutes; venue diverts when they want cover; orders and bookings into the app',
     family: 'judie',
     standardWeeklyGbp: 77,
     launchWeeklyGbp: 46,
@@ -152,7 +152,7 @@ export const SAAS_PACKAGES: Record<SaasPackageId, SaasPackageDef> = {
     id: 'combined',
     name: 'Complete',
     shortName: 'Complete',
-    description: 'Atmosphere + Judie Starter — phone and venue growth system',
+    description: 'Atmosphere + Judie Starter ï¿½ phone and venue growth system',
     family: 'complete',
     standardWeeklyGbp: 347,
     launchWeeklyGbp: 208,
@@ -259,17 +259,17 @@ export function judieTierToOrgPlan(tier: JudieTier): 'starter' | 'pro' | 'enterp
 
 export function formatFareSummary(pkg: SaasPackageDef): string {
   const lines = [
-    `${pkg.name}: normally £${pkg.standardWeeklyGbp}/week — launch offer £${pkg.launchWeeklyGbp}/week (40% off).`,
-    `Annual prepay £${pkg.annualPrepayGbp} (50% off annualized launch).`,
+    `${pkg.name}: normally ï¿½${pkg.standardWeeklyGbp}/week ï¿½ launch offer ï¿½${pkg.launchWeeklyGbp}/week (40% off).`,
+    `Annual prepay ï¿½${pkg.annualPrepayGbp} (50% off annualized launch).`,
   ];
   if (pkg.weeklyAiMinutes > 0) {
     lines.push(
       `Included: ${pkg.weeklyAiMinutes} Judie AI min/week` +
         (pkg.inboundOnly ? ' (inbound only)' : '') +
         (pkg.weeklyOutboundMinutes > 0 ? `, ${pkg.weeklyOutboundMinutes} outbound min/week` : ', no outbound') +
-        `. AI overage £${pkg.aiOverageGbpPerMinute.toFixed(2)}/min.` +
+        `. AI overage ï¿½${pkg.aiOverageGbpPerMinute.toFixed(2)}/min.` +
         (!pkg.inboundOnly
-          ? ` Outbound overage £${OUTBOUND_OVERAGE.mobileGbpPerMin}/min mobile · £${OUTBOUND_OVERAGE.landlineGbpPerMin}/min landline.`
+          ? ` Outbound overage ï¿½${OUTBOUND_OVERAGE.mobileGbpPerMin}/min mobile ï¿½ ï¿½${OUTBOUND_OVERAGE.landlineGbpPerMin}/min landline.`
           : ''),
     );
   }

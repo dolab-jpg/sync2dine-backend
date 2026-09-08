@@ -193,6 +193,8 @@ export function resolvePackageLine(
     useLaunch?: boolean;
     additionalSites?: number;
     quantity?: number;
+    /** One-off platform setup fee (from offer/terms — not a hard-coded catalog amount). */
+    setupFeeGbp?: number;
   },
 ): SaasQuoteLine[] {
   const pkg = getPackage(packageId);
@@ -229,6 +231,23 @@ export function resolvePackageLine(
       rate: siteRate,
       total: Math.round(sites * siteRate * 100) / 100,
       category: 'site',
+      packageId,
+      billingInterval: interval,
+    });
+  }
+
+  const setup = Number(opts?.setupFeeGbp);
+  if (Number.isFinite(setup) && setup > 0) {
+    const setupTotal = Math.round(setup * 100) / 100;
+    lines.push({
+      id: 'pkg-setup',
+      productId: packageId,
+      description: 'Setup fee',
+      quantity: 1,
+      unit: 'fixed',
+      rate: setupTotal,
+      total: setupTotal,
+      category: 'extra',
       packageId,
       billingInterval: interval,
     });

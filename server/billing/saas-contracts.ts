@@ -236,7 +236,46 @@ export function signSaasContract(input: {
   };
   memory = all;
   persist();
-  return all[idx]!;
+  const signed = all[idx]!;
+  // Signed SaaS contract without a tenant org → provision Platform Client
+  if (!signed.organizationId) {
+    void import('../provision-from-crm')
+      .then(async ({ ensurePlatformClientFromCrmCustomer }) => {
+        const { getHomeOrgId } = await import('../home-org');
+        const result = await ensurePlatformClientFromCrmCustomer({
+          force: true,
+          sellingOrgId: getHomeOrgId(),
+          customerId: signed.customerId,
+          businessName: signed.restaurantName,
+          contactName: signed.contactName,
+          contactEmail: signed.contactEmail,
+          contactPhone: signed.contactPhone,
+          address: signed.address,
+          plan: signed.packageId,
+          notes: `Provisioned from signed SaaS contract ${signed.id}.`,
+        });
+        if (result.ok && !result.skipped && result.organizationId) {
+          const latest = load();
+          const i = latest.findIndex((row) => row.id === signed.id);
+          if (i >= 0) {
+            latest[i] = {
+              ...latest[i]!,
+              organizationId: result.organizationId,
+              updatedAt: new Date().toISOString(),
+            };
+            memory = latest;
+            persist();
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn(
+          '[saas-contracts] provision after sign failed:',
+          err instanceof Error ? err.message : err,
+        );
+      });
+  }
+  return signed;
 }
 
 /** Gate: Checkout requires a signed contract for this org or explicit contract id. */

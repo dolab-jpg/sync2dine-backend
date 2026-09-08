@@ -30,7 +30,7 @@ import {
   updateReservation,
 } from '../../reservations-store';
 import { executeRestaurantTool, RESTAURANT_TOOL_NAMES } from '../../restaurant-ai-tools';
-import { resolveCallbackIso } from '../callback-time';
+import { SCORE_INTERVIEW_TOOL } from '../../sally/recruitment-interview';
 
 const CAPTURE_LEAD_PROPERTIES = {
   name: {
@@ -237,6 +237,7 @@ export const PHONE_TOOLS = [
       },
     },
   },
+  SCORE_INTERVIEW_TOOL,
   {
     type: 'function' as const,
     function: {
@@ -574,6 +575,7 @@ export const PHONE_AUTO_ACTIONS = new Set([
   'screenCandidate',
   'bookInterview',
   'logCandidate',
+  'scoreInterview',
   'transferToHuman',
   'enqueueOutboundCall',
   'placeOutboundCall',

@@ -3,7 +3,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -68,5 +68,21 @@ describe('remediation split-import regressions', () => {
     assert.doesNotMatch(indexSrc, /_quarantine/);
     assert.doesNotMatch(indexSrc, /vapi-routes\.vps/);
     assert.doesNotMatch(indexSrc, /phone-webhook\.vps/);
+  });
+
+  it('live smoke harness contracts remain mounted without new global auth gate', () => {
+    const indexSrc = readFileSync(join(root, 'server/index.ts'), 'utf8');
+    assert.match(indexSrc, /handleSallyWebRoutes/);
+    assert.match(indexSrc, /handleVapiRoutes/);
+    assert.match(indexSrc, /handleStripeRoutes/);
+    assert.match(indexSrc, /handleConnectorRoutes/);
+    // No blanket Basic Auth / Cloudflare / IP gate introduced in the dispatcher
+    assert.doesNotMatch(indexSrc, /basicAuth|Basic Authentication|cloudflare.?access|ipAllow|LIVE_TESTING_GATE/i);
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    assert.equal(pkg.scripts?.['smoke:live'], 'node scripts/smoke-live-matrix.mjs https://app.sync2dine.io');
+    assert.ok(existsSync(join(root, 'scripts/smoke-live-matrix.mjs')));
+    assert.ok(existsSync(join(root, 'docs/LIVE_TESTING_ACCESS.md')));
   });
 });

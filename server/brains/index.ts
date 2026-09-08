@@ -1,4 +1,5 @@
 import { isSallySalesCall } from '../phone/sally-sales-phone';
+import { isSallyPersona, isSallyRecruitmentCall } from '../sally/recruitment-interview';
 import type { BrainBuildInput, BrainId, BrainPackage, BrainSession } from './types';
 import { sallyBrain } from './sally/index';
 import { judieBrain } from './judie/index';
@@ -18,12 +19,11 @@ export function resolveBrainId(input: {
   agentPersona?: string;
 }): BrainId {
   const meta = input.callMeta || {};
-  if (
-    isSallySalesCall(meta, {
-      campaignTemplate: input.campaignTemplate,
-      agentPersona: input.agentPersona || String(meta.agentPersona || ''),
-    })
-  ) {
+  const opts = {
+    campaignTemplate: input.campaignTemplate,
+    agentPersona: input.agentPersona || String(meta.agentPersona || ''),
+  };
+  if (isSallyPersona(meta, opts) || isSallyRecruitmentCall(meta, opts) || isSallySalesCall(meta, opts)) {
     return 'sally';
   }
   const persona = String(input.agentPersona || meta.agentPersona || '').toLowerCase();

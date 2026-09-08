@@ -55,6 +55,8 @@ export type ProvisionOrgInput = {
   contactPhone?: string;
   address?: string;
   plan?: string;
+  /** Canonical SaaS package id (e.g. judie_payg_inbound). Written to organizations.saas_package_id. */
+  saasPackageId?: string;
   monthlyTokenCap?: number;
   notes?: string;
   adminPassword: string;
@@ -100,6 +102,7 @@ export async function provisionOrganizationInSupabase(
   }
 
   const plan = input.plan || 'starter';
+  const saasPackageId = input.saasPackageId?.trim() || undefined;
   const tokenCaps: Record<string, number> = {
     starter: 500_000,
     pro: 2_000_000,
@@ -123,6 +126,7 @@ export async function provisionOrganizationInSupabase(
       notes: input.notes ?? null,
       openai_api_key_encrypted: input.openaiApiKeyEncrypted ?? '',
       trial_ends_at: new Date(Date.now() + 14 * 86400000).toISOString(),
+      ...(saasPackageId ? { saas_package_id: saasPackageId } : {}),
     })
     .select()
     .single();
@@ -234,5 +238,6 @@ export function mapSupabaseOrgToApi(row: Record<string, unknown>) {
     createdAt: String(row.created_at ?? ''),
     updatedAt: String(row.updated_at ?? ''),
     notes: row.notes ? String(row.notes) : undefined,
+    saasPackageId: row.saas_package_id ? String(row.saas_package_id) : undefined,
   };
 }

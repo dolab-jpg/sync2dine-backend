@@ -27,6 +27,7 @@ export type OutboundCampaignTemplate =
   | 'payment_reminder'
   | 'appointment_reminder'
   | 'recruitment_screening'
+  | 'recruitment_interview'
   | 'satisfaction_check'
   | 'lead_callback'
   | 'customer_review'
@@ -156,6 +157,10 @@ export const OUTBOUND_CAMPAIGN_SCRIPTS: Record<OutboundCampaignTemplate, { greet
   recruitment_screening: {
     greeting: 'Hello, this is Cynthia from Builder Diddies recruitment.',
     purpose: 'Thank you for your interest in joining our team. I would like to ask you a few quick questions.',
+  },
+  recruitment_interview: {
+    greeting: "Alright, it's Sally from sync Two dine — you applied on Indeed for a restaurant sales role. Have you got ten minutes? This call is recorded.",
+    purpose: 'Interview for field sales into restaurants covering Woking, Surrey and London.',
   },
   satisfaction_check: {
     greeting: 'Hello, this is Cynthia from Builder Diddies.',

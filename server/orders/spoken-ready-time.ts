@@ -16,7 +16,7 @@ const HOUR_WORDS: Record<number, string> = {
 /**
  * London ready-by clock as a Cockney-friendly phrase.
  * Rounds UP to the next quarter hour: "quarter past three", "half past three",
- * "quarter to four", "three o'clock" — never "3:13" / "three point one three".
+ * "quarter to four", "three o'clock" ï¿½ never "3:13" / "three point one three".
  */
 export function readyByClockSpoken(etaMinutes: number, nowMs = Date.now()): string {
   const ready = new Date(nowMs + Math.max(0, etaMinutes) * 60_000);

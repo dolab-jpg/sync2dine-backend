@@ -520,6 +520,7 @@ export interface CreateOrganizationInput {
   monthlyTokenCap?: number;
   notes?: string;
   trialDays?: number;
+  saasPackageId?: string;
 }
 
 export function createOrganization(input: CreateOrganizationInput): Organization {
@@ -552,6 +553,7 @@ export function createOrganization(input: CreateOrganizationInput): Organization
     createdAt: now,
     updatedAt: now,
     notes: input.notes?.trim(),
+    saasPackageId: input.saasPackageId?.trim() || undefined,
   };
 
   memoryOrgs = [org, ...listOrganizations()];
@@ -601,6 +603,20 @@ export function updateOrganization(
   orgs[idx] = updated;
   memoryOrgs = orgs;
   persist();
+  if (patch.saasPackageId !== undefined) {
+    void (async () => {
+      try {
+        const { getSupabaseAdmin } = await import('./supabase-admin');
+        const supabase = getSupabaseAdmin();
+        await supabase
+          .from('organizations')
+          .update({ saas_package_id: updated.saasPackageId ?? null })
+          .eq('id', id);
+      } catch {
+        /* disk is SoT for local; cloud sync best-effort */
+      }
+    })();
+  }
   return updated;
 }
 

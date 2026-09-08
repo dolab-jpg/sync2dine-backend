@@ -1,6 +1,10 @@
+﻿> **HISTORICAL — do not use as Sync2Dine personality / path SoT.**
+> Live phone: [PHONE_ARCHITECTURE.md](./PHONE_ARCHITECTURE.md) · Sally: [SALLY_ARCHITECTURE.md](./SALLY_ARCHITECTURE.md) · Aliases: [LEGACY_ALIASES.md](./LEGACY_ALIASES.md)
+> Live app: **https://app.sync2dine.io** · Domain paths live under `server/phone/`, `server/orders/`, `server/brains/`.
+> Cynthia/Builder Diddies wording below is archaeology.
 # Vapi managed SIP (Cynthia phone)
 
-Production phone AI path: Soho66 SIP ↔ Vapi (media) ↔ Builder Diddies webhooks ↔ Cynthia brain, tools, and memory.
+Production phone AI path: Soho66 SIP â†” Vapi (media) â†” Builder Diddies webhooks â†” Cynthia brain, tools, and memory.
 
 There is **no sip-bridge / local_realtime rollback**. Cynthia phone AI requires `VOICE_PROVIDER=vapi`.
 
@@ -10,11 +14,11 @@ Home NAT/UPnP + custom RTP pacing caused one-way/no-reply calls. Vapi hosts SIP 
 
 ## Setup
 
-1. Create a **Vapi EU** account → [dashboard.vapi.ai](https://dashboard.vapi.ai) (use EU org for UK numbers).
+1. Create a **Vapi EU** account â†’ [dashboard.vapi.ai](https://dashboard.vapi.ai) (use EU org for UK numbers).
 2. Copy the **Private API key** into `tradepro-backend/.env`:
 
 ```env
-VAPI_PRIVATE_KEY=••••
+VAPI_PRIVATE_KEY=â€¢â€¢â€¢â€¢
 VAPI_REGION=eu
 VAPI_WEBHOOK_BASE_URL=https://YOUR_PUBLIC_HTTPS_HOST
 VOICE_PROVIDER=vapi
@@ -48,22 +52,22 @@ POST /api/calls/outbound
 
 ## British voice (proven live path) + per-language map
 
-Live phone TTS is **ElevenLabs through Vapi** (`provider: '11labs'`). **English stays Lizzie** — not local STT/TTS or Chatterbox.
+Live phone TTS is **ElevenLabs through Vapi** (`provider: '11labs'`). **English stays Lizzie** â€” not local STT/TTS or Chatterbox.
 
 ```env
-ELEVENLABS_API_KEY=••••
+ELEVENLABS_API_KEY=â€¢â€¢â€¢â€¢
 VAPI_ELEVENLABS_VOICE_ID=EQx6HGDYjkDpcli6vorJ
 ELEVENLABS_VOICE_ID=EQx6HGDYjkDpcli6vorJ
 ELEVENLABS_MODEL_ID=eleven_turbo_v2_5
-# Optional non-English overrides only — never override en / Lizzie
-# VAPI_ELEVENLABS_VOICE_ID_ES=…  or  VAPI_ELEVENLABS_VOICE_MAP={"es":"…"}
+# Optional non-English overrides only â€” never override en / Lizzie
+# VAPI_ELEVENLABS_VOICE_ID_ES=â€¦  or  VAPI_ELEVENLABS_VOICE_MAP={"es":"â€¦"}
 ```
 
-Per-language defaults live in `server/phone-voices.ts` (es Aerisita, pl Aleksandra, ru Klava, uk Kira, zh Zicai, fa Laura, sq Veronica). Call start uses `getVapiVoiceConfigForLang`. Mid-call: `setCallLanguage` persists preference + best-effort voice PATCH. Identity is always **Cynthia**. See frontend `docs/VOICE_SETUP.md` + `APPLICATION_MASTER.md` §16.5.
+Per-language defaults live in `server/phone-voices.ts` (es Aerisita, pl Aleksandra, ru Klava, uk Kira, zh Zicai, fa Laura, sq Veronica). Call start uses `getVapiVoiceConfigForLang`. Mid-call: `setCallLanguage` persists preference + best-effort voice PATCH. Identity is always **Cynthia**. See frontend `docs/VOICE_SETUP.md` + `APPLICATION_MASTER.md` Â§16.5.
 
-Also paste the ElevenLabs key into Vapi dashboard → Integrations if required by your org.
+Also paste the ElevenLabs key into Vapi dashboard â†’ Integrations if required by your org.
 
-Retest baseline: outbound to staff mobile + PIN, then inbound from a second phone; English first reply must be Cockney Lizzie. Mid-call: ask for Spanish/Polish → must keep speaking (not list-and-stop); back to English → Lizzie.
+Retest baseline: outbound to staff mobile + PIN, then inbound from a second phone; English first reply must be Cockney Lizzie. Mid-call: ask for Spanish/Polish â†’ must keep speaking (not list-and-stop); back to English â†’ Lizzie.
 
 ## Soho66 REGISTER caveat
 
@@ -72,10 +76,10 @@ Some Soho66 accounts expect SIP REGISTER from a softphone/UA. Vapi BYO trunks of
 1. Keep your Soho66 DID
 2. Add a proper BYOC trunk (Telnyx / DIDLogic)
 3. Forward/port the Soho66 number, or migrate CLI
-4. Re-run setup against that trunk — **do not** use custom RTP / sip-bridge for AI
+4. Re-run setup against that trunk â€” **do not** use custom RTP / sip-bridge for AI
 
-**Inbound (production — no Force/Forward SIP URL required):**  
-Soho66 Routing Wizard → **Ring my IP phone**. A VPS Asterisk REGISTER bridge (`docker/soho66-vapi-bridge`) owns SIP user `1005090093` and bridges to Vapi. Keep VOIS/softphones logged out of that user (one REGISTER only). See frontend `docs/VOICE_SETUP.md` + `APPLICATION_MASTER.md` §16.9.
+**Inbound (production â€” no Force/Forward SIP URL required):**  
+Soho66 Routing Wizard â†’ **Ring my IP phone**. A VPS Asterisk REGISTER bridge (`docker/soho66-vapi-bridge`) owns SIP user `1005090093` and bridges to Vapi. Keep VOIS/softphones logged out of that user (one REGISTER only). See frontend `docs/VOICE_SETUP.md` + `APPLICATION_MASTER.md` Â§16.9.
 
 Optional alternate (if you ever use SIP-URL forward instead of the bridge):
 
@@ -101,6 +105,7 @@ Call Centre: `GET` / `PATCH` `/api/agent/transfer-numbers`. Env fallback: `VOICE
 
 `POST /webhooks/vapi` handles:
 
-- `assistant-request` → `buildPhoneBrainPrompt()` (Cynthia identity)
-- `tool-calls` → existing customer/phone tools (idempotent), including warm `transferToHuman` destinations
-- `transcript` / `end-of-call-report` → Call Centre + Cynthia customer threads
+- `assistant-request` â†’ `buildPhoneBrainPrompt()` (Cynthia identity)
+- `tool-calls` â†’ existing customer/phone tools (idempotent), including warm `transferToHuman` destinations
+- `transcript` / `end-of-call-report` â†’ Call Centre + Cynthia customer threads
+

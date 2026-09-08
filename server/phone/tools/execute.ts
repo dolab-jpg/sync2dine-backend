@@ -11,6 +11,7 @@ import {
   saveQuoteRecord,
   saveRecruitmentCandidate,
   saveRecruitmentInterview,
+  getCallById,
   syncData,
 } from '../../data-store';
 import type { CallIntent, OutboundCampaignTemplate } from '../../telephony/types';
@@ -34,6 +35,7 @@ import { resolveCallbackIso } from '../callback-time';
 import { firstString } from './util';
 import { captureOrUpdateLead, normalizeDialableE164, isStaffPartyPhone } from './leads';
 import { PHONE_TOOLS, PHONE_AUTO_ACTIONS } from './catalog';
+import { persistHireScorecard } from '../../sally/recruitment-interview';
 
 export async function executePhoneTool(
   name: string,
@@ -453,6 +455,48 @@ export async function executePhoneTool(
       notes: input.notes ?? '',
     });
     return { candidateId: candidate.id, name: candidate.name, saved: true };
+  }
+
+  if (name === 'scoreInterview') {
+    const callRow = callId ? getCallById(callId) : undefined;
+    const callMeta = (callRow?.metadata as Record<string, unknown> | undefined) || {};
+    const candidateId = String(input.candidateId || callMeta.candidateId || '').trim() || undefined;
+    const notes = String(input.notes || '');
+    const notInterested = /\bnot interested\b|\bdon'?t want (the )?role\b|\bno longer looking\b/i.test(notes);
+    const saved = persistHireScorecard({
+      hunger: Number(input.hunger),
+      salesProof: Number(input.salesProof),
+      restaurantFit: Number(input.restaurantFit),
+      outboundComfort: Number(input.outboundComfort),
+      cvHonesty: Number(input.cvHonesty),
+      overall: input.overall != null ? Number(input.overall) : undefined,
+      recommendation: notInterested ? 'no' : (String(input.recommendation || 'maybe') as 'hire' | 'maybe' | 'no'),
+      notes,
+      rightToWork: input.rightToWork != null ? String(input.rightToWork) : undefined,
+      notice: input.notice != null ? String(input.notice) : undefined,
+      salaryExpectation: input.salaryExpectation != null ? String(input.salaryExpectation) : undefined,
+      travelOk: input.travelOk != null ? String(input.travelOk) : undefined,
+      callId,
+      candidateId,
+      phone: callerPhone,
+      name: input.name != null ? String(input.name) : undefined,
+    });
+    if (callId) {
+      saveCall({
+        id: callId,
+        candidateId: saved.candidate.id,
+        intent: 'recruitment',
+        outcome: 'interview_scored',
+      });
+    }
+    return {
+      ok: true,
+      candidateId: saved.candidate.id,
+      overall: saved.candidate.hireScore,
+      recommendation: saved.candidate.hireRecommendation,
+      spokenHint: 'Score saved. Thank them and end the call — do not mention the numbers.',
+      doNotReadAloud: true,
+    };
   }
 
   if (name === 'bookInterview') {

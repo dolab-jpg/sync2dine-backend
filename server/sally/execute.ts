@@ -245,6 +245,20 @@ export async function executeSallyTool(
       billingInterval === 'annual'
         ? pkg.annualPrepayGbp
         : weeklyPrice;
+    const salesIntentRaw = String(args.salesIntent || args.intent || '').trim().toLowerCase();
+    const salesIntent =
+      salesIntentRaw === 'full_time' ||
+      salesIntentRaw === 'temporary_cover' ||
+      salesIntentRaw === 'sickness_cover' ||
+      salesIntentRaw === 'peak_overflow' ||
+      salesIntentRaw === 'after_hours'
+        ? (salesIntentRaw as
+            | 'full_time'
+            | 'temporary_cover'
+            | 'sickness_cover'
+            | 'peak_overflow'
+            | 'after_hours')
+        : undefined;
     const record: SallyTermsRecord = {
       confirmedAt: new Date().toISOString(),
       monthlyPriceGbp:
@@ -257,9 +271,10 @@ export async function executeSallyTool(
       billingInterval,
       overageAction,
       amountGbp,
+      ...(salesIntent ? { salesIntent } : {}),
       summary: String(
         args.notes ||
-          `Customer confirmed ${pkg.name}, ${billingInterval} £${amountGbp}, overageAction=${overageAction}, fare ${offer.fareScheduleVersion}`,
+          `Customer confirmed ${pkg.name}, ${billingInterval} £${amountGbp}, overageAction=${overageAction}${salesIntent ? `, intent=${salesIntent}` : ''}, fare ${offer.fareScheduleVersion}`,
       ).trim(),
     };
     writeTermsConfirmed(sessionKey, record, callId || undefined);
@@ -965,12 +980,18 @@ export async function executeSallyTool(
       };
     }
     try {
-      const { createCheckoutSessionForOrg } = await import('../stripe-service');
       const { getOrganizationById } = await import('../organizations');
       const org = getOrganizationById(organizationId);
       const toEmail = String(args.toEmail || signedContract.contactEmail || org?.contactEmail || '').trim();
       const toPhone = String(args.toPhone || partyPhone || signedContract.contactPhone || org?.contactPhone || '').trim();
       const quoteId = String(args.quoteId || '').trim();
+      const terms = readTermsConfirmed(sessionKey, callId || undefined);
+      const setupFeeGbp =
+        terms && Number.isFinite(Number(terms.setupFeeGbp)) && Number(terms.setupFeeGbp) > 0
+          ? Number(terms.setupFeeGbp)
+          : getSallyOfferTerms().setupFeeGbp > 0
+            ? getSallyOfferTerms().setupFeeGbp
+            : 0;
       const stripeInterval = signedContract.billingInterval === 'annual' ? ('year' as const) : ('week' as const);
       let lineItems: Array<{
         description: string;
@@ -982,6 +1003,7 @@ export async function executeSallyTool(
         interval: signedContract.billingInterval,
         useLaunch: signedContract.useLaunch,
         additionalSites: signedContract.additionalSites,
+        setupFeeGbp: setupFeeGbp > 0 ? setupFeeGbp : undefined,
       })
         .map((l) => ({
           description: l.description,
@@ -1005,6 +1027,7 @@ export async function executeSallyTool(
               interval: qInterval,
               useLaunch: getSallyOfferTerms().launchActive,
               additionalSites: Number(quote.additionalSites) || 0,
+              setupFeeGbp: setupFeeGbp > 0 ? setupFeeGbp : undefined,
             }).map((l) => ({
               description: l.description,
               unitAmountGbp: l.rate,
@@ -1016,7 +1039,24 @@ export async function executeSallyTool(
         }
       }
 
-      const url = await createCheckoutSessionForOrg(organizationId);
+      const { createPackageAwareCheckoutSession } = await import('../stripe-service');
+      const url = await createPackageAwareCheckoutSession({
+        orgId: organizationId,
+        packageId: signedContract.packageId,
+        billingInterval: signedContract.billingInterval,
+        useLaunch: signedContract.useLaunch,
+        setupFeeGbp: setupFeeGbp > 0 ? setupFeeGbp : undefined,
+        additionalSites: signedContract.additionalSites,
+        contractId: signedContract.id,
+        lines: lineItems.length ? lineItems : undefined,
+      });
+      // Persist package identity on the org so later legacy checkout / metering resolve correctly.
+      try {
+        const { updateOrganization } = await import('../organizations');
+        updateOrganization(organizationId, { saasPackageId: signedContract.packageId });
+      } catch {
+        /* non-fatal */
+      }
       const msg = [
         'Your Sync2Dine payment link is ready.',
         `Pay securely here: ${url}`,

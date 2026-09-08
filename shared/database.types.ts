@@ -36,6 +36,7 @@ export type Database = {
           whatsapp_phone_number_id: string | null
           phone_did: string | null
           notes: string | null
+          saas_package_id: string | null
           created_at: string
           updated_at: string
         }

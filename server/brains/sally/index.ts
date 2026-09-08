@@ -7,6 +7,11 @@ import { getPhoneSessionChatTools, VERIFY_PIN_TOOL } from '../../phone/phone-bra
 import { warmSallyKnowledgeCache } from '../../sally-product-kb/inject';
 import { debugLog } from '../../debug-session-log';
 import { SYNC2DINE_SPOKEN } from '../../home-org';
+import {
+  isSallyRecruitmentCall,
+  recruitmentFirstMessage,
+  lookupRecruitmentCandidateByPhone,
+} from '../../sally/recruitment-interview';
 
 function isStaffMode(input: BrainBuildInput): boolean {
   const { identity } = input;
@@ -33,15 +38,31 @@ export const sallyBrain: BrainPackage = {
     void warmSallyKnowledgeCache().catch(() => {});
 
     const meta = (input.callMeta && typeof input.callMeta === 'object')
-      ? input.callMeta
+      ? { ...input.callMeta }
       : {};
+    const inboundCandidate = input.direction === 'inbound'
+      ? lookupRecruitmentCandidateByPhone(input.partyPhone)
+      : { candidateId: null as string | null, candidateName: '', cvSummary: undefined as string | undefined };
+    const recruitment = isSallyRecruitmentCall(meta, {
+      campaignTemplate: input.campaignTemplate,
+      agentPersona: input.agentPersona,
+    }) || Boolean(inboundCandidate.candidateId);
+    if (inboundCandidate.candidateId) {
+      meta.aim = meta.aim || 'recruitment_interview';
+      meta.source = meta.source || 'recruitment_interview';
+      meta.candidateId = inboundCandidate.candidateId;
+      if (inboundCandidate.cvSummary && !meta.cvSummary) meta.cvSummary = inboundCandidate.cvSummary;
+    }
+    const contactName = (recruitment && inboundCandidate.candidateName && inboundCandidate.candidateName !== 'Guest')
+      ? inboundCandidate.candidateName
+      : (input.contactName || input.identity.name);
     const prompt = buildSallyBrainPrompt({
       partyPhone: input.partyPhone,
       direction: input.direction,
-      outboundBrief: input.outboundBrief,
-      contactName: input.contactName || input.identity.name,
+      outboundBrief: input.outboundBrief || (recruitment ? inboundCandidate.cvSummary : undefined),
+      contactName,
       companyHint: input.companyHint,
-      staffMode,
+      staffMode: staffMode && !recruitment,
       staffName: input.identity.name,
       staffRole: input.identity.role,
       phoneAuthVerified: input.verified,
@@ -59,9 +80,19 @@ export const sallyBrain: BrainPackage = {
       firstName
       && !/^guest$/i.test(firstName)
       && !/^(unknown|unknown caller|manager|owner|boss)$/i.test(firstName);
+    const recruitFirst = (recruitment && inboundCandidate.candidateName && inboundCandidate.candidateName !== 'Guest')
+      ? inboundCandidate.candidateName.split(/\s+/)[0]
+      : (input.contactName || String(meta.name || meta.contactName || firstName) || '').split(/\s+/)[0];
 
     let firstMessage: string;
-    if (staffMode) {
+    if (recruitment && !staffMode) {
+      const founderHay = `${meta.cvSummary || ''} ${meta.brief || ''} ${input.outboundBrief || ''}`.toLowerCase();
+      firstMessage = recruitmentFirstMessage({
+        firstName: recruitFirst,
+        direction: input.direction,
+        founderTest: founderHay.includes('founder test'),
+      });
+    } else if (staffMode) {
       // Cynthia-style staff call-in: same PIN-gated tools (inbox, compose/send email, CRM) on Sally.
       firstMessage = input.verified
         ? `Alright ${firstName || 'love'}, Sally here — staff tools are unlocked. I can brief your inbox, draft and send company emails, or pull CRM — what do you need?`
@@ -80,8 +111,10 @@ export const sallyBrain: BrainPackage = {
         : `Alright, Sally from ${SYNC2DINE_SPOKEN} — is the manager or owner about?`;
     }
 
-    const sallyTools = getSallyPhoneSessionChatTools();
-    const staffTools = staffMode ? getPhoneSessionChatTools(input.identity, input.verified) : [];
+    const sallyTools = getSallyPhoneSessionChatTools(meta);
+    const staffTools = staffMode && !recruitment
+      ? getPhoneSessionChatTools(input.identity, input.verified)
+      : [];
     const byName = new Map<string, ChatFunctionTool>();
     for (const t of [...sallyTools, ...staffTools]) {
       byName.set(t.function.name, t as ChatFunctionTool);

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Probe Sally web chat against a base URL (default local VPS 3011).
+ * Probe Sally web chat against a base URL (default live app).
  * Usage: node scripts/probe-sally-web.mjs [baseUrl]
  */
-const base = (process.argv[2] || 'http://127.0.0.1:3011').replace(/\/$/, '');
+const base = (process.argv[2] || 'https://app.sync2dine.io').replace(/\/$/, '');
 const body = {
   text: 'What does Sync2Dine Judie cost per week? Keep the answer short.',
   sessionId: `web_probe_${Date.now().toString(36)}`,
