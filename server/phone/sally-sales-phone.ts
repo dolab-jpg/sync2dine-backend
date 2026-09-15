@@ -238,6 +238,18 @@ const SALLY_PHONE_RUNTIME_PRIORITIES = [
   '6) DNC / clear not-interested → stop. Misunderstanding is not DNC.',
   '7) Phone close is meeting/callback/message — not web contract/checkout on a cold dial.',
 ].join('\n');
+
+/** Inbound: receptionist first, then become sales / hiring / messages from their ask. */
+export const SALLY_INBOUND_RECEPTION_PRIORITIES = [
+  'SALLY PHONE RUNTIME PRIORITIES (highest authority — override earlier conflicting tips):',
+  '1) Identity: you are Sally, the Sync2Dine receptionist who answered this inbound call. Own being AI if asked. Never pretend to be human.',
+  '2) Reception first: greet and ask how you can help. Do NOT ask for the manager, owner, or their business until they tell you why they rang.',
+  '3) Then become what they need: restaurant AI / Judie / Atmosphere / pricing → sales (ask for manager/owner only if they are buying and are not the buyer). Job / interview / Indeed / applying / CV → hiring screen, never a restaurant pitch. Asking for a person or leaving a message → captureMessage or bookCallback. Supplier / complaint / general → help or take a message.',
+  '4) Call classifyCallIntent once the reason is clear.',
+  '5) English: stay in simple UK English. Slow and short. Never switch language.',
+  '6) DNC / clear not-interested → stop. Misunderstanding is not DNC.',
+  '7) If they want sales, phone close is meeting/callback/message — not web contract/checkout on a cold inbound.',
+].join('\n');
 const GET_OFFER_TERMS_TOOL = {
   type: 'function' as const,
   function: {
@@ -592,10 +604,14 @@ export function buildSallyBrainPrompt(input: {
       ? '- THIS IS A T−30 MEETING CONFIRM CALL: Keep under 60 seconds. Confirm the 20-minute install/integration meeting. If they cancel, acknowledge. Do not re-pitch packages.'
       : input.direction === 'outbound'
         ? '- Outbound sales — work toward the trust-aware objective (often bookIntegrationMeeting when fit). Gatekeeper-first on venue main lines.'
-        : '- Inbound sales — work toward the trust-aware objective (often bookIntegrationMeeting when fit).',
+        : '- Inbound reception — answer as receptionist first; only switch into sales, hiring, or messages after they say why they called.',
     safeName
-      ? `- Contact name hint: ${safeName} — greet them by name if this is clearly the decision-maker; still ask for the manager/owner if they sound like a gatekeeper.`
-      : '- Contact name unknown — speak normally; never say Guest; do NOT push the answerer for their name; focus on reaching the manager/owner.',
+      ? (input.direction === 'inbound'
+        ? `- Contact name hint: ${safeName} — greet them by name. Do not ask for the manager/owner unless they want restaurant AI and are clearly not the buyer.`
+        : `- Contact name hint: ${safeName} — greet them by name if this is clearly the decision-maker; still ask for the manager/owner if they sound like a gatekeeper.`)
+      : (input.direction === 'inbound'
+        ? '- Contact name unknown — speak normally; never say Guest; do NOT push for their name; do NOT ask for the manager or owner until they want sales and are not the buyer.'
+        : '- Contact name unknown — speak normally; never say Guest; do NOT push the answerer for their name; focus on reaching the manager/owner.'),
     input.companyHint ? `- Company / restaurant hint: ${input.companyHint}` : '',
     `Caller phone: ${input.partyPhone}` +
       (onMobile
@@ -605,8 +621,14 @@ export function buildSallyBrainPrompt(input: {
       ? `- SALES BRIEF FOR THIS CALL (follow this): ${String(input.outboundBrief).slice(0, 900)}`
       : input.staffMode
         ? '- Help the staff/platform caller with tools; sales pitch only if they ask.'
-        : '- Pitch Sync2Dine from their pain; this call is the demo; then the trust-aware next step.',
-    input.staffMode ? '' : SALLY_PHONE_RUNTIME_PRIORITIES,
+        : input.direction === 'inbound'
+          ? '- Open as receptionist. Do not pitch until they ask about the product, a job, or a specific person.'
+          : '- Pitch Sync2Dine from their pain; this call is the demo; then the trust-aware next step.',
+    input.staffMode
+      ? ''
+      : input.direction === 'inbound'
+        ? SALLY_INBOUND_RECEPTION_PRIORITIES
+        : SALLY_PHONE_RUNTIME_PRIORITIES,
   ].filter(Boolean).join('\n');
 
   return { instructions, language: 'en' };

@@ -64,6 +64,41 @@ describe('Sally gatekeeper phone flow', () => {
     assert.deepEqual(tool!.function.parameters.required, ['phone']);
   });
 
+  it('inbound unknown-contact opener is receptionist, not manager/owner', async () => {
+    const session = await sallyBrain.buildSession({
+      partyPhone: '+441234567890',
+      direction: 'inbound',
+      identity: guestIdentity('+441234567890'),
+      verified: false,
+      contactName: '',
+    });
+    assert.match(session.firstMessage, /how can I help/i);
+    assert.doesNotMatch(session.firstMessage, /manager or owner/i);
+    assert.doesNotMatch(session.firstMessage, /business/i);
+  });
+
+  it('inbound prompt starts as receptionist then switches from their ask', () => {
+    const { instructions } = buildSallyBrainPrompt({
+      partyPhone: '+441234567890',
+      direction: 'inbound',
+      contactName: '',
+    });
+    assert.match(instructions, /receptionist first/i);
+    assert.match(instructions, /classifyCallIntent/);
+    assert.doesNotMatch(instructions, /Inbound sales — work toward/);
+    assert.doesNotMatch(instructions, /focus on reaching the manager\/owner/i);
+  });
+
+  it('inbound silence re-ask is receptionist, not manager-seeking', () => {
+    const hooks = buildSilenceHooks('sally', { inbound: true });
+    const reask = hooks.find((h) => h.name === 'silence_reask') as {
+      do?: Array<{ exact?: string }>;
+    };
+    const text = String(reask?.do?.[0]?.exact || '');
+    assert.match(text, /how can I help/i);
+    assert.doesNotMatch(text, /manager or owner/i);
+  });
+
   it('outbound unknown-contact opener asks for manager, not name', async () => {
     const session = await sallyBrain.buildSession({
       partyPhone: '+441234567890',

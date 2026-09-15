@@ -30,7 +30,7 @@ export type { SilencePersona };
 /** Shared dead-air ladder for every Vapi phone agent (check → re-ask → hang up). */
 export function buildSilenceHooks(
   persona: SilencePersona,
-  opts?: { omitHangup?: boolean; timeoutScale?: number; recruitment?: boolean },
+  opts?: { omitHangup?: boolean; timeoutScale?: number; recruitment?: boolean; inbound?: boolean },
 ): Array<Record<string, unknown>> {
   const scale = opts?.timeoutScale && opts.timeoutScale > 0 ? opts.timeoutScale : 1;
   const t = (seconds: number) => Math.max(8, Math.round(seconds * scale));
@@ -44,6 +44,16 @@ export function buildSilenceHooks(
           ],
           reask: 'Still there? Shall we finish the interview?',
           bye: "I'll leave it there — call this number back when you can finish the interview. Cheers!",
+        }
+      : persona === 'sally' && opts?.inbound
+      ? {
+          check: [
+            'You still with me?',
+            'You still there?',
+            'Can you still hear me?',
+          ],
+          reask: 'Still there? How can I help — sales, hiring, or shall I take a message?',
+          bye: `Alright, I'll let you go — ring ${SYNC2DINE_SPOKEN} when you're free. Cheers!`,
         }
       : persona === 'sally'
       ? {
@@ -346,7 +356,9 @@ export async function buildVapiAssistantForParty(opts: {
         ? { omitHangup: true, timeoutScale: 2.75 }
         : recruitment
           ? { recruitment: true }
-          : undefined,
+          : sally && opts.direction === 'inbound'
+            ? { inbound: true }
+            : undefined,
   );
 
   const assistant: Record<string, unknown> = {

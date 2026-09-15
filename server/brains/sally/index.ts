@@ -119,8 +119,8 @@ export const sallyBrain: BrainPackage = {
         : `Alright love, it's Sally from ${SYNC2DINE_SPOKEN} — is the manager or owner about?`;
     } else {
       firstMessage = usableFirst
-        ? `Alright ${firstName}, Sally from ${SYNC2DINE_SPOKEN} — what can I do you for?`
-        : `Alright, Sally from ${SYNC2DINE_SPOKEN} — is the manager or owner about?`;
+        ? `Alright ${firstName}, Sally from ${SYNC2DINE_SPOKEN} — how can I help?`
+        : `Alright, Sally from ${SYNC2DINE_SPOKEN} speaking — how can I help?`;
     }
 
     // Owner line: never the candidate toolset, even if the call row is tagged recruitment.
