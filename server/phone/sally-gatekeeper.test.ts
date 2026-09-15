@@ -7,13 +7,14 @@ import { existsSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { PhoneCallerIdentity } from './phone-auth.js';
-import { getDataStore, saveCustomerRecord, withOrgContext } from '../data-store.js';
-import { sallyBrain } from '../brains/sally/index.js';
+import { getDataStore, saveCall, saveCustomerRecord, saveRecruitmentCandidate, withOrgContext } from '../data-store.js';
+import { inboundReceptionFirstMessage, sallyBrain } from '../brains/sally/index.js';
 import { SALES_CAPTURE_LEAD_TOOL } from './tools/catalog.js';
 import {
   buildSallyBrainPrompt,
   getSallyPhoneSessionChatTools,
 } from './sally-sales-phone.js';
+import { SYNC2DINE_SPOKEN } from '../home-org.js';
 import { buildSilenceHooks } from './vapi-assistant.js';
 import {
   mapEndedReasonToDisposition,
@@ -72,9 +73,88 @@ describe('Sally gatekeeper phone flow', () => {
       verified: false,
       contactName: '',
     });
-    assert.match(session.firstMessage, /how can I help/i);
+    assert.equal(session.firstMessage, inboundReceptionFirstMessage());
+    assert.equal(session.firstMessage, `Alright, Sally from ${SYNC2DINE_SPOKEN} — how can I help?`);
     assert.doesNotMatch(session.firstMessage, /manager or owner/i);
     assert.doesNotMatch(session.firstMessage, /business/i);
+  });
+
+  it('unknown inbound has both sales and hiring tools', async () => {
+    const session = await sallyBrain.buildSession({
+      partyPhone: '+441234567890',
+      direction: 'inbound',
+      identity: guestIdentity('+441234567890'),
+      verified: false,
+      contactName: '',
+    });
+    const names = session.chatTools.map((t) => t.function.name);
+    assert.ok(names.includes('bookIntegrationMeeting'));
+    assert.ok(names.includes('scoreInterview'));
+  });
+
+  it('candidate inbound keeps CV/name in facts and uses the help greet', async () => {
+    const phone = '+447700900555';
+    const session = await run(() => {
+      saveRecruitmentCandidate({
+        id: 'cand-inbound-return',
+        name: 'Priya Patel',
+        phone,
+        desiredRole: 'Restaurant sales (Sync2Dine)',
+        cvSummary: 'Restaurant sales closer, 120 percent of target at ACME',
+      });
+      return sallyBrain.buildSession({
+        partyPhone: phone,
+        direction: 'inbound',
+        identity: guestIdentity(phone),
+        verified: false,
+        contactName: '',
+      });
+    });
+    assert.equal(session.firstMessage, inboundReceptionFirstMessage());
+    assert.doesNotMatch(session.firstMessage, /sales role/i);
+    assert.doesNotMatch(session.firstMessage, /ringing back/i);
+    assert.match(session.instructions, /RETURN CALL FACTS/i);
+    assert.match(session.instructions, /Priya Patel/);
+    assert.match(session.instructions, /120 percent of target/);
+    const names = session.chatTools.map((t) => t.function.name);
+    assert.ok(names.includes('bookIntegrationMeeting'));
+    assert.ok(names.includes('scoreInterview'));
+  });
+
+  it('last outbound recruitment_interview to that CLI appears in inbound facts', () => {
+    const phone = '+447700900666';
+    const { instructions } = run(() => {
+      saveCall({
+        id: 'call-out-recruit-inbound-facts',
+        direction: 'outbound',
+        to: phone,
+        from: '+442037453233',
+        createdAt: new Date().toISOString(),
+        campaignTemplate: 'recruitment_interview',
+        metadata: {
+          aim: 'recruitment_interview',
+          brief: 'Phone screen for restaurant sales',
+        },
+      });
+      return buildSallyBrainPrompt({
+        partyPhone: phone,
+        direction: 'inbound',
+        contactName: '',
+      });
+    });
+    assert.match(instructions, /RETURN CALL FACTS/i);
+    assert.match(instructions, /recruitment_interview/);
+    assert.match(instructions, /Phone screen for restaurant sales/);
+  });
+
+  it('inbound prompt forbids auto-callback on receptionist no', () => {
+    const { instructions } = buildSallyBrainPrompt({
+      partyPhone: '+441234567890',
+      direction: 'inbound',
+      contactName: '',
+    });
+    assert.match(instructions, /NEVER auto bookCallback/i);
+    assert.match(instructions, /no. to the manager or owner/i);
   });
 
   it('inbound prompt starts as receptionist then switches from their ask', () => {

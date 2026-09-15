@@ -226,8 +226,6 @@ export async function buildVapiAssistantForParty(opts: {
         id: opts.callId,
         contactName: stamped.contactName || contactName,
         candidateId: stamped.candidateId,
-        campaignTemplate: 'recruitment_interview',
-        intent: 'recruitment',
         metadata: callMeta,
       });
     }

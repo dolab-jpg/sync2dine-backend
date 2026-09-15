@@ -284,9 +284,7 @@ export function applyInboundCandidateRecruitmentMeta(
   return {
     meta: {
       ...callMeta,
-      aim: RECRUITMENT_AIM,
-      source: RECRUITMENT_SOURCE,
-      campaignTemplate: RECRUITMENT_TEMPLATE,
+      // Facts only — do not lock this inbound onto recruitment_interview (that strips sales tools).
       candidateId: hit.candidateId,
       contactName: contactName || callMeta.contactName,
       brief: hit.cvSummary || hit.brief || callMeta.brief,
@@ -514,6 +512,36 @@ export function setHiringDirective(patch: {
   }
   updateAgentSettings(next as Parameters<typeof updateAgentSettings>[0]);
   return getHiringDirective();
+}
+
+export type InboundDirective = {
+  instruction: string;
+  updatedAt?: string;
+};
+
+/** Owner-trainable inbound reception note — does not replace the standard how-can-I-help greet. */
+export function getInboundDirective(): InboundDirective {
+  const settings = getAgentSettings();
+  return {
+    instruction: String(settings.inboundInstruction || '').trim(),
+    updatedAt: settings.inboundDirectiveUpdatedAt,
+  };
+}
+
+export function setInboundDirective(patch: {
+  instruction?: string;
+  clearInstruction?: boolean;
+}): InboundDirective {
+  const next: Record<string, unknown> = {
+    inboundDirectiveUpdatedAt: new Date().toISOString(),
+  };
+  if (patch.clearInstruction) {
+    next.inboundInstruction = '';
+  } else if (patch.instruction != null && String(patch.instruction).trim()) {
+    next.inboundInstruction = String(patch.instruction).trim().slice(0, 400);
+  }
+  updateAgentSettings(next as Parameters<typeof updateAgentSettings>[0]);
+  return getInboundDirective();
 }
 
 /** The founder's mobile — this line is owner ops on Sally, never a candidate interview. */

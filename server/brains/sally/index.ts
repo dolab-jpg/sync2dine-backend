@@ -13,7 +13,6 @@ import {
   isHiringOwnerPhone,
   isSallyRecruitmentCall,
   recruitmentFirstMessage,
-  lookupRecruitmentCandidateByPhone,
 } from '../../sally/recruitment-interview';
 
 function isStaffMode(input: BrainBuildInput): boolean {
@@ -23,6 +22,11 @@ function isStaffMode(input: BrainBuildInput): boolean {
     || identity.kind === 'foreman'
     || /platform_owner|super_admin/i.test(identity.role)
   );
+}
+
+/** Every inbound except owner mobile uses this receptionist open. */
+export function inboundReceptionFirstMessage(): string {
+  return `Alright, Sally from ${SYNC2DINE_SPOKEN} — how can I help?`;
 }
 
 export const sallyBrain: BrainPackage = {
@@ -46,26 +50,15 @@ export const sallyBrain: BrainPackage = {
     const meta = (input.callMeta && typeof input.callMeta === 'object')
       ? { ...input.callMeta }
       : {};
-    const inboundCandidate = (input.direction === 'inbound' && !ownerHiringOps)
-      ? lookupRecruitmentCandidateByPhone(input.partyPhone)
-      : { candidateId: null as string | null, candidateName: '', cvSummary: undefined as string | undefined };
-    const recruitment = !ownerHiringOps && (isSallyRecruitmentCall(meta, {
+    const recruitment = !ownerHiringOps && isSallyRecruitmentCall(meta, {
       campaignTemplate: input.campaignTemplate,
       agentPersona: input.agentPersona,
-    }) || Boolean(inboundCandidate.candidateId));
-    if (inboundCandidate.candidateId) {
-      meta.aim = meta.aim || 'recruitment_interview';
-      meta.source = meta.source || 'recruitment_interview';
-      meta.candidateId = inboundCandidate.candidateId;
-      if (inboundCandidate.cvSummary && !meta.cvSummary) meta.cvSummary = inboundCandidate.cvSummary;
-    }
-    const contactName = (recruitment && inboundCandidate.candidateName && inboundCandidate.candidateName !== 'Guest')
-      ? inboundCandidate.candidateName
-      : (input.contactName || input.identity.name);
+    });
+    const contactName = input.contactName || input.identity.name;
     const prompt = buildSallyBrainPrompt({
       partyPhone: input.partyPhone,
       direction: input.direction,
-      outboundBrief: input.outboundBrief || (recruitment ? inboundCandidate.cvSummary : undefined),
+      outboundBrief: input.outboundBrief,
       contactName,
       companyHint: input.companyHint,
       staffMode: staffMode && !recruitment,
@@ -87,20 +80,11 @@ export const sallyBrain: BrainPackage = {
       firstName
       && !/^guest$/i.test(firstName)
       && !/^(unknown|unknown caller|manager|owner|boss)$/i.test(firstName);
-    const recruitFirst = (recruitment && inboundCandidate.candidateName && inboundCandidate.candidateName !== 'Guest')
-      ? inboundCandidate.candidateName.split(/\s+/)[0]
-      : (input.contactName || String(meta.name || meta.contactName || firstName) || '').split(/\s+/)[0];
+    const recruitFirst = (input.contactName || String(meta.name || meta.contactName || firstName) || '')
+      .split(/\s+/)[0];
 
     let firstMessage: string;
-    if (recruitment && !staffMode) {
-      const founderHay = `${meta.cvSummary || ''} ${meta.brief || ''} ${input.outboundBrief || ''}`.toLowerCase();
-      firstMessage = recruitmentFirstMessage({
-        firstName: recruitFirst,
-        direction: input.direction,
-        founderTest: founderHay.includes('founder test'),
-        arrangeInterviewOnly: isArrangeInterviewCall(meta),
-      });
-    } else if (ownerHiringOps) {
+    if (ownerHiringOps) {
       firstMessage = input.verified
         ? `Alright ${firstName || 'boss'}, Sally here — you're unlocked. What do you want me to change on the hiring, or who shall I ring?`
         : `Alright ${firstName || 'boss'}, Sally here. Tell me what you need on the hiring — say your four-digit code when you want me pulling up candidate notes.`;
@@ -109,6 +93,14 @@ export const sallyBrain: BrainPackage = {
       firstMessage = input.verified
         ? `Alright ${firstName || 'love'}, Sally here — staff tools are unlocked. I can brief your inbox, draft and send company emails, or pull CRM — what do you need?`
         : `Alright ${firstName || 'love'}, Sally here for staff. Say your four-digit security code and I'll unlock inbox, emails, and CRM like Cynthia does.`;
+    } else if (input.direction === 'outbound' && recruitment) {
+      const founderHay = `${meta.cvSummary || ''} ${meta.brief || ''} ${input.outboundBrief || ''}`.toLowerCase();
+      firstMessage = recruitmentFirstMessage({
+        firstName: recruitFirst,
+        direction: 'outbound',
+        founderTest: founderHay.includes('founder test'),
+        arrangeInterviewOnly: isArrangeInterviewCall(meta),
+      });
     } else if (input.direction === 'outbound' && isReferral) {
       firstMessage = referrerName
         ? `Alright love, it's Sally from ${SYNC2DINE_SPOKEN} — ${referrerName} on the main line asked me to give you a ring. Got a minute?`
@@ -118,13 +110,14 @@ export const sallyBrain: BrainPackage = {
         ? `Alright ${firstName}, it's Sally from ${SYNC2DINE_SPOKEN} — you got a minute?`
         : `Alright love, it's Sally from ${SYNC2DINE_SPOKEN} — is the manager or owner about?`;
     } else {
-      firstMessage = usableFirst
-        ? `Alright ${firstName}, Sally from ${SYNC2DINE_SPOKEN} — how can I help?`
-        : `Alright, Sally from ${SYNC2DINE_SPOKEN} speaking — how can I help?`;
+      firstMessage = inboundReceptionFirstMessage();
     }
 
     // Owner line: never the candidate toolset, even if the call row is tagged recruitment.
-    const sallyTools = getSallyPhoneSessionChatTools(ownerHiringOps ? null : meta);
+    const sallyTools = getSallyPhoneSessionChatTools(
+      ownerHiringOps ? null : meta,
+      { inbound: input.direction === 'inbound' && !ownerHiringOps },
+    );
     const staffTools = staffMode && !recruitment
       ? getPhoneSessionChatTools(input.identity, input.verified)
       : [];

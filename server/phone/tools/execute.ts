@@ -38,10 +38,12 @@ import { captureOrUpdateLead, normalizeDialableE164, isStaffPartyPhone } from '.
 import { PHONE_TOOLS, PHONE_AUTO_ACTIONS } from './catalog';
 import {
   getHiringDirective,
+  getInboundDirective,
   isHiringOwnerPhone,
   persistHireScorecard,
   queueFaceToFaceArrangement,
   setHiringDirective,
+  setInboundDirective,
 } from '../../sally/recruitment-interview';
 
 export async function executePhoneTool(
@@ -566,13 +568,26 @@ export async function executePhoneTool(
       clearInstruction: input.clearInstruction === true,
       updatedBy: `owner ${String(callerPhone || '')}`.trim(),
     });
+    const inboundTouched = input.inboundInstruction != null || input.clearInboundInstruction === true;
+    const inbound = inboundTouched
+      ? setInboundDirective({
+          instruction: input.inboundInstruction != null ? String(input.inboundInstruction) : undefined,
+          clearInstruction: input.clearInboundInstruction === true,
+        })
+      : getInboundDirective();
+    const inboundBit = inbound.instruction
+      ? ` Inbound line note: ${inbound.instruction}.`
+      : inboundTouched
+        ? ' Inbound line note cleared.'
+        : '';
     return {
       ok: true,
       instruction: directive.instruction,
       interviewLocation: directive.interviewLocation,
+      inboundInstruction: inbound.instruction,
       spokenHint: directive.instruction
-        ? `Saved. From now on: ${directive.instruction}. Face-to-faces at ${directive.interviewLocation}. Read that back and check it is right.`
-        : `Saved. No standing instruction now, face-to-faces at ${directive.interviewLocation}.`,
+        ? `Saved. From now on: ${directive.instruction}. Face-to-faces at ${directive.interviewLocation}.${inboundBit} Read that back and check it is right.`
+        : `Saved. No standing instruction now, face-to-faces at ${directive.interviewLocation}.${inboundBit}`,
     };
   }
 

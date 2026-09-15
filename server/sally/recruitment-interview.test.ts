@@ -128,6 +128,16 @@ describe('hiring prompt and tools', () => {
     assert.ok(names.includes('bookIntegrationMeeting'));
   });
 
+  it('unknown inbound tools include bookIntegrationMeeting and scoreInterview', () => {
+    const names = getSallyPhoneSessionChatTools({}, { inbound: true }).map((t) => t.function.name);
+    assert.ok(names.includes('bookIntegrationMeeting'));
+    assert.ok(names.includes('scoreInterview'));
+    const tagged = getSallyPhoneSessionChatTools({ aim: 'recruitment_interview' }, { inbound: true })
+      .map((t) => t.function.name);
+    assert.ok(tagged.includes('bookIntegrationMeeting'));
+    assert.ok(tagged.includes('scoreInterview'));
+  });
+
   it('recruitment prompt never asks for manager or captureLead', () => {
     const { instructions } = buildSallyBrainPrompt({
       partyPhone: '+447484722571',

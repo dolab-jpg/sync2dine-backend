@@ -222,6 +222,10 @@ async function handlePatchSettings(req: IncomingMessage, res: ServerResponse) {
   }
   if (typeof body.deliveryNotes === 'string') patch.deliveryNotes = body.deliveryNotes;
   if (typeof body.orderingEnabled === 'boolean') patch.orderingEnabled = body.orderingEnabled;
+  if (typeof body.inboundInstruction === 'string') {
+    patch.inboundInstruction = body.inboundInstruction.trim().slice(0, 400);
+    patch.inboundDirectiveUpdatedAt = new Date().toISOString();
+  }
   if (body.minOrderGbp != null && Number.isFinite(Number(body.minOrderGbp))) {
     patch.minOrderGbp = Math.max(0, Math.round(Number(body.minOrderGbp) * 100) / 100);
   }

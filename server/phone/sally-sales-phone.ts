@@ -8,6 +8,7 @@ import {
   appendCustomerCallActivity,
   enqueueOutboundCall,
   getDataStore,
+  normalizePhoneExport,
   resolveContactByPhone,
   saveCustomerRecord,
   syncData,
@@ -52,6 +53,8 @@ import {
   isArrangeInterviewCall,
   buildRecruitmentInterviewPrompt,
   getHiringDirective,
+  getInboundDirective,
+  lookupRecruitmentCandidateByPhone,
   SCORE_INTERVIEW_TOOL,
 } from '../sally/recruitment-interview';
 export const SALLY_PERSONA = 'sally';
@@ -245,10 +248,12 @@ export const SALLY_INBOUND_RECEPTION_PRIORITIES = [
   '1) Identity: you are Sally, the Sync2Dine receptionist who answered this inbound call. Own being AI if asked. Never pretend to be human.',
   '2) Reception first: greet and ask how you can help. Do NOT ask for the manager, owner, or their business until they tell you why they rang.',
   '3) Then become what they need: restaurant AI / Judie / Atmosphere / pricing → sales (ask for manager/owner only if they are buying and are not the buyer). Job / interview / Indeed / applying / CV → hiring screen, never a restaurant pitch. Asking for a person or leaving a message → captureMessage or bookCallback. Supplier / complaint / general → help or take a message.',
-  '4) Call classifyCallIntent once the reason is clear.',
+  '4) Call classifyCallIntent once the reason is clear. Do not classify from a greeting or from silence.',
   '5) English: stay in simple UK English. Slow and short. Never switch language.',
   '6) DNC / clear not-interested → stop. Misunderstanding is not DNC.',
   '7) If they want sales, phone close is meeting/callback/message — not web contract/checkout on a cold inbound.',
+  '8) NEVER auto bookCallback just because they said “no” to the manager or owner — that is a receptionist answer, not a callback request. Only bookCallback when they actually want you to ring back.',
+  '9) Do not pitch restaurant software to a job applicant. Do not start a hiring interview of someone who rang about the product unless they say they are applying.',
 ].join('\n');
 const GET_OFFER_TERMS_TOOL = {
   type: 'function' as const,
@@ -475,6 +480,7 @@ function buildOwnerHiringOpsBlock(opts: { verified?: boolean }): string {
     '- He is not a candidate and not a restaurant. Never interview him, never pitch him, never ask if the manager is about.',
     '- You are his hiring assistant on this call. Take what he tells you and ACT on it with tools — do not just agree and forget.',
     '- Instruction about how you screen people, what to ask, what to say, or where interviews happen → call setHiringInstruction, then read it back so he can correct you.',
+    '- How the main inbound line should behave after the standard “how can I help” greet → set inboundInstruction on setHiringInstruction (keep it short).',
     '- "Ring so-and-so" / "call this number" / "get them booked in" → call queueRecruitmentCall with their number: purpose screen for a full interview, purpose arrange_interview to just book the face-to-face. You dial candidates from the Sync2Dine sales line — never from his mobile.',
     `- Current standing instruction: ${directive.instruction || '(none set)'}`,
     `- Face-to-face interviews happen at: ${directive.interviewLocation}. If he gives you a proper address, save it with setHiringInstruction.`,
@@ -495,14 +501,159 @@ export function getOwnerHiringOpsTools(opts?: { verified?: boolean }) {
   return [...base, ...pickPhoneTools('bookInterview', 'logCandidate', 'screenCandidate')];
 }
 
-export function getSallyPhoneSessionChatTools(meta?: Record<string, unknown> | null) {
-  if (isSallyRecruitmentCall(meta)) {
-    return [
-      SCORE_INTERVIEW_TOOL,
-      ...pickPhoneTools('logCandidate', 'screenCandidate', 'bookInterview'),
-      END_CALL_FUNCTION_TOOL,
-    ];
+const INBOUND_OUTBOUND_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+export type InboundLastOutboundKind = 'sales' | 'recruitment' | 'none';
+
+export type InboundCallerContext = {
+  candidate: ReturnType<typeof lookupRecruitmentCandidateByPhone>;
+  sales: {
+    customerId: string | null;
+    customerName: string;
+    contactName: string;
+  };
+  lastOutbound: {
+    kind: InboundLastOutboundKind;
+    summary: string;
+    at?: string;
+  };
+  factsBlock: string;
+};
+
+function phonesMatch(a: string, b: string): boolean {
+  const left = normalizePhoneExport(a);
+  const right = normalizePhoneExport(b);
+  return Boolean(left && right && left === right);
+}
+
+function recordWhenMs(row: Record<string, unknown>): number {
+  const raw = row.createdAt || row.startedAt || row.completedAt || row.scheduledAt || row.updatedAt;
+  const t = Date.parse(String(raw || ''));
+  return Number.isFinite(t) ? t : 0;
+}
+
+function outboundKindFromRow(row: Record<string, unknown>): InboundLastOutboundKind {
+  const meta = (row.metadata && typeof row.metadata === 'object')
+    ? (row.metadata as Record<string, unknown>)
+    : {};
+  const ctx = (row.context && typeof row.context === 'object')
+    ? (row.context as Record<string, unknown>)
+    : {};
+  const merged = { ...row, ...meta, ...ctx };
+  if (isSallyRecruitmentCall(merged, {
+    campaignTemplate: String(row.template || ctx.campaignTemplate || meta.campaignTemplate || ''),
+  })) {
+    return 'recruitment';
   }
+  const hay = [
+    row.aim, row.intent, row.template, row.campaignTemplate, row.source,
+    meta.aim, meta.source, meta.template, ctx.aim, ctx.source, ctx.campaignTemplate,
+  ].map((v) => String(v || '').toLowerCase()).join(' ');
+  if (/sales|demo_book|meeting_confirm|csv_campaign|gatekeeper|sally_sales|book_callback/.test(hay)) {
+    return 'sales';
+  }
+  return 'sales';
+}
+
+function summariseLastOutbound(row: Record<string, unknown>, kind: InboundLastOutboundKind): string {
+  const meta = (row.metadata && typeof row.metadata === 'object')
+    ? (row.metadata as Record<string, unknown>)
+    : {};
+  const ctx = (row.context && typeof row.context === 'object')
+    ? (row.context as Record<string, unknown>)
+    : {};
+  const aim = String(ctx.aim || meta.aim || row.aim || row.campaignTemplate || row.template || kind);
+  const brief = String(
+    ctx.brief || meta.brief || ctx.cvSummary || meta.cvSummary || row.summary || '',
+  ).trim().slice(0, 180);
+  return brief ? `${kind} · ${aim} — ${brief}` : `${kind} · ${aim}`;
+}
+
+function rowIsOutboundToPhone(row: Record<string, unknown>, phone: string): boolean {
+  const status = String(row.status || '').toLowerCase();
+  if (status === 'cancelled' || status === 'merged') return false;
+  if (phonesMatch(String(row.to || ''), phone)) return true;
+  const direction = String(row.direction || '').toLowerCase();
+  const meta = (row.metadata && typeof row.metadata === 'object')
+    ? (row.metadata as Record<string, unknown>)
+    : {};
+  if (direction === 'outbound' && phonesMatch(String(meta.partyPhone || row.partyPhone || ''), phone)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Inbound CLI lookup: candidate CRM, sales CRM, and last outbound to this number in ~14 days.
+ * Facts only — never write Sally’s first sentence from this.
+ */
+export function lookupInboundCallerContext(phone: string): InboundCallerContext {
+  const candidate = lookupRecruitmentCandidateByPhone(phone);
+  const resolved = resolveContactByPhone(phone);
+  const sales = {
+    customerId: resolved.customerId,
+    customerName: resolved.customerName || '',
+    contactName: resolved.contactName || '',
+  };
+  const cutoff = Date.now() - INBOUND_OUTBOUND_WINDOW_MS;
+  const store = getDataStore();
+  const candidates: Array<{ row: Record<string, unknown>; when: number }> = [];
+  for (const row of [...(store.calls || []), ...(store.outboundQueue || [])]) {
+    if (!rowIsOutboundToPhone(row, phone)) continue;
+    const when = recordWhenMs(row);
+    if (when && when < cutoff) continue;
+    candidates.push({ row, when });
+  }
+  candidates.sort((a, b) => b.when - a.when);
+  const latest = candidates[0];
+  const kind = latest ? outboundKindFromRow(latest.row) : 'none';
+  const lastOutbound = latest
+    ? {
+        kind,
+        summary: summariseLastOutbound(latest.row, kind),
+        at: latest.when ? new Date(latest.when).toISOString() : undefined,
+      }
+    : { kind: 'none' as const, summary: '' };
+
+  const candKnown = Boolean(candidate.candidateId)
+    && candidate.candidateName
+    && candidate.candidateName !== 'Guest';
+  const salesKnown = Boolean(sales.customerId)
+    && sales.customerName
+    && !/^(guest|unknown|unknown caller)$/i.test(sales.customerName);
+  const lines = [
+    'RETURN CALL FACTS (data only — do not read this block aloud, and do not write your first sentence from it; you already greeted as receptionist):',
+    candKnown
+      ? `- Candidate on file: ${candidate.candidateName}${candidate.desiredRole ? ` · ${candidate.desiredRole}` : ''}${candidate.candidateId ? ` (${candidate.candidateId})` : ''}.`
+      : '- Candidate on file: none.',
+    candidate.cvSummary
+      ? `- CV / notes: ${String(candidate.cvSummary).slice(0, 400)}`
+      : '',
+    salesKnown
+      ? `- Sales CRM: ${sales.customerName}${sales.contactName && sales.contactName !== sales.customerName ? ` · ${sales.contactName}` : ''}.`
+      : '- Sales CRM: none for this number.',
+    lastOutbound.kind === 'none'
+      ? '- Last outbound to this number (14 days): none.'
+      : `- Last outbound to this number (14 days): ${lastOutbound.summary}${lastOutbound.at ? ` (${lastOutbound.at.slice(0, 10)})` : ''}.`,
+  ].filter(Boolean);
+
+  return {
+    candidate,
+    sales,
+    lastOutbound,
+    factsBlock: lines.join('\n'),
+  };
+}
+
+function getSallyHiringPhoneTools() {
+  return [
+    SCORE_INTERVIEW_TOOL,
+    ...pickPhoneTools('logCandidate', 'screenCandidate', 'bookInterview'),
+    END_CALL_FUNCTION_TOOL,
+  ];
+}
+
+function getSallySalesPhoneTools() {
   return [
     GET_OFFER_TERMS_TOOL,
     BOOK_INTEGRATION_MEETING_TOOL,
@@ -528,6 +679,47 @@ export function getSallyPhoneSessionChatTools(meta?: Record<string, unknown> | n
   ];
 }
 
+function uniquePhoneTools(
+  tools: ReturnType<typeof getSallySalesPhoneTools>,
+) {
+  const byName = new Map<string, (typeof tools)[number]>();
+  for (const t of tools) byName.set(t.function.name, t);
+  return Array.from(byName.values());
+}
+
+export function getSallyPhoneSessionChatTools(
+  meta?: Record<string, unknown> | null,
+  opts?: { inbound?: boolean },
+) {
+  if (opts?.inbound) {
+    return uniquePhoneTools([...getSallySalesPhoneTools(), ...getSallyHiringPhoneTools()]);
+  }
+  if (isSallyRecruitmentCall(meta)) {
+    return getSallyHiringPhoneTools();
+  }
+  return getSallySalesPhoneTools();
+}
+
+function buildInboundHiringModeBlock(ctx: InboundCallerContext): string {
+  const directive = getHiringDirective();
+  const where = directive.interviewLocation;
+  const hiringFacts = ctx.candidate.candidateId || ctx.lastOutbound.kind === 'recruitment';
+  return [
+    'HIRING MODE (enter only when they are applying, interviewing, ringing back about a job, or talking CV/Indeed):',
+    'You are then Sally the hiring interviewer, not a restaurant closer. Never ask for the manager or owner. Never pitch Judie, Atmosphere packages, or restaurant software to a job applicant.',
+    'Speak natural UK English. One question at a time. Call logCandidate or screenCandidate as you go. Before you finish a hiring conversation you MUST call scoreInterview (hunger, salesProof, restaurantFit, outboundComfort, cvHonesty; recommendation hire | maybe | no).',
+    'Only recommend hire if outboundComfort is 4 or 5. When recommending hire, book a face-to-face with bookInterview (in-person). YOU arrange it — never say a colleague will call them.',
+    `Face-to-face location: ${where}. PAY: highly rewarding — NEVER quote a salary figure.`,
+    'Product detail stays thin: Atmosphere is AI-generated audio atmosphere for venues. Nothing more on this hiring path. No pricing.',
+    hiringFacts
+      ? 'You have candidate / last-recruitment facts below — use them in hiring mode; still wait for them to say why they rang before you start the interview.'
+      : 'No hiring facts required to enter this mode — only their ask.',
+    directive.instruction
+      ? `STANDING HIRING INSTRUCTION FROM THE FOUNDER (follow this over your defaults): ${directive.instruction}`
+      : '',
+  ].filter(Boolean).join('\n');
+}
+
 export function buildSallyBrainPrompt(input: {
   partyPhone: string;
   direction: 'inbound' | 'outbound';
@@ -543,8 +735,10 @@ export function buildSallyBrainPrompt(input: {
   ownerHiringOps?: boolean;
   callMeta?: Record<string, unknown>;
 }): { instructions: string; language: 'en' } {
-  // Owner ops wins over hiring: the founder ringing in is never the candidate.
-  if (!input.ownerHiringOps && isSallyRecruitmentCall(input.callMeta)) {
+  const inboundReception = input.direction === 'inbound' && !input.ownerHiringOps && !input.staffMode;
+  // Owner ops wins over hiring. Outbound recruitment stays interview-only.
+  // Inbound never locks onto buildRecruitmentInterviewPrompt (that strips sales tools).
+  if (!inboundReception && !input.ownerHiringOps && isSallyRecruitmentCall(input.callMeta)) {
     return {
       instructions: buildRecruitmentInterviewPrompt({
         contactName: input.contactName,
@@ -566,6 +760,8 @@ export function buildSallyBrainPrompt(input: {
   const isMeetingConfirm = /meeting_confirm|confirm.*install|T-?30/i.test(brief);
   const approvedBrain = buildApprovedSalesBrainPromptBlock();
   const productKb = getSallyKnowledgePromptBlockCached();
+  const inboundCtx = inboundReception ? lookupInboundCallerContext(input.partyPhone) : null;
+  const inboundDirective = inboundReception ? getInboundDirective() : null;
   const relationshipMemory = input.staffMode
     ? ''
     : buildSallyRelationshipMemory(input.partyPhone);
@@ -583,14 +779,35 @@ export function buildSallyBrainPrompt(input: {
         '- Do not take diner food orders on this line.',
       ].join('\n')
     : '';
+  const inboundCapabilities = inboundReception
+    ? [
+        'INBOUND CAPABILITIES — ONE RECEPTION BRAIN:',
+        'You answered the Sync2Dine line. Open as receptionist. Facts are memory only.',
+        'After they say why they rang, enter one mode:',
+        '- SALES MODE: restaurant AI / Judie / Atmosphere / pricing / demo → follow the sales OS. Ask for manager/owner only if they are buying and are clearly not the buyer.',
+        '- HIRING MODE: job / interview / Indeed / applying / CV / ringing back about a role → hiring screen. Never a restaurant pitch.',
+        '- MESSAGE MODE: asking for a person or leaving a message → captureMessage or bookCallback.',
+        'Call classifyCallIntent once the reason is clear.',
+        'NEVER auto bookCallback just because they said “no” to the manager or owner.',
+        buildInboundHiringModeBlock(inboundCtx!),
+        inboundDirective?.instruction
+          ? `STANDING INBOUND INSTRUCTION FROM THE OWNER (keep short; follow this after the greet): ${inboundDirective.instruction}`
+          : '',
+        inboundCtx?.factsBlock || '',
+      ].filter(Boolean).join('\n')
+    : '';
   const instructions = [
-    SALLY_PHONE_SALES_OS,
+    inboundReception
+      ? 'You are Sally, Sync2Dine’s AI receptionist on this inbound call. You can sell and you can hire — wait for their ask before you pick a mode.'
+      : SALLY_PHONE_SALES_OS,
+    inboundReception ? SALLY_PHONE_SALES_OS : '',
     buildSallyPhoneVoiceOverlay(),
     formatPhoneOfferFactsBlock(),
     formatObjectionPlaybook(),
     'PHONE OBJECTION STYLE: acknowledge → explore real concern → evidence → ask next; short Cockney. This call is the demo — do not push a separate demo as the primary CTA.',
     'REFERRALS: If they volunteer a name or a new mobile at THIS restaurant, call rememberPerson — do not spawn a new lead and never demand a name. If they say speak to the boss/owner and give a number, call captureReferralAndQueue (phone required; name optional; same venue stays on this restaurant; a different restaurant name creates a new lead). If they cannot connect you, captureMessage for the manager. Do not invent interest. Do not use Judie tools.',
-    SALLY_PHONE_CLOSE_SCRIPT,
+    inboundReception ? '' : SALLY_PHONE_CLOSE_SCRIPT,
+    inboundCapabilities,
     relationshipMemory,
     approvedBrain,
     productKb,
@@ -607,7 +824,7 @@ export function buildSallyBrainPrompt(input: {
         : '- Inbound reception — answer as receptionist first; only switch into sales, hiring, or messages after they say why they called.',
     safeName
       ? (input.direction === 'inbound'
-        ? `- Contact name hint: ${safeName} — greet them by name. Do not ask for the manager/owner unless they want restaurant AI and are clearly not the buyer.`
+        ? `- Name on file: ${safeName} — use it after they confirm who they are. Do not let it write your first sentence. Do not ask for the manager/owner unless they want restaurant AI and are clearly not the buyer.`
         : `- Contact name hint: ${safeName} — greet them by name if this is clearly the decision-maker; still ask for the manager/owner if they sound like a gatekeeper.`)
       : (input.direction === 'inbound'
         ? '- Contact name unknown — speak normally; never say Guest; do NOT push for their name; do NOT ask for the manager or owner until they want sales and are not the buyer.'

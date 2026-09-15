@@ -259,6 +259,9 @@ export interface AgentSettings {
   /** Audit for the hiring directive (who changed it on the owner line, and when) */
   hiringDirectiveUpdatedAt?: string;
   hiringDirectiveUpdatedBy?: string;
+  /** Short owner-trainable inbound reception note (after the standard how-can-I-help greet) */
+  inboundInstruction?: string;
+  inboundDirectiveUpdatedAt?: string;
   updatedAt: string;
 }
 

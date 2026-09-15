@@ -282,7 +282,13 @@ export const PHONE_TOOLS = [
             type: 'string',
             description: 'Where candidates come in, e.g. "our Woking office, 12 High Street"',
           },
-          clearInstruction: { type: 'boolean', description: 'True to wipe the standing instruction' },
+          inboundInstruction: {
+            type: 'string',
+            description:
+              'Short note for how Sally handles the main inbound line after “how can I help” (keep under a few sentences)',
+          },
+          clearInstruction: { type: 'boolean', description: 'True to wipe the standing hiring instruction' },
+          clearInboundInstruction: { type: 'boolean', description: 'True to wipe the inbound reception note' },
         },
       },
     },
