@@ -119,6 +119,64 @@ export function buildSilenceHooks(
 const SALLY_DEFAULT_VOICEMAIL =
   `Hi, it's Sally from ${SYNC2DINE_SPOKEN}. We help restaurants answer the phone with AI that takes orders. I'll try you again soon — reply to this number when you're free. Thanks!`;
 
+/** Snappy turn-taking for all Sally (sales + hiring). Env can override wait/speed. */
+export const SALLY_REPLY_SPEED = {
+  waitSecondsDefault: 0.38,
+  onPunctuationSeconds: 0.25,
+  onNoPunctuationSeconds: 0.9,
+  onNumberSeconds: 0.4,
+  eotWaitFunction: '20 + 400 * sqrt(x) + 1800 * x^3',
+  stopNumWords: 3,
+  stopVoiceSeconds: 0.3,
+  stopBackoffSeconds: 0.8,
+  voiceSpeedDefault: 1.08,
+  optimizeStreamingLatency: 4,
+  stability: 0.32,
+  style: 0.55,
+  similarityBoost: 0.85,
+} as const;
+
+export function sallyStartSpeakingPlan(): {
+  waitSeconds: number;
+  smartEndpointingPlan: { provider: string; waitFunction: string };
+  transcriptionEndpointingPlan: {
+    onPunctuationSeconds: number;
+    onNoPunctuationSeconds: number;
+    onNumberSeconds: number;
+  };
+} {
+  return {
+    waitSeconds: Number(process.env.VAPI_SALLY_WAIT_SECONDS || SALLY_REPLY_SPEED.waitSecondsDefault),
+    smartEndpointingPlan: {
+      provider: 'livekit',
+      waitFunction: process.env.VAPI_SALLY_EOT_WAIT_FUNCTION?.trim()
+        || SALLY_REPLY_SPEED.eotWaitFunction,
+    },
+    transcriptionEndpointingPlan: {
+      onPunctuationSeconds: SALLY_REPLY_SPEED.onPunctuationSeconds,
+      onNoPunctuationSeconds: SALLY_REPLY_SPEED.onNoPunctuationSeconds,
+      onNumberSeconds: SALLY_REPLY_SPEED.onNumberSeconds,
+    },
+  };
+}
+
+export function sallyStopSpeakingPlan(): {
+  numWords: number;
+  voiceSeconds: number;
+  backoffSeconds: number;
+} {
+  return {
+    numWords: SALLY_REPLY_SPEED.stopNumWords,
+    voiceSeconds: SALLY_REPLY_SPEED.stopVoiceSeconds,
+    backoffSeconds: SALLY_REPLY_SPEED.stopBackoffSeconds,
+  };
+}
+
+export function sallyVoiceSpeed(): number {
+  const n = Number(process.env.VAPI_SALLY_VOICE_SPEED || SALLY_REPLY_SPEED.voiceSpeedDefault);
+  return Number.isFinite(n) && n > 0 ? n : SALLY_REPLY_SPEED.voiceSpeedDefault;
+}
+
 export async function buildVapiAssistantForParty(opts: {
   partyPhone: string;
   direction: 'inbound' | 'outbound';
@@ -233,7 +291,14 @@ export async function buildVapiAssistantForParty(opts: {
 
   const baseVoice = getVapiVoiceConfigForLang(language) as Record<string, unknown>;
   const voiceTuned = sally
-    ? { ...baseVoice, stability: 0.28, style: 0.55, similarityBoost: 0.85 }
+    ? {
+        ...baseVoice,
+        stability: SALLY_REPLY_SPEED.stability,
+        style: SALLY_REPLY_SPEED.style,
+        similarityBoost: SALLY_REPLY_SPEED.similarityBoost,
+        speed: sallyVoiceSpeed(),
+        optimizeStreamingLatency: SALLY_REPLY_SPEED.optimizeStreamingLatency,
+      }
     : baseVoice;
   // Spoken brand fix: TTS mangles the written brand ("Sync2Dime" / "Sing2Dine" /
   // "Cinque Dying"). Map written forms to the phonetic "Sync to Dine" before TTS.
@@ -321,25 +386,9 @@ export async function buildVapiAssistantForParty(opts: {
             // Wait long enough for typical UK greetings before speaking the drop.
             beepMaxAwaitSeconds: 30,
           },
-          // Conservative turn-taking for takeaway main-line noise / loudspeaker.
-          startSpeakingPlan: {
-            waitSeconds: Number(process.env.VAPI_SALLY_WAIT_SECONDS || 0.55),
-            smartEndpointingPlan: {
-              provider: 'livekit',
-              waitFunction: process.env.VAPI_SALLY_EOT_WAIT_FUNCTION?.trim()
-                || '30 + 500 * sqrt(x) + 2200 * x^3',
-            },
-            transcriptionEndpointingPlan: {
-              onPunctuationSeconds: 0.35,
-              onNoPunctuationSeconds: 1.2,
-              onNumberSeconds: 0.5,
-            },
-          },
-          stopSpeakingPlan: {
-            numWords: 3,
-            voiceSeconds: 0.3,
-            backoffSeconds: 1.0,
-          },
+          // Snappy turn-taking for all Sally (sales + hiring). Override via VAPI_SALLY_WAIT_SECONDS.
+          startSpeakingPlan: sallyStartSpeakingPlan(),
+          stopSpeakingPlan: sallyStopSpeakingPlan(),
         }
       : {
           // Faster turn-taking for diner Judie (was relying on Vapi defaults → multi-second dead air).
