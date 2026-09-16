@@ -52,6 +52,7 @@ import { startSalesBrainWorker } from './sales-brain/worker';
 import { handleSallyKnowledgeRoutes } from './sally-product-kb/routes';
 import { startSallyKnowledgeWorker } from './sally-product-kb/worker';
 import { warmSallyKnowledgeCache } from './sally-product-kb/inject';
+import { handleSync2GearIngestRoutes } from './sync2gear-ingest';
 import { assertJwtSecretForBoot } from './jwt-secret';
 
 assertJwtSecretForBoot();
@@ -99,6 +100,8 @@ const server = createServer(async (req, res) => {
     if (await handleSalesBrainRoutes(req, res, pathname)) return;
 
     if (await handleSallyKnowledgeRoutes(req, res, pathname)) return;
+
+    if (await handleSync2GearIngestRoutes(req, res, pathname)) return;
 
     if (await handleConversationAudit(req, res, pathname)) return;
 
