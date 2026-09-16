@@ -199,6 +199,23 @@ describe('sync2gear ingest', () => {
     });
   });
 
+  it('accepts leadId + nested callback.at aliases', async () => {
+    await runWithRequestOrgContext(async () => {
+      setRequestOrgId('4fc49703-d1b0-4ac7-892d-9c32d31e9661');
+      const { req, res } = authedReq({
+        leadId: 'lead-alias-1',
+        businessName: 'Alias Venue',
+        phone: '07700900444',
+        callback: { at: new Date(Date.now() + 3600_000).toISOString(), reason: 'revisit' },
+      });
+      const handled = await handleSync2GearIngestRoutes(req, res, '/api/integrations/sync2gear/ingest');
+      assert.ok(handled);
+      assert.equal(res._status, 200);
+      const body = parsed(res);
+      assert.ok(body.customerId);
+    });
+  });
+
   it('ignores unrelated paths', async () => {
     const req = fakeReq('GET', '');
     const res = fakeRes();

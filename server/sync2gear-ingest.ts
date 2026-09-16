@@ -159,7 +159,17 @@ export async function handleSync2GearIngestRoutes(
 
   let data: Sync2GearIngestBody;
   try {
-    data = JSON.parse(rawBody) as Sync2GearIngestBody;
+    const raw = JSON.parse(rawBody) as Sync2GearIngestBody & {
+      leadId?: string
+      callback?: { at?: string; reason?: string }
+    }
+    const nestedAt = raw.callback && typeof raw.callback === 'object' ? raw.callback.at : undefined
+    data = {
+      ...raw,
+      sync2gearLeadId: raw.sync2gearLeadId || raw.leadId || '',
+      callbackAt: raw.callbackAt ?? nestedAt ?? null,
+      brief: raw.brief || raw.callback?.reason || undefined,
+    }
   } catch {
     sendJson(res, 400, { error: 'invalid_json' });
     return true;
