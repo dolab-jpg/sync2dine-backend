@@ -13,7 +13,7 @@ import {
 } from './call-recording-store';
 import { SALLY_PERSONA } from './sally-sales-phone';
 
-const DEFAULT_TO = 'dolab@dolab.me';
+const DEFAULT_TO = 'dolab@dolab.me, info@sync2gear.com';
 const DEFAULT_FROM = 'info@sync2gear.com';
 /** Gmail caps a message at 25 MB after base64 (~33% overhead). */
 const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
