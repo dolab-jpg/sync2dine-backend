@@ -89,6 +89,74 @@ async function loadRecording(callId: string): Promise<{
   };
 }
 
+export function buildSallyInboundReportEmail(
+  call: Record<string, unknown>,
+  summaryIn: string,
+  recording: { attachment?: OpsEmailAttachment; link?: string; note?: string },
+): { subject: string; text: string; html: string } {
+  const meta = (call.metadata as Record<string, unknown> | undefined) || {};
+  const caller = String(meta.partyPhone || call.from || 'unknown number');
+  const name = String(call.contactName || '').trim();
+  const callerLabel = name ? `${name} (${caller})` : caller;
+  const summary = summaryIn.trim() || 'No summary was generated for this call.';
+
+  const turns = Array.isArray(call.transcript)
+    ? (call.transcript as Array<{ role?: string; content?: string }>)
+      .map((t) => ({ who: speakerLabel(String(t.role || '')), text: String(t.content ?? '').trim() }))
+      .filter((t) => t.text)
+    : [];
+  const transcriptText = turns.length
+    ? turns.map((t) => `${t.who}: ${t.text}`).join('\n')
+    : (flattenCallTranscript(call.transcript) || 'No transcript was captured.');
+
+  const facts: Array<[string, string]> = [
+    ['Caller', callerLabel],
+    ['Line called', String(meta.lineDid || call.to || 'Sally line')],
+    ['Started', formatLondon(call.startedAt)],
+    ['Duration', formatDuration(call.durationSec)],
+    ['Outcome', String(call.outcome || meta.disposition || meta.vapiEndedReason || 'unknown')],
+  ];
+
+  const text = [
+    `Inbound call to Sally from ${callerLabel}`,
+    '',
+    ...facts.map(([k, v]) => `${k}: ${v}`),
+    '',
+    'SUMMARY',
+    summary,
+    '',
+    'RECORDING',
+    recording.attachment ? 'Attached to this email.' : (recording.note || ''),
+    recording.link ? `Link (valid 7 days): ${recording.link}` : '',
+    '',
+    'TRANSCRIPT',
+    transcriptText,
+  ].filter((line, i, arr) => line !== '' || arr[i - 1] !== '').join('\n');
+
+  const html = `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#111;max-width:680px">
+<h2 style="margin:0 0 12px">Inbound call to Sally</h2>
+<table style="border-collapse:collapse;margin-bottom:16px">${facts.map(([k, v]) => (
+    `<tr><td style="padding:3px 12px 3px 0;color:#555">${escapeHtml(k)}</td><td style="padding:3px 0"><b>${escapeHtml(v)}</b></td></tr>`
+  )).join('')}</table>
+<h3 style="margin:16px 0 6px">Summary</h3>
+<p style="white-space:pre-wrap;margin:0">${escapeHtml(summary)}</p>
+<h3 style="margin:16px 0 6px">Recording</h3>
+<p style="margin:0">${recording.attachment ? 'Attached to this email.' : escapeHtml(recording.note || '')}${
+    recording.link ? ` <a href="${escapeHtml(recording.link)}">Listen online</a> (link valid 7 days).` : ''
+  }</p>
+<h3 style="margin:16px 0 6px">Transcript</h3>
+${turns.length
+    ? turns.map((t) => `<p style="margin:0 0 8px"><b>${escapeHtml(t.who)}:</b> ${escapeHtml(t.text)}</p>`).join('\n')
+    : `<p style="white-space:pre-wrap">${escapeHtml(transcriptText)}</p>`}
+</body></html>`;
+
+  return {
+    subject: `Sally inbound call — ${callerLabel} (${formatDuration(call.durationSec)})`,
+    text,
+    html,
+  };
+}
+
 /** Never throws. Sends at most once per call. */
 export async function emailSallyInboundCallReport(opts: {
   callId: string;
@@ -106,71 +174,14 @@ export async function emailSallyInboundCallReport(opts: {
   try {
     if (opts.recordingIngest) await opts.recordingIngest.catch(() => undefined);
 
-    const call = getCallById(callId) || initial!;
-    const meta = (call.metadata as Record<string, unknown> | undefined) || {};
-    const caller = String(meta.partyPhone || call.from || 'unknown number');
-    const name = String(call.contactName || '').trim();
-    const callerLabel = name ? `${name} (${caller})` : caller;
-    const summary = opts.summary.trim() || 'No summary was generated for this call.';
-
-    const turns = Array.isArray(call.transcript)
-      ? (call.transcript as Array<{ role?: string; content?: string }>)
-        .map((t) => ({ who: speakerLabel(String(t.role || '')), text: String(t.content ?? '').trim() }))
-        .filter((t) => t.text)
-      : [];
-    const transcriptText = turns.length
-      ? turns.map((t) => `${t.who}: ${t.text}`).join('\n')
-      : (flattenCallTranscript(call.transcript) || 'No transcript was captured.');
-
+    const call = (getCallById(callId) || initial!) as unknown as Record<string, unknown>;
     const recording = await loadRecording(callId);
-
-    const facts: Array<[string, string]> = [
-      ['Caller', callerLabel],
-      ['Line called', String(meta.lineDid || call.to || 'Sally line')],
-      ['Started', formatLondon(call.startedAt)],
-      ['Duration', formatDuration(call.durationSec)],
-      ['Outcome', String(call.outcome || meta.disposition || meta.vapiEndedReason || 'unknown')],
-    ];
-
-    const text = [
-      `Inbound call to Sally from ${callerLabel}`,
-      '',
-      ...facts.map(([k, v]) => `${k}: ${v}`),
-      '',
-      'SUMMARY',
-      summary,
-      '',
-      'RECORDING',
-      recording.attachment ? 'Attached to this email.' : (recording.note || ''),
-      recording.link ? `Link (valid 7 days): ${recording.link}` : '',
-      '',
-      'TRANSCRIPT',
-      transcriptText,
-    ].filter((line, i, arr) => line !== '' || arr[i - 1] !== '').join('\n');
-
-    const html = `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#111;max-width:680px">
-<h2 style="margin:0 0 12px">Inbound call to Sally</h2>
-<table style="border-collapse:collapse;margin-bottom:16px">${facts.map(([k, v]) => (
-      `<tr><td style="padding:3px 12px 3px 0;color:#555">${escapeHtml(k)}</td><td style="padding:3px 0"><b>${escapeHtml(v)}</b></td></tr>`
-    )).join('')}</table>
-<h3 style="margin:16px 0 6px">Summary</h3>
-<p style="white-space:pre-wrap;margin:0">${escapeHtml(summary)}</p>
-<h3 style="margin:16px 0 6px">Recording</h3>
-<p style="margin:0">${recording.attachment ? 'Attached to this email.' : escapeHtml(recording.note || '')}${
-      recording.link ? ` <a href="${escapeHtml(recording.link)}">Listen online</a> (link valid 7 days).` : ''
-    }</p>
-<h3 style="margin:16px 0 6px">Transcript</h3>
-${turns.length
-      ? turns.map((t) => `<p style="margin:0 0 8px"><b>${escapeHtml(t.who)}:</b> ${escapeHtml(t.text)}</p>`).join('\n')
-      : `<p style="white-space:pre-wrap">${escapeHtml(transcriptText)}</p>`}
-</body></html>`;
+    const email = buildSallyInboundReportEmail(call, opts.summary, recording);
 
     const result = await sendOpsAlertEmail({
       to: process.env.SALLY_INBOUND_REPORT_TO?.trim() || DEFAULT_TO,
       fromEmail: process.env.SALLY_INBOUND_REPORT_FROM?.trim() || DEFAULT_FROM,
-      subject: `Sally inbound call — ${callerLabel} (${formatDuration(call.durationSec)})`,
-      text,
-      html,
+      ...email,
       attachments: recording.attachment ? [recording.attachment] : undefined,
     });
 
