@@ -74,6 +74,10 @@ Vapi webhook ? phone/vapi-routes
   ? tool-calls ? executeSallySalesPhoneTool / phone tools
 ```
 
+## Inbound call email report
+
+Every inbound call on the Sally line (`linePurpose: sally` or persona `sally`) is emailed after the Vapi `end-of-call-report` (not `hang`) by `server/phone/sally-inbound-email.ts`: summary, call facts, full transcript, recording attached (≤18 MB, else a 7-day signed link). Sent via the connected Gmail mailbox `SALLY_INBOUND_REPORT_FROM` (default `info@sync2gear.com`) to `SALLY_INBOUND_REPORT_TO` (default `dolab@dolab.me`). Once per call — stamped `metadata.sallyInboundReportEmailedAt`.
+
 ## CRM / Call Centre outbound (live, 2026-08)
 
 Staff **Start calling this list** on `/crm` is Sally outbound, not Judie. It POSTs `/api/campaigns/queue-crm` with `{ allCrm: true, template: 'sally_sales', remapLeeds: false }`.

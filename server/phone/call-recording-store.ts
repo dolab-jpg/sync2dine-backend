@@ -84,7 +84,7 @@ export function repairWavHeader(buffer: Buffer): { buffer: Buffer; repaired: boo
   return { buffer, repaired: false };
 }
 
-async function downloadAudio(url: string): Promise<{ buffer: Buffer; contentType: string } | null> {
+export async function downloadAudio(url: string): Promise<{ buffer: Buffer; contentType: string } | null> {
   const headers: Record<string, string> = { Accept: 'audio/*,*/*' };
   const vapiKey = getVapiPrivateKey();
   // Private HIPAA R2 object URLs need Vapi Bearer; presigned URLs usually do not.

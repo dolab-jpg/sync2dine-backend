@@ -16,7 +16,20 @@ export type OpsEmailResult = {
   from?: string;
 };
 
-function resolveOpsGmailConnection(): MailboxConnection | null {
+export type OpsEmailAttachment = {
+  filename: string;
+  content: Buffer | Uint8Array;
+  contentType?: string;
+};
+
+function resolveOpsGmailConnection(fromEmail?: string): MailboxConnection | null {
+  const google = listActiveConnections().filter((c) => c.provider === 'google');
+  const explicitFrom = fromEmail?.trim().toLowerCase();
+  if (explicitFrom) {
+    const match = google.find((c) => c.emailAddress.toLowerCase() === explicitFrom);
+    if (match) return match;
+  }
+
   const preferredId = process.env.OPS_GMAIL_CONNECTION_ID?.trim();
   if (preferredId) {
     const byId = getConnection(preferredId);
@@ -29,7 +42,6 @@ function resolveOpsGmailConnection(): MailboxConnection | null {
     || ''
   ).toLowerCase();
 
-  const google = listActiveConnections().filter((c) => c.provider === 'google');
   if (preferredEmail) {
     const match = google.find((c) => c.emailAddress.toLowerCase() === preferredEmail);
     if (match) return match;
@@ -41,6 +53,8 @@ async function sendViaGmailOAuth(opts: {
   to: string;
   subject: string;
   text: string;
+  html?: string;
+  attachments?: OpsEmailAttachment[];
   conn: MailboxConnection;
 }): Promise<OpsEmailResult> {
   let nodemailer: typeof import('nodemailer');
@@ -73,6 +87,12 @@ async function sendViaGmailOAuth(opts: {
     to: opts.to,
     subject: opts.subject,
     text: opts.text,
+    html: opts.html,
+    attachments: opts.attachments?.map((a) => ({
+      filename: a.filename,
+      content: Buffer.from(a.content),
+      contentType: a.contentType,
+    })),
   });
 
   return {
@@ -88,11 +108,15 @@ export async function sendOpsAlertEmail(opts: {
   to: string;
   subject: string;
   text: string;
+  html?: string;
+  attachments?: OpsEmailAttachment[];
+  /** Connected Google mailbox to send from; falls back to the default ops mailbox. */
+  fromEmail?: string;
 }): Promise<OpsEmailResult> {
   const to = opts.to.trim();
   if (!to) return { ok: false, error: 'no_recipient' };
 
-  const conn = resolveOpsGmailConnection();
+  const conn = resolveOpsGmailConnection(opts.fromEmail);
   if (conn) {
     try {
       return await sendViaGmailOAuth({ ...opts, to, conn });

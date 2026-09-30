@@ -690,7 +690,7 @@ function finalizeVapiCall(
 
   const finalProviderUrl = monoRecordingUrl || stereoRecordingUrl || recordingUrl;
   void backfillCallRecordingOnFinalize(callId, finalProviderUrl, phoneOrgId());
-  void ingestCallRecording({
+  const recordingIngest = ingestCallRecording({
     callId,
     orgId: phoneOrgId(),
     urls: {
@@ -699,6 +699,13 @@ function finalizeVapiCall(
     },
     messageOrCall: message,
   });
+
+  // `hang` fires before the recording/summary exist; only the end-of-call report is complete.
+  if (String(message.type || '') !== 'hang') {
+    void import('./sally-inbound-email').then(({ emailSallyInboundCallReport }) => (
+      emailSallyInboundCallReport({ callId, summary, recordingIngest })
+    )).catch(() => {});
+  }
 
   void import('../analytics-routes').then(({ pushAnalyticsEvent }) => {
     pushAnalyticsEvent({
