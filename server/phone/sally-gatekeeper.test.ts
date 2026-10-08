@@ -14,7 +14,7 @@ import {
   buildSallyBrainPrompt,
   getSallyPhoneSessionChatTools,
 } from './sally-sales-phone.js';
-import { SYNC2DINE_SPOKEN } from '../home-org.js';
+import { SALLY_EMPLOYER_SPOKEN } from '../sally/brand.js';
 import { buildSilenceHooks } from './vapi-assistant.js';
 import {
   mapEndedReasonToDisposition,
@@ -74,7 +74,7 @@ describe('Sally gatekeeper phone flow', () => {
       contactName: '',
     });
     assert.equal(session.firstMessage, inboundReceptionFirstMessage());
-    assert.equal(session.firstMessage, `Alright, Sally from ${SYNC2DINE_SPOKEN} — how can I help?`);
+    assert.equal(session.firstMessage, `Alright, Sally from ${SALLY_EMPLOYER_SPOKEN} — how can I help?`);
     assert.doesNotMatch(session.firstMessage, /manager or owner/i);
     assert.doesNotMatch(session.firstMessage, /business/i);
   });
@@ -163,7 +163,7 @@ describe('Sally gatekeeper phone flow', () => {
       direction: 'inbound',
       contactName: '',
     });
-    assert.match(instructions, /receptionist first/i);
+    assert.match(instructions, /receptionist first|company reception|Company phone first/i);
     assert.match(instructions, /classifyCallIntent/);
     assert.doesNotMatch(instructions, /Inbound sales — work toward/);
     assert.doesNotMatch(instructions, /focus on reaching the manager\/owner/i);

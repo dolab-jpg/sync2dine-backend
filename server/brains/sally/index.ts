@@ -7,7 +7,10 @@ import {
 import { getPhoneSessionChatTools, VERIFY_PIN_TOOL } from '../../phone/phone-brain';
 import { warmSallyKnowledgeCache } from '../../sally-product-kb/inject';
 import { debugLog } from '../../debug-session-log';
-import { SYNC2DINE_SPOKEN } from '../../home-org';
+import {
+  SALLY_EMPLOYER,
+  SALLY_EMPLOYER_SPOKEN,
+} from '../../sally/brand';
 import {
   isArrangeInterviewCall,
   isHiringOwnerPhone,
@@ -24,9 +27,9 @@ function isStaffMode(input: BrainBuildInput): boolean {
   );
 }
 
-/** Every inbound except owner mobile uses this receptionist open. */
+/** Every inbound except owner mobile uses this company-phone receptionist open. */
 export function inboundReceptionFirstMessage(): string {
-  return `Alright, Sally from ${SYNC2DINE_SPOKEN} — how can I help?`;
+  return `Alright, Sally from ${SALLY_EMPLOYER_SPOKEN} — how can I help?`;
 }
 
 export const sallyBrain: BrainPackage = {
@@ -85,9 +88,10 @@ export const sallyBrain: BrainPackage = {
 
     let firstMessage: string;
     if (ownerHiringOps) {
+      // Founder ops — not hiring-first greet.
       firstMessage = input.verified
-        ? `Alright ${firstName || 'boss'}, Sally here — you're unlocked. What do you want me to change on the hiring, or who shall I ring?`
-        : `Alright ${firstName || 'boss'}, Sally here. Tell me what you need on the hiring — say your four-digit code when you want me pulling up candidate notes.`;
+        ? `Alright ${firstName || 'boss'}, Sally here — you're unlocked. What do you need — ops, a callback, or shall I pull something up?`
+        : `Alright ${firstName || 'boss'}, Sally here on the ${SALLY_EMPLOYER_SPOKEN} line. What do you need — say your four-digit code when you want notes or CRM.`;
     } else if (staffMode) {
       // Cynthia-style staff call-in: same PIN-gated tools (inbox, compose/send email, CRM) on Sally.
       firstMessage = input.verified
@@ -103,12 +107,12 @@ export const sallyBrain: BrainPackage = {
       });
     } else if (input.direction === 'outbound' && isReferral) {
       firstMessage = referrerName
-        ? `Alright love, it's Sally from ${SYNC2DINE_SPOKEN} — ${referrerName} on the main line asked me to give you a ring. Got a minute?`
-        : `Alright love, it's Sally from ${SYNC2DINE_SPOKEN} — your colleague on the main line asked me to give you a ring. Got a minute?`;
+        ? `Alright love, it's Sally from ${SALLY_EMPLOYER_SPOKEN} — ${referrerName} on the main line asked me to give you a ring. Got a minute?`
+        : `Alright love, it's Sally from ${SALLY_EMPLOYER_SPOKEN} — your colleague on the main line asked me to give you a ring. Got a minute?`;
     } else if (input.direction === 'outbound') {
       firstMessage = usableFirst
-        ? `Alright ${firstName}, it's Sally from ${SYNC2DINE_SPOKEN} — you got a minute?`
-        : `Alright love, it's Sally from ${SYNC2DINE_SPOKEN} — is the manager or owner about?`;
+        ? `Alright ${firstName}, it's Sally from ${SALLY_EMPLOYER_SPOKEN} — you got a minute?`
+        : `Alright love, it's Sally from ${SALLY_EMPLOYER_SPOKEN} — is the manager or owner about?`;
     } else {
       firstMessage = inboundReceptionFirstMessage();
     }
@@ -144,7 +148,9 @@ export const sallyBrain: BrainPackage = {
       instructions: prompt.instructions,
       language: prompt.language,
       firstMessage,
-      assistantName: staffMode ? `Sally Sync2Dine (${input.identity.role})` : 'Sally Sync2Dine',
+      assistantName: staffMode
+        ? `Sally ${SALLY_EMPLOYER} (${input.identity.role})`
+        : `Sally ${SALLY_EMPLOYER}`,
       chatTools,
       allowTransfer: false,
     };

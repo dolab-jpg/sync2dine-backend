@@ -21,11 +21,33 @@ import {
 } from '../sally/recruitment-interview';
 import { buildBrainSession, type SilencePersona } from '../brains/index';
 import { CYNTHIA_PERSONA } from '../brains/cynthia/branding';
-import { getHomeOrgId, SYNC2DINE_SPOKEN } from '../home-org';
+import { getHomeOrgId } from '../home-org';
+import {
+  SALLY_EMPLOYER_SPOKEN,
+  SALLY_EMPLOYER_TTS,
+  SALLY_PRODUCT_SYNC2DINE_SPOKEN,
+  SALLY_PRODUCT_SYNC2DINE_TTS,
+} from '../sally/brand';
 import { buildVapiModelBlock } from './vapi-llm-model';
 import { debugLog } from '../debug-session-log';
 
 export type { SilencePersona };
+
+/** Persona-gated TTS brand maps — Sync2Gear keys only when Sally. */
+export function buildVoiceBrandReplacements(sally: boolean): Array<{ type: 'exact'; key: string; value: string }> {
+  const sync2dine = [
+    { type: 'exact' as const, key: 'Sync2Dine', value: SALLY_PRODUCT_SYNC2DINE_TTS },
+    { type: 'exact' as const, key: 'sync Two dine', value: SALLY_PRODUCT_SYNC2DINE_TTS },
+    { type: 'exact' as const, key: SALLY_PRODUCT_SYNC2DINE_SPOKEN, value: SALLY_PRODUCT_SYNC2DINE_TTS },
+  ];
+  if (!sally) return sync2dine;
+  return [
+    ...sync2dine,
+    { type: 'exact' as const, key: 'Sync2Gear', value: SALLY_EMPLOYER_TTS },
+    { type: 'exact' as const, key: 'sync Two gear', value: SALLY_EMPLOYER_TTS },
+    { type: 'exact' as const, key: SALLY_EMPLOYER_SPOKEN, value: SALLY_EMPLOYER_TTS },
+  ];
+}
 
 /** Shared dead-air ladder for every Vapi phone agent (check → re-ask → hang up). */
 export function buildSilenceHooks(
@@ -52,8 +74,8 @@ export function buildSilenceHooks(
             'You still there?',
             'Can you still hear me?',
           ],
-          reask: 'Still there? How can I help — sales, hiring, or shall I take a message?',
-          bye: `Alright, I'll let you go — ring ${SYNC2DINE_SPOKEN} when you're free. Cheers!`,
+          reask: 'Still there? How can I help — a product, a person, or shall I take a message?',
+          bye: `Alright, I'll let you go — ring ${SALLY_EMPLOYER_SPOKEN} when you're free. Cheers!`,
         }
       : persona === 'sally'
       ? {
@@ -64,7 +86,7 @@ export function buildSilenceHooks(
           ],
           reask:
             "No worries — is the manager or owner about, or when are they usually in? Otherwise I can leave a short message.",
-          bye: `Alright, I'll let you go — ring ${SYNC2DINE_SPOKEN} when you're free. Cheers!`,
+          bye: `Alright, I'll let you go — ring ${SALLY_EMPLOYER_SPOKEN} when you're free. Cheers!`,
         }
       : persona === 'staff' || persona === 'cynthia'
         ? {
@@ -127,7 +149,7 @@ export function buildSilenceHooks(
 }
 
 const SALLY_DEFAULT_VOICEMAIL =
-  `Hi, it's Sally from ${SYNC2DINE_SPOKEN}. We help restaurants answer the phone with AI that takes orders. I'll try you again soon — reply to this number when you're free. Thanks!`;
+  `Hi, it's Sally from ${SALLY_EMPLOYER_SPOKEN}. We help venues with Sync2Dine phone AI and FloorMix — I'll try you again soon. Reply to this number when you're free. Thanks!`;
 
 /** Snappy turn-taking for all Sally (sales + hiring). Env can override wait/speed. */
 export const SALLY_REPLY_SPEED = {
@@ -308,16 +330,12 @@ export async function buildVapiAssistantForParty(opts: {
         optimizeStreamingLatency: SALLY_REPLY_SPEED.optimizeStreamingLatency,
       }
     : baseVoice;
-  // Spoken brand fix: TTS mangles the written brand ("Sync2Dime" / "Sing2Dine" /
-  // "Cinque Dying"). Map written forms to the phonetic "Sync to Dine" before TTS.
+  // Spoken brand fix: TTS mangles written brands. Sync2Gear maps are Sally-only.
   const voice = {
     ...voiceTuned,
     chunkPlan: {
       formatPlan: {
-        replacements: [
-          { type: 'exact', key: 'Sync2Dine', value: 'Sync to Dine' },
-          { type: 'exact', key: 'sync Two dine', value: 'Sync to Dine' },
-        ],
+        replacements: buildVoiceBrandReplacements(sally),
       },
     },
   };
@@ -334,8 +352,8 @@ export async function buildVapiAssistantForParty(opts: {
   const isMeetingConfirm = String(callMeta.aim || '').toLowerCase() === 'meeting_confirm';
   if (sally && isMeetingConfirm && opts.direction === 'outbound' && !recruitment) {
     firstMessage = firstName && !/^guest$/i.test(firstName)
-      ? `Alright ${firstName}, Sally from ${SYNC2DINE_SPOKEN} — just confirming your twenty-minute install chat is still on.`
-      : `Alright love, Sally from ${SYNC2DINE_SPOKEN} — just confirming your twenty-minute install chat is still on.`;
+      ? `Alright ${firstName}, Sally from ${SALLY_EMPLOYER_SPOKEN} — just confirming your twenty-minute install chat is still on.`
+      : `Alright love, Sally from ${SALLY_EMPLOYER_SPOKEN} — just confirming your twenty-minute install chat is still on.`;
   }
 
   const sallyVoicemailMessage = recruitment

@@ -161,7 +161,7 @@ function buildOfferFactsCore(opts?: { phoneClose?: boolean }): string {
   const founder = stored.founderName || 'Shervin Dolab';
   const authority =
     stored.authorityBlurb ||
-    `Sync2Dine is the restaurant side of Sync2Gear—the system our founder ${founder} created and holds patent licences for. We’re leading in AI for venues. Judie is your AI phone receptionist—orders and bookings so your team isn’t stuck on the line. Plus Atmosphere: exclusive venue soundtrack shaped from their brand and keywords, seating vs kitchen moods, owner-directed announcements, and multi-week staff training modules that play while service runs. Proven track record helping venues increase sales via guest atmosphere and in-venue offers — cite as evidence, never invent ROI % or guarantee identical results.`;
+    `Sally answers for Sync2Gear (sync2gear.io)—the company our founder ${founder} built. Sync2Dine is the restaurant phone-AI product line under Sync2Gear; FloorMix is Sync2Gear’s venue dashboard/APK for music, announcements, and floor ops. Judie is Sync2Dine’s AI phone receptionist—orders and bookings so your team isn’t stuck on the line. Atmosphere: exclusive venue soundtrack shaped from their brand and keywords, seating vs kitchen moods, owner-directed announcements, and multi-week staff training modules that play while service runs. Proven track record helping venues increase sales via guest atmosphere and in-venue offers — cite as evidence, never invent ROI % or guarantee identical results.`;
   const patent = stored.patentRefs ? `Patent refs: ${stored.patentRefs}` : '';
 
   const pkgLines = SAAS_PACKAGE_IDS.map((id) => {
@@ -185,13 +185,13 @@ function buildOfferFactsCore(opts?: { phoneClose?: boolean }): string {
     'OFFER FACTS (authoritative — never invent different prices or terms):',
     `AUTHORITY: ${authority}`,
     patent,
-    'PRODUCT NAMES: Sell Judie (restaurant AI receptionist) and/or Atmosphere. NEVER sell Sally as the phone product. Sally is the sales agent only. Never say Cynthia on a Sync2Dine sale.',
+    'PRODUCT NAMES: Employer = Sync2Gear. Products = Sync2Dine (Judie / Atmosphere / Complete) and FloorMix (Sync2Gear venue dashboard/APK). NEVER sell Sally as the product. Never say Cynthia on a Sync2Dine/Sync2Gear sale.',
     'ROUTING (after 60–90s discovery):',
-    '  Discover first: footfall vs in-venue spend vs service standards vs staff training/motivation — then pick 2–3 matching Atmosphere USPs (do not dump the full list).',
-    '  1) Room / reviews / spend / training / staff motivation → lead with Atmosphere (£139/wk launch).',
+    '  Discover first: footfall vs in-venue spend vs service standards vs staff training/motivation vs phone miss — then pick matching USPs (do not dump the full list).',
+    '  1) Room / reviews / spend / training / staff motivation → lead with Atmosphere (£139/wk launch) and/or FloorMix (meeting/callback if FloorMix price not in getOfferTerms).',
     '  2) Missed calls / orders / phone busy → lead with Judie Starter (£139/wk launch).',
-    '  3) Both or growth appetite → lead with Complete (£208/wk launch = Atmosphere + Judie Starter, best value).',
-    '  Always mention the other product briefly after the primary pitch. If they pick one, soft upsell Complete.',
+    '  3) Both or growth appetite → lead with Complete (£208/wk launch = Atmosphere + Judie Starter, best value) and mention FloorMix if they want phone+dashboard control.',
+    '  Always mention the sibling product briefly after the primary pitch. If they pick one Sync2Dine SKU, soft upsell Complete.',
     'BILLING: Weekly Stripe subscriptions. Monthly figures are comparison-only. Annual prepay = 50% off annualized launch weekly.',
     'LAUNCH: 40% off standard weekly while offer active' +
       (t.offerEndsAt ? ` (ends ${t.offerEndsAt})` : '') +
@@ -202,6 +202,7 @@ function buildOfferFactsCore(opts?: { phoneClose?: boolean }): string {
     `Outbound overage: £${OUTBOUND_OVERAGE.mobileGbpPerMin}/min mobile · £${OUTBOUND_OVERAGE.landlineGbpPerMin}/min landline.`,
     'Minutes reset weekly; unused do not roll over. Alerts at ~80/100% of allowance. Customer must choose overageAction: continue_bill | pause_transfer | approval_required.',
     `Judie PAYG: inbound only, app notifications only, no outbound/SMS/WhatsApp/email/campaigns, AI overage £0.45/min, 125k tokens/week.`,
+    'PAYG COVER USP: judie_payg_inbound — overflow/after-hours cover when the venue or their carrier diverts; they control divert; Sync2Dine does not auto-flip cover or configure their carrier.',
     'PAYG honesty: weekly fee with included minutes + overage — not usage-only billing. Venue/carrier diverts when they want cover; Sync2Dine does not auto-flip cover or configure their carrier.',
     `Fare schedule version: ${t.fareScheduleVersion}`,
     `- Billing: ${t.billing}`,
@@ -240,7 +241,7 @@ export function formatObjectionPlaybook(): string {
     '- ALWAYS speak English (UK). NEVER switch spoken language mid-call, and never call setCallLanguage to another language, even if the caller uses another language or asks you to.',
     '- NEVER end or hang up the call merely because the caller challenges that you are AI, is sceptical, or pushes back. Only end on a clear "not interested / remove me / do not call" (treat as DNC/opt-out) or a natural, agreed close.',
     '- Never narrate internal reasoning or tool use out loud. Do not say things like "let me switch languages to match" or "one moment while I look that up" — just stay in the conversation.',
-    '- Say the brand out loud as "Sync to Dine". Never spell it letter-by-letter, and never mangle it (not "sink to dine", not "S-Y-N-C").',
+    '- Say the employer out loud as "Sync to Gear" (or "sync Two gear" in prompts). Say the Sync2Dine product as "Sync to Dine". Never spell brands letter-by-letter; never mangle them.',
   ].join('\n');
 }
 
